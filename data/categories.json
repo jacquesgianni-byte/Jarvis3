@@ -1,0 +1,79 @@
+[
+  {
+    "id": "identity",
+    "label": "Identity",
+    "description": "Personal identity and profile information.",
+    "default_importance": 1.0,
+    "default_visibility": "private"
+  },
+  {
+    "id": "preferences",
+    "label": "Preferences",
+    "description": "Likes, dislikes and favourites.",
+    "default_importance": 0.8,
+    "default_visibility": "private"
+  },
+  {
+    "id": "relationships",
+    "label": "Relationships",
+    "description": "Family, friends and other people.",
+    "default_importance": 0.9,
+    "default_visibility": "private"
+  },
+  {
+    "id": "occupation",
+    "label": "Occupation",
+    "description": "Career and employment.",
+    "default_importance": 0.8,
+    "default_visibility": "private"
+  },
+  {
+    "id": "devices",
+    "label": "Devices",
+    "description": "Computers, phones, printers and hardware.",
+    "default_importance": 0.7,
+    "default_visibility": "private"
+  },
+  {
+    "id": "health",
+    "label": "Health",
+    "description": "Health-related information.",
+    "default_importance": 1.0,
+    "default_visibility": "private"
+  },
+  {
+    "id": "finance",
+    "label": "Finance",
+    "description": "Financial information.",
+    "default_importance": 1.0,
+    "default_visibility": "private"
+  },
+  {
+    "id": "projects",
+    "label": "Projects",
+    "description": "Projects and long-term work.",
+    "default_importance": 0.9,
+    "default_visibility": "private"
+  },
+  {
+    "id": "schedule",
+    "label": "Schedule",
+    "description": "Appointments and reminders.",
+    "default_importance": 0.8,
+    "default_visibility": "private"
+  },
+  {
+    "id": "system",
+    "label": "System",
+    "description": "Jarvis internal configuration.",
+    "default_importance": 1.0,
+    "default_visibility": "system"
+  },
+  {
+    "id": "general",
+    "label": "General",
+    "description": "General knowledge.",
+    "default_importance": 0.5,
+    "default_visibility": "private"
+  }
+]

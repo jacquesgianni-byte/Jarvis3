@@ -1,0 +1,51 @@
+{
+  "sets": {
+    "afl_clubs": [
+      "Brisbane Lions", "Carlton", "Collingwood", "Essendon",
+      "Fremantle", "Geelong", "Gold Coast Suns", "GWS Giants",
+      "Hawthorn", "Melbourne", "North Melbourne", "Port Adelaide",
+      "Richmond", "St Kilda", "Sydney Swans", "West Coast Eagles",
+      "Western Bulldogs", "Adelaide Crows"
+    ],
+    "australian_places": [
+      "Melbourne", "Sydney", "Brisbane", "Perth", "Adelaide",
+      "Canberra", "Hobart", "Darwin", "Gold Coast", "Geelong",
+      "Officer", "Officer South", "Pakenham", "Victoria", "Australia"
+    ]
+  },
+  "rules": [
+    {
+      "id": "team_implies_sport",
+      "if": [
+        { "attribute": "favourite team", "in_set": "afl_clubs" }
+      ],
+      "then": { "attribute": "followed sport", "value": "AFL" },
+      "confidence": 0.9
+    },
+    {
+      "id": "location_implies_country",
+      "if": [
+        { "attribute": "location", "in_set": "australian_places" }
+      ],
+      "then": { "attribute": "country", "value": "Australia" },
+      "confidence": 0.85
+    },
+    {
+      "id": "country_implies_hemisphere",
+      "if": [
+        { "attribute": "country", "equals": "Australia" }
+      ],
+      "then": { "attribute": "hemisphere", "value": "southern" },
+      "confidence": 0.9
+    },
+    {
+      "id": "team_and_country_implies_local_supporter",
+      "if": [
+        { "attribute": "favourite team", "in_set": "afl_clubs" },
+        { "attribute": "country", "equals": "Australia" }
+      ],
+      "then": { "attribute": "supporter type", "value": "local AFL supporter" },
+      "confidence": 0.8
+    }
+  ]
+}
