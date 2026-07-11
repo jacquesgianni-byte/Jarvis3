@@ -2,31 +2,82 @@
 Jarvis Runtime Settings
 
 Contains runtime settings used by Jarvis.
+
+Genesis-014 Task 001 — secure runtime configuration:
+
+  * ROOT CAUSE FIX: environment-backed fields previously used
+    os.getenv(...) directly as dataclass defaults, which Python
+    evaluates ONCE at class definition (import) time. Because Jarvis's
+    import chain runs before load_dotenv(), the defaults froze as empty
+    strings. Fields now use field(default_factory=...), evaluated at
+    INSTANCE creation — every Settings() call reads the live environment.
+
+  * IMPORT-ORDER IMMUNITY: this module calls load_dotenv() itself,
+    before the class is defined. python-dotenv is idempotent, never
+    overrides real environment variables, and no-ops if .env is absent.
+    Safe for both development (.env) and production (real env vars).
+
+  * FIELD NAMES UNCHANGED: default_model is kept as-is; the frozen
+    OpenAIProvider reads self.settings.default_model throughout and must
+    not be touched (Genesis-013 frozen). anthropic_model is added
+    alongside it for the future ClaudeProvider.
+
+  * No secrets are ever hardcoded in this file.
 """
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
 @dataclass
 class Settings:
     """
     Runtime settings for Jarvis.
+
+    Environment-backed fields are evaluated at instance creation via
+    default_factory — never at import time.
     """
 
+    # ==========================
     # OpenAI
-    openai_api_key: str = "***REMOVED***"
-    default_model: str = "gpt-5"
+    # ==========================
+    openai_api_key: str = field(
+        default_factory=lambda: os.getenv("OPENAI_API_KEY", "")
+    )
+    default_model: str = "gpt-5"          # name unchanged — OpenAIProvider reads this
 
+    # ==========================
+    # Anthropic
+    # ==========================
+    anthropic_api_key: str = field(
+        default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", "")
+    )
+    anthropic_model: str = "claude-sonnet-4-6"   # corrected model string
+
+    # ==========================
     # AI
+    # ==========================
     default_ai_provider: str = "openai"
 
+    # ==========================
     # Voice
+    # ==========================
     voice_enabled: bool = True
 
+    # ==========================
     # Memory
+    # ==========================
     memory_enabled: bool = True
 
+    # ==========================
     # Assistant
+    # ==========================
     assistant_name: str = "Jarvis"
     personality: str = "Friendly"
     language: str = "English"

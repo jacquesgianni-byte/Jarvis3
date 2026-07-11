@@ -22,6 +22,8 @@ from core.voice.providers.system_tts import SystemTTSProvider
 
 from core.ai.manager import AIManager
 from core.ai.providers.openai_provider import OpenAIProvider
+from core.ai.providers.anthropic_provider import AnthropicProvider
+from core.settings.settings import Settings
 
 
 class JarvisCore:
@@ -34,9 +36,14 @@ class JarvisCore:
         # Conversation ownership
         self.interrupts = InterruptManager()
 
-        # AI
+        # AI — both providers registered; Settings selects the active brain.
+        # Change DEFAULT_AI_PROVIDER in .env and restart to switch.
+        _settings = Settings()
         self.ai = AIManager()
-        self.ai.set_provider(OpenAIProvider())
+        self.ai.register_provider("openai",    OpenAIProvider())
+        self.ai.register_provider("anthropic", AnthropicProvider())
+        if not self.ai.activate(_settings.default_ai_provider):
+            self.ai.activate("openai")  # safe fallback
 
         # Agent
         self.agent = Agent(ai=self.ai)

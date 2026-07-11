@@ -52,8 +52,8 @@ _CONCLUDE_ALL = re.compile(
 # small in V1; most single-attribute reasoning arrives via the
 # memory-miss escalation instead ("what is my country?").
 _DIRECT_PATTERNS = [
-    (re.compile(r"\b(?:what|which) sport do i (?:follow|play|watch|support)\b",
-                re.IGNORECASE), "followed sport"),
+    (re.compile(r"\b(?:what|which) sports? do i (?:follow|play|watch|support)\b",
+                re.IGNORECASE), "favourite sport"),
     (re.compile(r"\b(?:what|which) country (?:do i live in|am i in|am i from)\b",
                 re.IGNORECASE), "country"),
     (re.compile(r"\b(?:what|which) hemisphere\b", re.IGNORECASE), "hemisphere"),

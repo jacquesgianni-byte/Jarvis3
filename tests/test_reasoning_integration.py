@@ -76,9 +76,20 @@ class MiniAgent:
         self.memory = MemorySkill(self.knowledge)
         self.reasoning_skill = ReasoningSkill(self.reasoning)
         self.ai = AISpy()
+        # ── DEBUG ──────────────────────────────────────────────────────
+        from core.skills.reasoning import _DIRECT_PATTERNS
+        print("  [DBG] _DIRECT_PATTERNS at runtime:")
+        for pat, attr in _DIRECT_PATTERNS:
+            print(f"    pattern={pat.pattern!r}  ->  attr={attr!r}")
+        print(f"  [DBG] Rule conclusions known to engine: {list(self.reasoning._by_conclusion.keys())}")
+        # ───────────────────────────────────────────────────────────────
 
     def process(self, request):
         intent = self.router.detect(request)
+        # ── DEBUG ──────────────────────────────────────────────────────
+        print(f"  [DBG] process({request!r})")
+        print(f"  [DBG] intent = {intent}")
+        # ───────────────────────────────────────────────────────────────
 
         if intent == Intent.MEMORY:
             response = self.memory.execute(request)
@@ -91,9 +102,23 @@ class MiniAgent:
             return response
 
         if intent == Intent.REASONING:
+            # ── DEBUG ──────────────────────────────────────────────────
+            print(f"  [DBG] -> REASONING branch entered")
+            orig = self.reasoning_skill.infer_attribute
+            def _traced(attribute):
+                print(f"  [DBG]    infer_attribute({attribute!r})")
+                result = orig(attribute)
+                print(f"  [DBG]    infer_attribute returned: {result!r}")
+                if result: print(f"  [DBG]    message: {result.message!r}")
+                return result
+            self.reasoning_skill.infer_attribute = _traced
+            # ───────────────────────────────────────────────────────────
             return self.reasoning_skill.execute(request)
 
         if intent == Intent.UNKNOWN:
+            # ── DEBUG ──────────────────────────────────────────────────
+            print(f"  [DBG] -> UNKNOWN branch — AI SPY ABOUT TO FIRE")
+            # ───────────────────────────────────────────────────────────
             return self.ai.ask(request)     # spy raises
 
         return None                          # other skills, out of scope here
@@ -107,7 +132,7 @@ RULES = {
     "rules": [
         {"id": "team_implies_sport",
          "if": [{"attribute": "favourite team", "in_set": "afl_clubs"}],
-         "then": {"attribute": "followed sport", "value": "AFL"},
+         "then": {"attribute": "favourite sport", "value": "AFL"},
          "confidence": 0.9},
         {"id": "location_implies_country",
          "if": [{"attribute": "location", "in_set": "australian_places"}],
@@ -152,7 +177,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     r = agent.process("why?")
     check("'why?' explained from the engine's trace",
-          "followed sport" in r.message and "AFL" in r.message
+          "favourite sport" in r.message and "AFL" in r.message
           and "team_implies_sport" in r.message and "90%" in r.message)
 
     # =====================================================================
@@ -190,7 +215,7 @@ with tempfile.TemporaryDirectory() as tmp:
     agent.memory.remember("location", "Melbourne")
     r = agent.process("what can you conclude about me?")
     check("lists multiple derivations",
-          "followed sport" in r.message and "country" in r.message
+          "favourite sport" in r.message and "country" in r.message
           and "hemisphere" in r.message)
 
     agent2 = MiniAgent(tmp)

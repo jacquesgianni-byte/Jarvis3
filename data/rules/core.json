@@ -19,7 +19,7 @@
       "if": [
         { "attribute": "favourite team", "in_set": "afl_clubs" }
       ],
-      "then": { "attribute": "followed sport", "value": "AFL" },
+      "then": { "attribute": "favourite sport", "value": "AFL" },
       "confidence": 0.9
     },
     {

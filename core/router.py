@@ -68,7 +68,7 @@ class IntentRouter:
     _REASONING_PATTERNS = [
         re.compile(r"\bwhat can you (?:conclude|infer|work out|tell)\b",
                    re.IGNORECASE),
-        re.compile(r"\b(?:what|which) sport do i (?:follow|play|watch|support)\b",
+        re.compile(r"\b(?:what|which) sports? do i (?:follow|play|watch|support)\b",
                    re.IGNORECASE),
         re.compile(r"\b(?:what|which) country (?:do i live in|am i in|am i from)\b",
                    re.IGNORECASE),
