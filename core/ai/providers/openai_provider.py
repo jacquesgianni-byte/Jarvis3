@@ -202,6 +202,7 @@ class OpenAIProvider(AIProvider):
                     model=self.settings.default_model,
                     messages=messages,
                     **{self._token_param: _MAX_RESPONSE_TOKENS},
+                    reasoning_effort=self.settings.reasoning_effort,
                 )
             except APIStatusError as e:
                 detail = str(e)

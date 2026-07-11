@@ -52,6 +52,15 @@ class Settings:
     )
     default_model: str = "gpt-5"          # name unchanged — OpenAIProvider reads this
 
+    # reasoning_effort controls how much hidden reasoning GPT-5 / o-series
+    # models apply before writing a reply. 'high' (the model default) burns
+    # the entire token budget on thinking and returns an empty completion for
+    # conversational queries. 'low' produces fast, correct responses suitable
+    # for a voice assistant. Override in .env: REASONING_EFFORT=medium|high
+    reasoning_effort: str = field(
+        default_factory=lambda: os.getenv("REASONING_EFFORT", "low")
+    )
+
     # ==========================
     # Anthropic
     # ==========================
