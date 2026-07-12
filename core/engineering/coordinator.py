@@ -119,3 +119,39 @@ class EngineeringCoordinator:
         """Return True when the working tree has no uncommitted changes."""
         from core.engineering.git.reader import GitReader
         return GitReader(self._root).is_clean()
+
+
+    # ------------------------------------------------------------------
+    # Sprint 003 -- Engineering Guardrails (planning and validation only)
+    # ------------------------------------------------------------------
+
+    def evaluate_plan(self, task: str, files: list) -> object:
+        """
+        Evaluate a proposed engineering task against guardrail rules.
+
+        Returns an EngineeringPlan with status APPROVED,
+        REQUIRES_APPROVAL, or REJECTED. Nothing is written or executed.
+        The Chief is the only authority that can approve a plan.
+        """
+        from core.engineering.guardrails.guardrails import EngineeringGuardrails
+        return EngineeringGuardrails().evaluate(task, files)
+
+    def plan_report(self, task: str, files: list) -> str:
+        """
+        Return a human-readable engineering plan for Chief review.
+
+        Example output:
+            Engineering Plan
+
+            Files to modify:
+                core/router.py
+                core/agent.py
+
+            Protected files:
+                none
+
+            Estimated changes:  2
+            Status:             Approved
+        """
+        plan = self.evaluate_plan(task, files)
+        return plan.report()

@@ -62,6 +62,16 @@ class Settings:
     )
 
     # ==========================
+    # Engineering
+    # ==========================
+
+    # Maximum files a single engineering task may modify before the
+    # guardrail rejects it. Override in .env: ENGINEERING_MAX_FILES=10
+    engineering_max_files: int = field(
+        default_factory=lambda: int(os.getenv("ENGINEERING_MAX_FILES", "5"))
+    )
+
+    # ==========================
     # Anthropic
     # ==========================
     anthropic_api_key: str = field(
