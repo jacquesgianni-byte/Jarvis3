@@ -1,2 +1,5 @@
-# Sprint 004 — Code Planner (planned)
-# Capability not yet earned. See core/engineering/README.md
+# Sprint 004 — Engineering Planner
+from core.engineering.planning.planner import EngineeringPlanner
+from core.engineering.planning.models import EngineeringPlan, Complexity
+
+__all__ = ["EngineeringPlanner", "EngineeringPlan", "Complexity"]

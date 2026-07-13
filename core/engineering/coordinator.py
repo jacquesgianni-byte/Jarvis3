@@ -155,3 +155,38 @@ class EngineeringCoordinator:
         """
         plan = self.evaluate_plan(task, files)
         return plan.report()
+
+
+    # ------------------------------------------------------------------
+    # Sprint 004 — Engineering Planner (read-only planning)
+    # ------------------------------------------------------------------
+
+    def create_plan(self, request: str):
+        """
+        Produce an immutable EngineeringPlan for a proposed task.
+
+        Uses the Repository Catalogue and Git awareness to estimate
+        candidate files, layers, complexity, risks, and validation
+        steps. Nothing is written or executed.
+
+        Returns an EngineeringPlan ready for guardrail evaluation.
+        """
+        from core.engineering.planning.planner import EngineeringPlanner
+        from core.engineering.git.reader import GitReader
+        planner = EngineeringPlanner(
+            catalogue=self._catalogue,
+            git_reader=GitReader(self._root),
+        )
+        return planner.create_plan(request)
+
+    def plan_summary(self, request: str) -> str:
+        """
+        Return a human-readable engineering plan for Chief review.
+
+        Produces the plan only. Call evaluate_plan() separately
+        to run the guardrails after planning.
+
+        Pipeline: create_plan() → plan_summary() → evaluate_plan()
+        """
+        plan = self.create_plan(request)
+        return plan.report()
