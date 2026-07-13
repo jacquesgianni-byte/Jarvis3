@@ -1,0 +1,109 @@
+"""
+Engineering Debugging Models (Genesis-017 Sprint 001)
+
+Pure data carriers for engineering failure analysis.
+Immutable once created — a debug report is a forensic record
+of what happened. It never speculates about fixes.
+
+Design philosophy:
+    "What happened?" — not — "How should I fix it?"
+"""
+
+from dataclasses import dataclass
+from enum import Enum
+
+
+class FailureType(Enum):
+    """
+    Classification of an engineering failure.
+
+    Values are deliberately narrow — the debugger must never
+    force a classification when evidence is insufficient.
+    UNKNOWN is the honest answer when evidence is unclear.
+    """
+    COMPILE       = "Compile Error"
+    IMPORT        = "Import Error"
+    TEST          = "Test Failure"
+    TIMEOUT       = "Timeout"
+    CONFIGURATION = "Configuration Error"
+    UNKNOWN       = "Unknown"
+
+
+@dataclass(frozen=True)
+class FailureEvidence:
+    """
+    Immutable container for raw forensic evidence.
+
+    Kept separate from DebugReport so future sprints can extend
+    evidence (stack traces, compiler diagnostics, failing files,
+    exception types, dependency chains) without expanding DebugReport.
+    """
+    command:    str
+    exit_code:  int
+    stdout:     tuple          # lines of captured stdout
+    stderr:     tuple          # lines of captured stderr
+    timestamp:  str            # ISO-8601 UTC
+
+
+@dataclass(frozen=True)
+class DebugReport:
+    """
+    Immutable forensic record of an engineering failure.
+
+    Produced by EngineeringDebugger.analyse(). Never modified
+    after creation. Contains only observed evidence — no
+    speculation, no fix suggestions.
+
+    Fields
+    ------
+    failure_type    : Classified failure category.
+    summary         : One-line human-readable description of the failure.
+    confidence      : 0.0 (no evidence) → 1.0 (definitive classification).
+    evidence        : Tuple of relevant lines extracted from output.
+    command         : The command that was executed.
+    exit_code       : Process exit code (0 = success, non-zero = failure).
+    stdout          : Captured stdout (truncated to _MAX_OUTPUT chars).
+    stderr          : Captured stderr (truncated to _MAX_OUTPUT chars).
+    timestamp       : ISO-8601 UTC timestamp of when analysis was performed.
+    """
+
+    failure_type:  FailureType
+    summary:       str
+    confidence:    float           # 0.0 – 1.0
+    clues:         tuple           # relevant lines extracted from output, max 20
+    evidence:      FailureEvidence # raw forensic evidence
+
+    def report(self) -> str:
+        """Human-readable forensic report for Chief review."""
+        lines = [
+            "Engineering Debug Report",
+            "=" * 50,
+            "",
+            f"Failure type:  {self.failure_type.value}",
+            f"Confidence:    {self.confidence:.0%}",
+            f"Command:       {self.evidence.command}",
+            f"Exit code:     {self.evidence.exit_code}",
+            f"Timestamp:     {self.evidence.timestamp}",
+            "",
+            f"Summary:",
+            f"    {self.summary}",
+            "",
+            "Clues:",
+        ]
+        if self.clues:
+            for line in self.clues:
+                lines.append(f"    {line}")
+        else:
+            lines.append("    (no specific clues extracted)")
+
+        if self.evidence.stderr:
+            lines += ["", "Stderr (tail):"]
+            for line in self.evidence.stderr[-5:]:
+                lines.append(f"    {line}")
+
+        lines += [
+            "",
+            "Note: This report describes what happened.",
+            "      Fixes are not proposed — evidence before assumption.",
+        ]
+        return "\n".join(lines)
