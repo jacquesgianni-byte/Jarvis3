@@ -146,6 +146,19 @@ The Jarvis experience should remain constant.
 
 ---
 
+# Engineering Constitution
+Capability precedes responsibility.
+
+Evidence before assumption.
+
+Developer leverage.
+
+Compound progress.
+
+Authority is earned, never assumed.
+
+---
+
 # Engineering Rules
 
 Architecture changes require justification.
