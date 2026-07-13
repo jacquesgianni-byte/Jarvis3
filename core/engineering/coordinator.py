@@ -190,3 +190,30 @@ class EngineeringCoordinator:
         """
         plan = self.create_plan(request)
         return plan.report()
+
+
+    # ------------------------------------------------------------------
+    # Sprint 005 — Engineering Test Runner
+    # ------------------------------------------------------------------
+
+    def run_validation(self, plan) -> object:
+        """
+        Execute the validation steps from an EngineeringPlan.
+
+        Input is always an EngineeringPlan produced by create_plan().
+        The Testing Engine does not generate plans or evaluate safety —
+        it only executes validation and returns an immutable result.
+
+        Returns an EngineeringTestResult.
+        """
+        from core.engineering.testing.runner import EngineeringTestRunner
+        return EngineeringTestRunner(self._root).run(plan)
+
+    def validation_report(self, plan) -> str:
+        """
+        Execute validation and return a human-readable report.
+
+        Combines run_validation() + result.report() in one call.
+        """
+        result = self.run_validation(plan)
+        return result.report()
