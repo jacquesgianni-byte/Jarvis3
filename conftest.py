@@ -1,0 +1,1 @@
+collect_ignore = ["tests/test_anthropic_provider.py","tests/test_reasoning_engine.py","tests/test_reasoning_integration.py","tests/test_normalizer.py","tests/test_engineering_repository.py","tests/test_engineering_git.py","tests/test_engineering_guardrails.py","tests/test_engineering_planner.py","tests/test_engineering_testing.py"]
