@@ -33,6 +33,7 @@ from core.engineering.debugging.models import DebugReport, FailureEvidence, Fail
 from core.engineering.debugging.extractor import EvidenceExtractor
 from core.engineering.debugging.analyzer import RootCauseAnalyzer
 from core.engineering.debugging.engine import FailureCorrelationEngine, FailureRecord
+from core.engineering.debugging.rec_engine import RecommendationEngine
 from core.engineering.debugging.classifier import FailureClassifier
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class EngineeringDebugger:
         self._extractor  = extractor  or EvidenceExtractor()
         self._analyzer   = analyzer   or RootCauseAnalyzer()
         self._correlator = FailureCorrelationEngine()
+        self._rec_engine = RecommendationEngine()
         self._history: list[FailureRecord] = list(history) if history else []
 
     # ------------------------------------------------------------------
@@ -129,6 +131,14 @@ class EngineeringDebugger:
             history=self._history,
         )
 
+        # Generate advisory recommendations (Sprint 005)
+        recommendations = self._rec_engine.recommend(
+            evidence=raw_evidence,
+            failure_type=failure_type,
+            root_cause=root_cause,
+            correlation=correlation,
+        )
+
         report = DebugReport(
             failure_type=failure_type,
             summary=summary,
@@ -137,6 +147,7 @@ class EngineeringDebugger:
             evidence=raw_evidence,
             root_cause=root_cause,
             correlation=correlation,
+            recommendations=recommendations,
         )
 
         logger.info(

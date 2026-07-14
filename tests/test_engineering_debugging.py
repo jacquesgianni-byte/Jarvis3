@@ -81,6 +81,8 @@ _ev = make_evidence(command="python -m compileall core/",
                     stderr=("SyntaxError: invalid syntax",))
 from core.engineering.debugging.root_cause import RootCause, RootCauseCategory
 from core.engineering.debugging.correlation import CorrelationRecord, CorrelationType
+from core.engineering.debugging.recommendation import (
+    Recommendation, RecommendationCategory, RecommendationPriority)
 _rc = RootCause(category=RootCauseCategory.SYNTAX_ERROR, description="Syntax error.",
                 confidence=0.97, supporting_evidence=(), contributing_factors=())
 _no_corr = CorrelationRecord(correlation_type=CorrelationType.UNKNOWN, confidence=0.0,
@@ -88,7 +90,8 @@ _no_corr = CorrelationRecord(correlation_type=CorrelationType.UNKNOWN, confidenc
                   related_modules=(), related_commits=(), timeline=())
 report = DebugReport(failure_type=FailureType.COMPILE, summary="SyntaxError on line 42",
                      confidence=0.95, clues=("SyntaxError: invalid syntax", "line 42"),
-                     evidence=_ev, root_cause=_rc, correlation=_no_corr)
+                     evidence=_ev, root_cause=_rc, correlation=_no_corr,
+                     recommendations=())
 check("DebugReport instantiates", report is not None)
 check("DebugReport is frozen", report.__dataclass_params__.frozen)
 check("evidence is a FailureEvidence", isinstance(report.evidence, FailureEvidence))
@@ -103,7 +106,7 @@ _rc_mut = RootCause(category=RootCauseCategory.UNKNOWN, description="t",
                     confidence=0.0, supporting_evidence=(), contributing_factors=())
 _rep_mut = DebugReport(failure_type=FailureType.COMPILE, summary="t",
                        confidence=0.9, clues=(), evidence=_ev_mut, root_cause=_rc_mut,
-                       correlation=_no_corr)
+                       correlation=_no_corr, recommendations=())
 try:
     _rep_mut.failure_type = FailureType.UNKNOWN
     check("DebugReport fields are immutable", False)
@@ -944,3 +947,328 @@ print(f"\nDesign principle:")
 print(f"  Observe history. Detect patterns. Never guess. Never repair.")
 print(f"\nDeferred to later sprints:")
 print(f"  Engineering recommendations, repair planning, autonomous fix")
+
+
+# ── Sprint 005 — Engineering Recommendations ───────────────────────────────
+
+from core.engineering.debugging.rec_engine import RecommendationEngine
+from core.engineering.debugging.engine import FailureRecord as FR2
+
+
+def make_corr(ct=CorrelationType.UNKNOWN, confidence=0.0,
+              related_files=(), related_commits=(),
+              related_failures=()) -> CorrelationRecord:
+    desc = "no correlation" if ct == CorrelationType.UNKNOWN else "correlated"
+    return CorrelationRecord(
+        correlation_type=ct, confidence=confidence,
+        description=desc, related_failures=tuple(related_failures),
+        related_files=tuple(related_files), related_modules=(),
+        related_commits=tuple(related_commits), timeline=(),
+    )
+
+
+def make_ev_rec(error_type="", failing_files=(), line_numbers=(),
+                exit_code=1, diagnostics=()) -> FailureEvidence:
+    return FailureEvidence(
+        command="cmd", exit_code=exit_code,
+        stdout=(), stderr=(),
+        timestamp="2026-01-15T10:00:00+00:00",
+        stack_trace=(), failing_files=tuple(failing_files),
+        line_numbers=tuple(line_numbers),
+        error_type=error_type, diagnostics=tuple(diagnostics),
+    )
+
+
+def make_root(category=RootCauseCategory.UNKNOWN,
+              supporting=()) -> RootCause:
+    return RootCause(category=category, description="test",
+                     confidence=0.9, supporting_evidence=tuple(supporting),
+                     contributing_factors=())
+
+
+print("\n[55] RecommendationCategory enum")
+check("INVESTIGATE_SYNTAX exists",
+      RecommendationCategory.INVESTIGATE_SYNTAX.value == "Investigate Syntax")
+check("VERIFY_IMPORTS exists",
+      RecommendationCategory.VERIFY_IMPORTS.value == "Verify Imports")
+check("CHECK_CONFIGURATION exists",
+      RecommendationCategory.CHECK_CONFIGURATION.value == "Check Configuration")
+check("REVIEW_RECENT_COMMITS exists",
+      RecommendationCategory.REVIEW_RECENT_COMMITS.value == "Review Recent Commits")
+check("REVIEW_TEST_FAILURES exists",
+      RecommendationCategory.REVIEW_TEST_FAILURES.value == "Review Test Failures")
+check("VERIFY_DEPENDENCIES exists",
+      RecommendationCategory.VERIFY_DEPENDENCIES.value == "Verify Dependencies")
+check("CHECK_FILE_EXISTENCE exists",
+      RecommendationCategory.CHECK_FILE_EXISTENCE.value == "Check File Existence")
+check("REVIEW_API_USAGE exists",
+      RecommendationCategory.REVIEW_API_USAGE.value == "Review API Usage")
+check("MONITOR_REPEATED_FAILURES exists",
+      RecommendationCategory.MONITOR_REPEATED_FAILURES.value == "Monitor Repeated Failures")
+check("NO_RECOMMENDATION exists",
+      RecommendationCategory.NO_RECOMMENDATION.value == "No Recommendation")
+check("exactly 10 categories", len(RecommendationCategory) == 10)
+
+
+print("\n[56] RecommendationPriority enum")
+check("LOW exists",      RecommendationPriority.LOW.value == "Low")
+check("MEDIUM exists",   RecommendationPriority.MEDIUM.value == "Medium")
+check("HIGH exists",     RecommendationPriority.HIGH.value == "High")
+check("CRITICAL exists", RecommendationPriority.CRITICAL.value == "Critical")
+check("exactly 4 priorities", len(RecommendationPriority) == 4)
+
+
+print("\n[57] Recommendation — immutable model")
+rec = Recommendation(
+    category=RecommendationCategory.INVESTIGATE_SYNTAX,
+    priority=RecommendationPriority.HIGH,
+    confidence=0.95,
+    title="Investigate syntax error",
+    description="A syntax error was detected in core/router.py at line 77.",
+    supporting_evidence=("SyntaxError: expected ':'",),
+    related_root_cause="Syntax Error",
+    related_correlation="",
+)
+check("Recommendation instantiates", rec is not None)
+check("Recommendation is frozen", rec.__dataclass_params__.frozen)
+check("category is RecommendationCategory",
+      isinstance(rec.category, RecommendationCategory))
+check("priority is RecommendationPriority",
+      isinstance(rec.priority, RecommendationPriority))
+check("confidence is float", isinstance(rec.confidence, float))
+check("supporting_evidence is tuple", isinstance(rec.supporting_evidence, tuple))
+check("title is non-empty", bool(rec.title))
+check("description is non-empty", bool(rec.description))
+
+try:
+    rec.category = RecommendationCategory.NO_RECOMMENDATION
+    check("Recommendation is immutable", False)
+except (AttributeError, TypeError):
+    check("Recommendation is immutable (raises on assignment)", True)
+
+summary = rec.summary_line()
+check("summary_line() non-empty", bool(summary))
+check("summary_line() contains priority", "HIGH" in summary)
+check("summary_line() contains title", "syntax" in summary.lower())
+print(f"    {summary}")
+
+
+print("\n[58] RecommendationEngine — construction")
+rec_engine = RecommendationEngine()
+check("engine instantiates", rec_engine is not None)
+for method in ["write","modify","patch","fix","repair","execute","generate"]:
+    check(f"engine has no .{method}()", not hasattr(rec_engine, method))
+
+
+print("\n[59] exit_code=0 → no recommendations")
+ev = make_ev_rec(exit_code=0)
+rc = make_root()
+corr = make_corr()
+recs = rec_engine.recommend(ev, FailureType.UNKNOWN, rc, corr)
+check("exit_code=0 → empty recommendations", recs == ())
+
+
+print("\n[60] SyntaxError → INVESTIGATE_SYNTAX")
+ev = make_ev_rec("SyntaxError", ("core/router.py",), (77,))
+rc = make_root(RootCauseCategory.SYNTAX_ERROR, ("SyntaxError: expected ':'",))
+corr = make_corr()
+recs = rec_engine.recommend(ev, FailureType.COMPILE, rc, corr)
+check("SyntaxError produces recommendations", len(recs) > 0)
+check("INVESTIGATE_SYNTAX recommended",
+      any(r.category == RecommendationCategory.INVESTIGATE_SYNTAX for r in recs))
+check("HIGH or CRITICAL priority for syntax",
+      any(r.priority in (RecommendationPriority.HIGH, RecommendationPriority.CRITICAL)
+          for r in recs))
+check("supporting_evidence references error",
+      any("SyntaxError" in e for r in recs for e in r.supporting_evidence))
+check("related_root_cause set", any(r.related_root_cause for r in recs))
+print(f"    {recs[0].summary_line()}")
+
+
+print("\n[61] MissingModule → VERIFY_DEPENDENCIES")
+ev = make_ev_rec("ModuleNotFoundError", ("tests/test_reasoning.py",))
+rc = make_root(RootCauseCategory.MISSING_MODULE,
+               ("ModuleNotFoundError: No module named 'core.reasoning'",))
+recs = rec_engine.recommend(ev, FailureType.IMPORT, rc, make_corr())
+check("MissingModule → VERIFY_DEPENDENCIES",
+      any(r.category == RecommendationCategory.VERIFY_DEPENDENCIES for r in recs))
+check("HIGH priority", any(r.priority == RecommendationPriority.HIGH for r in recs))
+print(f"    {recs[0].summary_line()}")
+
+
+print("\n[62] TestRegression → REVIEW_TEST_FAILURES")
+ev = make_ev_rec("AssertionError")
+rc = make_root(RootCauseCategory.TEST_REGRESSION)
+recs = rec_engine.recommend(ev, FailureType.TEST, rc, make_corr())
+check("TestRegression → REVIEW_TEST_FAILURES",
+      any(r.category == RecommendationCategory.REVIEW_TEST_FAILURES for r in recs))
+print(f"    {recs[0].summary_line()}")
+
+
+print("\n[63] Configuration → CHECK_CONFIGURATION")
+ev = make_ev_rec("KeyError")
+rc = make_root(RootCauseCategory.CONFIGURATION)
+recs = rec_engine.recommend(ev, FailureType.CONFIGURATION, rc, make_corr())
+check("Configuration → CHECK_CONFIGURATION",
+      any(r.category == RecommendationCategory.CHECK_CONFIGURATION for r in recs))
+print(f"    {recs[0].summary_line()}")
+
+
+print("\n[64] Correlation REPEATED_FAILURE → MONITOR + CRITICAL")
+ev = make_ev_rec("SyntaxError", ("core/router.py",))
+rc = make_root(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr(CorrelationType.REPEATED_FAILURE, 0.97,
+                 related_files=("core/router.py",),
+                 related_failures=("Previous syntax error",))
+recs = rec_engine.recommend(ev, FailureType.COMPILE, rc, corr)
+check("REPEATED_FAILURE → MONITOR_REPEATED_FAILURES recommendation",
+      any(r.category == RecommendationCategory.MONITOR_REPEATED_FAILURES
+          for r in recs))
+check("CRITICAL priority for repeated failure",
+      any(r.priority == RecommendationPriority.CRITICAL for r in recs))
+check("related_correlation set",
+      any(r.related_correlation for r in recs))
+print(f"    {recs[0].summary_line()}")
+
+
+print("\n[65] Correlation SAME_COMMIT → REVIEW_RECENT_COMMITS")
+ev = make_ev_rec("SyntaxError")
+rc = make_root(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr(CorrelationType.SAME_COMMIT, 0.95,
+                 related_commits=("abc1234",))
+recs = rec_engine.recommend(ev, FailureType.COMPILE, rc, corr)
+check("SAME_COMMIT → REVIEW_RECENT_COMMITS",
+      any(r.category == RecommendationCategory.REVIEW_RECENT_COMMITS for r in recs))
+check("commit in supporting evidence",
+      any("abc1234" in e for r in recs for e in r.supporting_evidence))
+print(f"    Recommendations: {len(recs)}")
+for r in recs:
+    print(f"      {r.summary_line()}")
+
+
+print("\n[66] Priority ordering — CRITICAL before HIGH")
+ev = make_ev_rec("SyntaxError", ("core/router.py",))
+rc = make_root(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr(CorrelationType.REPEATED_FAILURE, 0.97,
+                 related_failures=("Previous",))
+recs = rec_engine.recommend(ev, FailureType.COMPILE, rc, corr)
+check("at least 2 recommendations", len(recs) >= 2)
+priorities = [r.priority for r in recs]
+priority_order = [RecommendationPriority.CRITICAL, RecommendationPriority.HIGH,
+                  RecommendationPriority.MEDIUM, RecommendationPriority.LOW]
+check("recommendations sorted by priority (CRITICAL first)",
+      all(priority_order.index(priorities[i]) <=
+          priority_order.index(priorities[i+1])
+          for i in range(len(priorities)-1)))
+
+
+print("\n[67] No duplicate categories")
+ev = make_ev_rec("SyntaxError", ("core/router.py",))
+rc = make_root(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr(CorrelationType.SAME_FILE, 0.85,
+                 related_files=("core/router.py",))
+recs = rec_engine.recommend(ev, FailureType.COMPILE, rc, corr)
+categories = [r.category for r in recs]
+check("no duplicate recommendation categories",
+      len(categories) == len(set(categories)))
+
+
+print("\n[68] UNKNOWN root cause with no correlation → empty")
+ev = make_ev_rec("", exit_code=1)
+rc = make_root(RootCauseCategory.UNKNOWN)
+corr = make_corr()
+recs = rec_engine.recommend(ev, FailureType.UNKNOWN, rc, corr)
+check("UNKNOWN + no correlation → empty recommendations", recs == ())
+
+
+print("\n[69] Determinism")
+ev = make_ev_rec("ModuleNotFoundError", ("core/reasoning/engine.py",))
+rc = make_root(RootCauseCategory.MISSING_MODULE,
+               ("ModuleNotFoundError: No module named 'core.reasoning'",))
+corr = make_corr()
+results = set()
+for _ in range(20):
+    recs = rec_engine.recommend(ev, FailureType.IMPORT, rc, corr)
+    results.add(tuple((r.category, r.priority, r.confidence) for r in recs))
+check("recommendations are deterministic (20 runs)", len(results) == 1)
+
+
+print("\n[70] All recommendations have supporting evidence")
+ev = make_ev_rec("SyntaxError", ("core/router.py",), (77,))
+rc = make_root(RootCauseCategory.SYNTAX_ERROR, ("SyntaxError: expected ':'",))
+corr = make_corr(CorrelationType.REPEATED_FAILURE, 0.97,
+                 related_failures=("Previous error",))
+recs = rec_engine.recommend(ev, FailureType.COMPILE, rc, corr)
+check("all recommendations have supporting_evidence",
+      all(isinstance(r.supporting_evidence, tuple) for r in recs))
+check("all recommendations have non-empty title",
+      all(bool(r.title) for r in recs))
+check("all recommendations have non-empty description",
+      all(bool(r.description) for r in recs))
+check("all recommendations reference root cause or correlation",
+      all(r.related_root_cause or r.related_correlation for r in recs))
+
+
+print("\n[71] EngineeringDebugger Sprint 005 integration")
+history_s5 = [
+    FR2(failure_type=FailureType.COMPILE,
+        root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+        error_type="SyntaxError",
+        failing_files=("core/router.py",),
+        description="Previous router syntax error"),
+]
+debugger_s5 = EngineeringDebugger(history=history_s5)
+rep_s5 = debugger_s5.analyse(
+    command="python -m compileall core/",
+    exit_code=1, stdout="",
+    stderr='SyntaxError: expected \':\'\n  File "core/router.py", line 77',
+)
+check("DebugReport has recommendations field", hasattr(rep_s5, "recommendations"))
+check("recommendations is a tuple", isinstance(rep_s5.recommendations, tuple))
+check("recommendations non-empty for real failure",
+      len(rep_s5.recommendations) > 0)
+check("all items are Recommendation objects",
+      all(isinstance(r, Recommendation) for r in rep_s5.recommendations))
+check("INVESTIGATE_SYNTAX in recommendations",
+      any(r.category == RecommendationCategory.INVESTIGATE_SYNTAX
+          for r in rep_s5.recommendations))
+print(f"    Recommendations produced: {len(rep_s5.recommendations)}")
+for r in rep_s5.recommendations:
+    print(f"      {r.summary_line()}")
+
+debugger_no_fail = EngineeringDebugger()
+rep_ok = debugger_no_fail.analyse("cmd", 0, "all good", "")
+check("exit_code=0 → empty recommendations", rep_ok.recommendations == ())
+
+
+print("\n[72] DebugReport.report() includes recommendations")
+report_text = rep_s5.report()
+check("report contains 'Recommendations' section",
+      "Recommendations" in report_text)
+check("report contains recommendation title",
+      any(r.title.lower()[:10] in report_text.lower()
+          for r in rep_s5.recommendations))
+check("report note says advisory only",
+      "advisory" in report_text.lower())
+print(f"    Full report length: {len(report_text)} chars")
+for line in report_text.splitlines():
+    if "Recommendation" in line or "[HIGH]" in line or "[CRITICAL]" in line:
+        print(f"    {line.strip()}")
+
+
+print(f"\n{'='*60}")
+print(f"GENESIS-017 SPRINT 005: ALL {passed} CHECKS PASS")
+print(f"{'='*60}")
+print(f"\nJarvis can now answer:")
+print(f"  'What engineering actions should be considered?'")
+print(f"\nRecommendation categories:")
+for cat in RecommendationCategory:
+    if cat != RecommendationCategory.NO_RECOMMENDATION:
+        print(f"  {cat.value}")
+print(f"\nFull engineering pipeline:")
+print(f"  Evidence → Classification → Root Cause → Correlation")
+print(f"  → Recommendations → Report")
+print(f"\nDesign principle:")
+print(f"  Advisory only. Evidence-backed. Never repairs. Never guesses.")
+print(f"\nDeferred to Sprint 006:")
+print(f"  Repair Planning — consuming recommendations to plan fixes")

@@ -1,5 +1,5 @@
 """
-Engineering Debugging Models (Genesis-017 Sprints 001–004)
+Engineering Debugging Models (Genesis-017 Sprints 001–005)
 
 Pure data carriers for engineering failure analysis.
 Immutable once created — a debug report is a forensic record
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.engineering.debugging.root_cause import RootCause
     from core.engineering.debugging.correlation import CorrelationRecord
+    from core.engineering.debugging.recommendation import Recommendation
 
 
 class FailureType(Enum):
@@ -91,6 +92,7 @@ class DebugReport:
     evidence:      FailureEvidence # raw forensic evidence
     root_cause:    RootCause       # Sprint 003 — deterministic root cause
     correlation:   CorrelationRecord  # Sprint 004 — failure correlation
+    recommendations: tuple            # Sprint 005 — advisory recommendations
 
     def report(self) -> str:
         """Human-readable forensic report for Chief review."""
@@ -153,9 +155,14 @@ class DebugReport:
             for line in self.evidence.stderr[-5:]:
                 lines.append(f"    {line}")
 
+        if self.recommendations:
+            lines += ["", "Recommendations:"]
+            for i, rec in enumerate(self.recommendations, 1):
+                lines.append(f"    {i}. {rec.summary_line()}")
+
         lines += [
             "",
             "Note: This report describes what happened.",
-            "      Fixes are not proposed — evidence before assumption.",
+            "      Recommendations are advisory only — no repairs proposed.",
         ]
         return "\n".join(lines)
