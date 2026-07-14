@@ -1,5 +1,5 @@
 """
-Engineering Debugging Models (Genesis-017 Sprint 001)
+Engineering Debugging Models (Genesis-017 Sprint 001 + Sprint 002)
 
 Pure data carriers for engineering failure analysis.
 Immutable once created — a debug report is a forensic record
@@ -32,17 +32,28 @@ class FailureType(Enum):
 @dataclass(frozen=True)
 class FailureEvidence:
     """
-    Immutable container for raw forensic evidence.
+    Immutable container for structured forensic evidence.
 
-    Kept separate from DebugReport so future sprints can extend
-    evidence (stack traces, compiler diagnostics, failing files,
-    exception types, dependency chains) without expanding DebugReport.
+    Sprint 001: raw command output (stdout, stderr, exit_code, timestamp).
+    Sprint 002: structured extraction (stack_trace, failing_files,
+                line_numbers, error_type, diagnostics).
+
+    Kept separate from DebugReport so future sprints can enrich the
+    evidence layer without changing the report contract.
     """
-    command:    str
-    exit_code:  int
-    stdout:     tuple          # lines of captured stdout
-    stderr:     tuple          # lines of captured stderr
-    timestamp:  str            # ISO-8601 UTC
+    # Sprint 001 — raw capture
+    command:       str
+    exit_code:     int
+    stdout:        tuple   # lines of captured stdout
+    stderr:        tuple   # lines of captured stderr
+    timestamp:     str     # ISO-8601 UTC
+
+    # Sprint 002 — structured extraction
+    stack_trace:   tuple   # parsed stack frames (file, line, context)
+    failing_files: tuple   # file paths mentioned in the output
+    line_numbers:  tuple   # line numbers extracted from tracebacks
+    error_type:    str     # exception class name (e.g. SyntaxError)
+    diagnostics:   tuple   # compiler/linter diagnostic lines
 
 
 @dataclass(frozen=True)
@@ -95,6 +106,21 @@ class DebugReport:
                 lines.append(f"    {line}")
         else:
             lines.append("    (no specific clues extracted)")
+
+        if self.evidence.stack_trace:
+            lines += ["", "Stack trace:"]
+            for frame in self.evidence.stack_trace:
+                lines.append(f"    {frame}")
+
+        if self.evidence.failing_files:
+            lines += ["", "Failing files:"]
+            for f in self.evidence.failing_files:
+                lines.append(f"    {f}")
+
+        if self.evidence.diagnostics:
+            lines += ["", "Diagnostics:"]
+            for d in self.evidence.diagnostics:
+                lines.append(f"    {d}")
 
         if self.evidence.stderr:
             lines += ["", "Stderr (tail):"]

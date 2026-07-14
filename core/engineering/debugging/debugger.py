@@ -30,6 +30,7 @@ import logging
 from datetime import datetime, timezone
 
 from core.engineering.debugging.models import DebugReport, FailureEvidence, FailureType
+from core.engineering.debugging.extractor import EvidenceExtractor
 from core.engineering.debugging.classifier import FailureClassifier
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,13 @@ class EngineeringDebugger:
     Read-only — no files created, no code modified, no commands run.
     """
 
-    def __init__(self, classifier: FailureClassifier | None = None):
+    def __init__(
+        self,
+        classifier: FailureClassifier | None = None,
+        extractor: EvidenceExtractor | None = None,
+    ):
         self._classifier = classifier or FailureClassifier()
+        self._extractor  = extractor  or EvidenceExtractor()
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,6 +93,9 @@ class EngineeringDebugger:
             failure_type, exit_code, tuple(clues), stderr
         )
 
+        # Extract structured forensic evidence (Sprint 002)
+        extracted = self._extractor.extract(stdout, stderr)
+
         # Build the immutable evidence container
         raw_evidence = FailureEvidence(
             command=command,
@@ -94,6 +103,11 @@ class EngineeringDebugger:
             stdout=tuple(stdout.strip()[:_MAX_OUTPUT].splitlines()),
             stderr=tuple(stderr.strip()[:_MAX_OUTPUT].splitlines()),
             timestamp=timestamp,
+            stack_trace=extracted["stack_trace"],
+            failing_files=extracted["failing_files"],
+            line_numbers=extracted["line_numbers"],
+            error_type=extracted["error_type"],
+            diagnostics=extracted["diagnostics"],
         )
 
         report = DebugReport(
@@ -126,8 +140,8 @@ class EngineeringDebugger:
         return self.analyse(
             command=step.command,
             exit_code=0 if step.passed else 1,
-            stdout=step.output,
-            stderr=step.error,
+            stdout=step.output or "",
+            stderr=step.error or "",
         )
 
     # ------------------------------------------------------------------
