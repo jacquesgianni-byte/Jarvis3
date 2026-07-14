@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 
 from core.engineering.debugging.models import DebugReport, FailureEvidence, FailureType
 from core.engineering.debugging.extractor import EvidenceExtractor
+from core.engineering.debugging.analyzer import RootCauseAnalyzer
 from core.engineering.debugging.classifier import FailureClassifier
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class EngineeringDebugger:
     Forensic analyser for engineering failures.
 
     Accepts raw process output and produces an immutable DebugReport.
+    Orchestrates: EvidenceExtractor → FailureClassifier → RootCauseAnalyzer.
     Read-only — no files created, no code modified, no commands run.
     """
 
@@ -51,9 +53,11 @@ class EngineeringDebugger:
         self,
         classifier: FailureClassifier | None = None,
         extractor: EvidenceExtractor | None = None,
+        analyzer: RootCauseAnalyzer | None = None,
     ):
         self._classifier = classifier or FailureClassifier()
         self._extractor  = extractor  or EvidenceExtractor()
+        self._analyzer   = analyzer   or RootCauseAnalyzer()
 
     # ------------------------------------------------------------------
     # Public API
@@ -110,12 +114,16 @@ class EngineeringDebugger:
             diagnostics=extracted["diagnostics"],
         )
 
+        # Determine root cause from evidence (Sprint 003)
+        root_cause = self._analyzer.analyse(raw_evidence, failure_type)
+
         report = DebugReport(
             failure_type=failure_type,
             summary=summary,
             confidence=confidence,
             clues=tuple(clues),
             evidence=raw_evidence,
+            root_cause=root_cause,
         )
 
         logger.info(

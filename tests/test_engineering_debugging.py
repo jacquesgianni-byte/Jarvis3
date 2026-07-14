@@ -79,9 +79,12 @@ check("exactly 6 failure types", len(FailureType) == 6)
 print("\n[2] DebugReport — immutable model")
 _ev = make_evidence(command="python -m compileall core/",
                     stderr=("SyntaxError: invalid syntax",))
+from core.engineering.debugging.root_cause import RootCause, RootCauseCategory
+_rc = RootCause(category=RootCauseCategory.SYNTAX_ERROR, description="Syntax error.",
+                confidence=0.97, supporting_evidence=(), contributing_factors=())
 report = DebugReport(failure_type=FailureType.COMPILE, summary="SyntaxError on line 42",
                      confidence=0.95, clues=("SyntaxError: invalid syntax", "line 42"),
-                     evidence=_ev)
+                     evidence=_ev, root_cause=_rc)
 check("DebugReport instantiates", report is not None)
 check("DebugReport is frozen", report.__dataclass_params__.frozen)
 check("evidence is a FailureEvidence", isinstance(report.evidence, FailureEvidence))
@@ -92,8 +95,10 @@ check("failure_type is FailureType", isinstance(report.failure_type, FailureType
 check("confidence is a float", isinstance(report.confidence, float))
 check("evidence.timestamp is non-empty", bool(report.evidence.timestamp))
 _ev_mut  = make_evidence()
+_rc_mut = RootCause(category=RootCauseCategory.UNKNOWN, description="t",
+                    confidence=0.0, supporting_evidence=(), contributing_factors=())
 _rep_mut = DebugReport(failure_type=FailureType.COMPILE, summary="t",
-                       confidence=0.9, clues=(), evidence=_ev_mut)
+                       confidence=0.9, clues=(), evidence=_ev_mut, root_cause=_rc_mut)
 try:
     _rep_mut.failure_type = FailureType.UNKNOWN
     check("DebugReport fields are immutable", False)
@@ -334,3 +339,284 @@ print(f"  Error type    -> exception class name")
 print(f"  Diagnostics   -> compiler/linter lines")
 print(f"\nDesign principle:")
 print(f"  Extract facts. Do not interpret. Do not propose fixes.")
+
+
+# ── Sprint 003 — Root Cause Analysis ──────────────────────────────────────
+
+from core.engineering.debugging.analyzer import RootCauseAnalyzer
+
+
+def make_ev_for_analysis(error_type="", stderr_lines=(), exit_code=1,
+                         diagnostics=(), stack_trace=(), failing_files=(),
+                         line_numbers=()):
+    """Build a FailureEvidence for RootCauseAnalyzer tests."""
+    return FailureEvidence(
+        command="cmd", exit_code=exit_code,
+        stdout=(), stderr=tuple(stderr_lines),
+        timestamp="2026-01-01T00:00:00+00:00",
+        stack_trace=tuple(stack_trace),
+        failing_files=tuple(failing_files),
+        line_numbers=tuple(line_numbers),
+        error_type=error_type,
+        diagnostics=tuple(diagnostics),
+    )
+
+
+print("\n[21] RootCauseCategory enum")
+check("SYNTAX_ERROR exists",      RootCauseCategory.SYNTAX_ERROR.value == "Syntax Error")
+check("IMPORT_DEPENDENCY exists",  RootCauseCategory.IMPORT_DEPENDENCY.value == "Import Dependency")
+check("MISSING_MODULE exists",     RootCauseCategory.MISSING_MODULE.value == "Missing Module")
+check("CONFIGURATION exists",      RootCauseCategory.CONFIGURATION.value == "Configuration Error")
+check("TEST_REGRESSION exists",    RootCauseCategory.TEST_REGRESSION.value == "Test Regression")
+check("INVALID_API exists",        RootCauseCategory.INVALID_API.value == "Invalid API Usage")
+check("MISSING_FILE exists",       RootCauseCategory.MISSING_FILE.value == "Missing File")
+check("PERMISSION exists",         RootCauseCategory.PERMISSION.value == "Permission Error")
+check("TIMEOUT exists",            RootCauseCategory.TIMEOUT.value == "Timeout")
+check("UNKNOWN exists",            RootCauseCategory.UNKNOWN.value == "Unknown")
+check("exactly 10 categories",     len(RootCauseCategory) == 10)
+
+
+print("\n[22] RootCause — immutable model")
+rc = RootCause(
+    category=RootCauseCategory.SYNTAX_ERROR,
+    description="Syntax error in core/router.py.",
+    confidence=0.97,
+    supporting_evidence=("SyntaxError: expected ':'",),
+    contributing_factors=("Affected file: core/router.py", "Line(s) involved: 77"),
+)
+check("RootCause instantiates", rc is not None)
+check("RootCause is frozen", rc.__dataclass_params__.frozen)
+check("category is RootCauseCategory", isinstance(rc.category, RootCauseCategory))
+check("confidence is float", isinstance(rc.confidence, float))
+check("supporting_evidence is tuple", isinstance(rc.supporting_evidence, tuple))
+check("contributing_factors is tuple", isinstance(rc.contributing_factors, tuple))
+check("description is non-empty", bool(rc.description))
+
+try:
+    rc.category = RootCauseCategory.UNKNOWN
+    check("RootCause fields are immutable", False)
+except (AttributeError, TypeError):
+    check("RootCause fields are immutable (raises on assignment)", True)
+
+summary = rc.summary_line()
+check("summary_line() is non-empty", bool(summary))
+check("summary_line() contains category", "Syntax Error" in summary)
+check("summary_line() contains confidence", "97%" in summary)
+print(f"    {summary}")
+
+
+print("\n[23] RootCauseAnalyzer — construction")
+analyzer = RootCauseAnalyzer()
+check("analyzer instantiates", analyzer is not None)
+
+# Read-only guarantee
+for method in ["write","modify","patch","apply","execute","commit","fix","repair"]:
+    check(f"RootCauseAnalyzer has no .{method}()", not hasattr(analyzer, method))
+
+
+print("\n[24] Root cause — SyntaxError")
+ev = make_ev_for_analysis(
+    error_type="SyntaxError",
+    stderr_lines=("SyntaxError: expected ':'", "  File 'core/router.py', line 77"),
+    diagnostics=("SyntaxError: expected ':'",),
+    failing_files=("core/router.py",),
+    line_numbers=(77,),
+)
+rc = analyzer.analyse(ev, FailureType.COMPILE)
+check("SyntaxError → SYNTAX_ERROR", rc.category == RootCauseCategory.SYNTAX_ERROR)
+check("SyntaxError confidence >= 0.95", rc.confidence >= 0.95)
+check("description mentions syntax", "syntax" in rc.description.lower()
+      or "router.py" in rc.description)
+check("supporting_evidence is non-empty", len(rc.supporting_evidence) > 0)
+print(f"    {rc.summary_line()}")
+
+
+print("\n[25] Root cause — IndentationError")
+ev = make_ev_for_analysis(error_type="IndentationError",
+    stderr_lines=("IndentationError: unexpected indent",))
+rc = analyzer.analyse(ev, FailureType.COMPILE)
+check("IndentationError → SYNTAX_ERROR", rc.category == RootCauseCategory.SYNTAX_ERROR)
+check("confidence >= 0.95", rc.confidence >= 0.95)
+
+
+print("\n[26] Root cause — ModuleNotFoundError")
+ev = make_ev_for_analysis(
+    error_type="ModuleNotFoundError",
+    stderr_lines=("ModuleNotFoundError: No module named 'core.reasoning.engine'",),
+)
+rc = analyzer.analyse(ev, FailureType.IMPORT)
+check("ModuleNotFoundError → MISSING_MODULE", rc.category == RootCauseCategory.MISSING_MODULE)
+check("MISSING_MODULE confidence >= 0.95", rc.confidence >= 0.95)
+check("description mentions module", "core.reasoning.engine" in rc.description
+      or "module" in rc.description.lower())
+print(f"    {rc.summary_line()}")
+
+
+print("\n[27] Root cause — ImportError")
+ev = make_ev_for_analysis(
+    error_type="ImportError",
+    stderr_lines=("ImportError: cannot import name 'Agent' from 'core.agent'",),
+)
+rc = analyzer.analyse(ev, FailureType.IMPORT)
+check("ImportError → IMPORT_DEPENDENCY", rc.category == RootCauseCategory.IMPORT_DEPENDENCY)
+check("IMPORT_DEPENDENCY confidence >= 0.90", rc.confidence >= 0.90)
+
+
+print("\n[28] Root cause — AssertionError (test regression)")
+ev = make_ev_for_analysis(
+    error_type="AssertionError",
+    stderr_lines=("AssertionError: expected True, got False",),
+)
+rc = analyzer.analyse(ev, FailureType.TEST)
+check("AssertionError → TEST_REGRESSION", rc.category == RootCauseCategory.TEST_REGRESSION)
+check("TEST_REGRESSION confidence >= 0.85", rc.confidence >= 0.85)
+
+
+print("\n[29] Root cause — pytest TEST failure (no error_type)")
+ev = make_ev_for_analysis(
+    error_type="",
+    stderr_lines=("3 failed, 50 passed",),
+)
+rc = analyzer.analyse(ev, FailureType.TEST)
+check("pytest failure fallback → TEST_REGRESSION",
+      rc.category == RootCauseCategory.TEST_REGRESSION)
+check("fallback confidence >= 0.75", rc.confidence >= 0.75)
+
+
+print("\n[30] Root cause — Timeout")
+ev = make_ev_for_analysis(
+    error_type="TimeoutExpired",
+    stderr_lines=("subprocess.TimeoutExpired: Command timed out",),
+    exit_code=1,
+)
+rc = analyzer.analyse(ev, FailureType.TIMEOUT)
+check("TimeoutExpired → TIMEOUT", rc.category == RootCauseCategory.TIMEOUT)
+check("TIMEOUT confidence = 1.0", rc.confidence == 1.0)
+
+
+print("\n[31] Root cause — AttributeError (invalid API)")
+ev = make_ev_for_analysis(
+    error_type="AttributeError",
+    stderr_lines=("AttributeError: 'NoneType' has no attribute 'infer'",),
+)
+rc = analyzer.analyse(ev, FailureType.UNKNOWN)
+check("AttributeError → INVALID_API", rc.category == RootCauseCategory.INVALID_API)
+check("INVALID_API confidence >= 0.80", rc.confidence >= 0.80)
+
+
+print("\n[32] Root cause — KeyError (configuration)")
+ev = make_ev_for_analysis(
+    error_type="KeyError",
+    stderr_lines=("KeyError: 'OPENAI_API_KEY'",),
+)
+rc = analyzer.analyse(ev, FailureType.CONFIGURATION)
+check("KeyError → CONFIGURATION", rc.category == RootCauseCategory.CONFIGURATION)
+check("CONFIGURATION confidence >= 0.80", rc.confidence >= 0.80)
+
+
+print("\n[33] Root cause — UNKNOWN (insufficient evidence)")
+ev = make_ev_for_analysis(error_type="", stderr_lines=("something went wrong",))
+rc = analyzer.analyse(ev, FailureType.UNKNOWN)
+check("no pattern → UNKNOWN", rc.category == RootCauseCategory.UNKNOWN)
+check("UNKNOWN confidence = 0.0", rc.confidence == 0.0)
+check("UNKNOWN supporting_evidence is empty", rc.supporting_evidence == ())
+
+
+print("\n[34] Root cause — exit_code=0 (not a failure)")
+ev = make_ev_for_analysis(error_type="", exit_code=0)
+rc = analyzer.analyse(ev, FailureType.UNKNOWN)
+check("exit_code=0 → UNKNOWN", rc.category == RootCauseCategory.UNKNOWN)
+check("exit_code=0 confidence = 0.0", rc.confidence == 0.0)
+
+
+print("\n[35] Contributing factors")
+ev = make_ev_for_analysis(
+    error_type="SyntaxError",
+    stderr_lines=("SyntaxError: expected ':'",
+                  "  File 'core/router.py', line 77"),
+    failing_files=("core/router.py",),
+    line_numbers=(77,),
+)
+rc = analyzer.analyse(ev, FailureType.COMPILE)
+check("contributing_factors is a tuple", isinstance(rc.contributing_factors, tuple))
+check("failing file appears in factors",
+      any("router.py" in f for f in rc.contributing_factors))
+check("line number appears in factors",
+      any("77" in f for f in rc.contributing_factors))
+print(f"    Factors: {rc.contributing_factors}")
+
+
+print("\n[36] Determinism — same evidence always yields same result")
+ev = make_ev_for_analysis(
+    error_type="ModuleNotFoundError",
+    stderr_lines=("ModuleNotFoundError: No module named 'openai'",),
+)
+results = set()
+for _ in range(20):
+    r = analyzer.analyse(ev, FailureType.IMPORT)
+    results.add((r.category, r.confidence))
+check("root cause analysis is deterministic (20 runs)", len(results) == 1)
+
+
+print("\n[37] EngineeringDebugger — Sprint 003 integration")
+debugger2 = EngineeringDebugger()
+
+rep_s3 = debugger2.analyse(
+    command="python -m compileall core/",
+    exit_code=1,
+    stdout="",
+    stderr="SyntaxError: expected ':'\n  File \"core/router.py\", line 77",
+)
+check("DebugReport has root_cause field", hasattr(rep_s3, "root_cause"))
+check("root_cause is a RootCause", isinstance(rep_s3.root_cause, RootCause))
+check("root_cause.category is RootCauseCategory",
+      isinstance(rep_s3.root_cause.category, RootCauseCategory))
+check("SyntaxError → SYNTAX_ERROR via full pipeline",
+      rep_s3.root_cause.category == RootCauseCategory.SYNTAX_ERROR)
+check("root_cause.confidence > 0", rep_s3.root_cause.confidence > 0.0)
+
+rep_import = debugger2.analyse(
+    command="python tests/test_reasoning.py", exit_code=1, stdout="",
+    stderr="ModuleNotFoundError: No module named 'core.reasoning.engine'",
+)
+check("ModuleNotFoundError → MISSING_MODULE via pipeline",
+      rep_import.root_cause.category == RootCauseCategory.MISSING_MODULE)
+
+rep_test = debugger2.analyse(
+    command="python -m pytest tests/", exit_code=1,
+    stdout="FAILED tests/test_edge_cases.py::test_store\n3 failed", stderr="",
+)
+check("pytest failure → TEST_REGRESSION via pipeline",
+      rep_test.root_cause.category == RootCauseCategory.TEST_REGRESSION)
+
+rep_unknown = debugger2.analyse("cmd", 1, "", "something went wrong")
+check("unknown failure → UNKNOWN root cause",
+      rep_unknown.root_cause.category == RootCauseCategory.UNKNOWN)
+check("UNKNOWN root_cause.confidence = 0.0",
+      rep_unknown.root_cause.confidence == 0.0)
+
+
+print("\n[38] DebugReport.report() includes root cause")
+report_text = rep_s3.report()
+check("report contains 'Root Cause' section", "Root Cause" in report_text)
+check("report contains category name", "Syntax Error" in report_text)
+check("report contains confidence", "97%" in report_text or "95%" in report_text
+      or str(int(rep_s3.root_cause.confidence * 100)) + "%" in report_text)
+print(f"    Root cause line: {rep_s3.root_cause.summary_line()}")
+print(f"    Full report length: {len(report_text)} chars")
+
+
+print(f"\n{'='*60}")
+print(f"GENESIS-017 SPRINT 003: ALL {passed} CHECKS PASS")
+print(f"{'='*60}")
+print(f"\nJarvis can now answer:")
+print(f"  'Why did this failure happen?'")
+print(f"\nRoot cause categories:")
+for cat in RootCauseCategory:
+    print(f"  {cat.value}")
+print(f"\nEngineering pipeline:")
+print(f"  Evidence → Classification → Root Cause → Report")
+print(f"\nDesign principle:")
+print(f"  Evidence → Root Cause  (not: Failure → Guess)")
+print(f"\nDeferred to later sprints:")
+print(f"  Failure correlation, repair planning, autonomous fix")

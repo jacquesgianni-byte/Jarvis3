@@ -1,5 +1,5 @@
 """
-Engineering Debugging Models (Genesis-017 Sprint 001 + Sprint 002)
+Engineering Debugging Models (Genesis-017 Sprints 001–003)
 
 Pure data carriers for engineering failure analysis.
 Immutable once created — a debug report is a forensic record
@@ -9,8 +9,13 @@ Design philosophy:
     "What happened?" — not — "How should I fix it?"
 """
 
+from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.engineering.debugging.root_cause import RootCause
 
 
 class FailureType(Enum):
@@ -83,6 +88,7 @@ class DebugReport:
     confidence:    float           # 0.0 – 1.0
     clues:         tuple           # relevant lines extracted from output, max 20
     evidence:      FailureEvidence # raw forensic evidence
+    root_cause:    RootCause       # Sprint 003 — deterministic root cause
 
     def report(self) -> str:
         """Human-readable forensic report for Chief review."""
@@ -95,6 +101,9 @@ class DebugReport:
             f"Command:       {self.evidence.command}",
             f"Exit code:     {self.evidence.exit_code}",
             f"Timestamp:     {self.evidence.timestamp}",
+            "",
+            "Root Cause:",
+            f"    {self.root_cause.summary_line()}",
             "",
             f"Summary:",
             f"    {self.summary}",
@@ -121,6 +130,11 @@ class DebugReport:
             lines += ["", "Diagnostics:"]
             for d in self.evidence.diagnostics:
                 lines.append(f"    {d}")
+
+        if self.root_cause.contributing_factors:
+            lines += ["", "Contributing factors:"]
+            for factor in self.root_cause.contributing_factors:
+                lines.append(f"    • {factor}")
 
         if self.evidence.stderr:
             lines += ["", "Stderr (tail):"]
