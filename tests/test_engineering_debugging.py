@@ -80,11 +80,15 @@ print("\n[2] DebugReport — immutable model")
 _ev = make_evidence(command="python -m compileall core/",
                     stderr=("SyntaxError: invalid syntax",))
 from core.engineering.debugging.root_cause import RootCause, RootCauseCategory
+from core.engineering.debugging.correlation import CorrelationRecord, CorrelationType
 _rc = RootCause(category=RootCauseCategory.SYNTAX_ERROR, description="Syntax error.",
                 confidence=0.97, supporting_evidence=(), contributing_factors=())
+_no_corr = CorrelationRecord(correlation_type=CorrelationType.UNKNOWN, confidence=0.0,
+                  description="no history", related_failures=(), related_files=(),
+                  related_modules=(), related_commits=(), timeline=())
 report = DebugReport(failure_type=FailureType.COMPILE, summary="SyntaxError on line 42",
                      confidence=0.95, clues=("SyntaxError: invalid syntax", "line 42"),
-                     evidence=_ev, root_cause=_rc)
+                     evidence=_ev, root_cause=_rc, correlation=_no_corr)
 check("DebugReport instantiates", report is not None)
 check("DebugReport is frozen", report.__dataclass_params__.frozen)
 check("evidence is a FailureEvidence", isinstance(report.evidence, FailureEvidence))
@@ -98,7 +102,8 @@ _ev_mut  = make_evidence()
 _rc_mut = RootCause(category=RootCauseCategory.UNKNOWN, description="t",
                     confidence=0.0, supporting_evidence=(), contributing_factors=())
 _rep_mut = DebugReport(failure_type=FailureType.COMPILE, summary="t",
-                       confidence=0.9, clues=(), evidence=_ev_mut, root_cause=_rc_mut)
+                       confidence=0.9, clues=(), evidence=_ev_mut, root_cause=_rc_mut,
+                       correlation=_no_corr)
 try:
     _rep_mut.failure_type = FailureType.UNKNOWN
     check("DebugReport fields are immutable", False)
@@ -620,3 +625,322 @@ print(f"\nDesign principle:")
 print(f"  Evidence → Root Cause  (not: Failure → Guess)")
 print(f"\nDeferred to later sprints:")
 print(f"  Failure correlation, repair planning, autonomous fix")
+
+
+# ── Sprint 004 — Failure Correlation ──────────────────────────────────────
+
+from core.engineering.debugging.engine import FailureCorrelationEngine, FailureRecord
+
+
+def make_record(**kwargs) -> FailureRecord:
+    """Build a FailureRecord for history."""
+    defaults = dict(
+        failure_type=FailureType.UNKNOWN,
+        root_cause_category=RootCauseCategory.UNKNOWN,
+        error_type="", failing_files=(),
+        commit="", timestamp="", description="",
+    )
+    defaults.update(kwargs)
+    return FailureRecord(**defaults)
+
+
+def make_ev_corr(error_type="", failing_files=(), exit_code=1,
+                 stderr_lines=()) -> FailureEvidence:
+    """Build minimal FailureEvidence for correlation tests."""
+    return FailureEvidence(
+        command="cmd", exit_code=exit_code,
+        stdout=(), stderr=tuple(stderr_lines),
+        timestamp="2026-01-15T10:00:00+00:00",
+        stack_trace=(), failing_files=tuple(failing_files),
+        line_numbers=(), error_type=error_type, diagnostics=(),
+    )
+
+
+def make_rc(category=RootCauseCategory.UNKNOWN) -> RootCause:
+    return RootCause(category=category, description="test",
+                     confidence=0.9, supporting_evidence=(),
+                     contributing_factors=())
+
+
+print("\n[39] CorrelationType enum")
+check("SAME_FILE exists",        CorrelationType.SAME_FILE.value == "Same File")
+check("SAME_MODULE exists",      CorrelationType.SAME_MODULE.value == "Same Module")
+check("SAME_EXCEPTION exists",   CorrelationType.SAME_EXCEPTION.value == "Same Exception")
+check("SAME_ROOT_CAUSE exists",  CorrelationType.SAME_ROOT_CAUSE.value == "Same Root Cause")
+check("SAME_COMMIT exists",      CorrelationType.SAME_COMMIT.value == "Same Commit")
+check("REPEATED_FAILURE exists", CorrelationType.REPEATED_FAILURE.value == "Repeated Failure")
+check("UNKNOWN exists",          CorrelationType.UNKNOWN.value == "Unknown")
+check("exactly 7 types",         len(CorrelationType) == 7)
+
+
+print("\n[40] CorrelationRecord — immutable model")
+cr = CorrelationRecord(
+    correlation_type=CorrelationType.REPEATED_FAILURE,
+    confidence=0.97,
+    description="SyntaxError has occurred 3 times.",
+    related_failures=("Sprint 001 SyntaxError", "Sprint 002 SyntaxError"),
+    related_files=("core/router.py",),
+    related_modules=("core",),
+    related_commits=("abc1234",),
+    timeline=("2026-01-01: First", "2026-01-15: Current"),
+)
+check("CorrelationRecord instantiates", cr is not None)
+check("CorrelationRecord is frozen", cr.__dataclass_params__.frozen)
+check("correlation_type is CorrelationType",
+      isinstance(cr.correlation_type, CorrelationType))
+check("confidence is float", isinstance(cr.confidence, float))
+check("related_failures is tuple", isinstance(cr.related_failures, tuple))
+check("related_files is tuple", isinstance(cr.related_files, tuple))
+check("related_modules is tuple", isinstance(cr.related_modules, tuple))
+check("related_commits is tuple", isinstance(cr.related_commits, tuple))
+check("timeline is tuple", isinstance(cr.timeline, tuple))
+check("is_correlated True for REPEATED_FAILURE", cr.is_correlated)
+
+cr_unknown = CorrelationRecord(
+    correlation_type=CorrelationType.UNKNOWN, confidence=0.0,
+    description="none", related_failures=(), related_files=(),
+    related_modules=(), related_commits=(), timeline=(),
+)
+check("is_correlated False for UNKNOWN", not cr_unknown.is_correlated)
+
+try:
+    cr.correlation_type = CorrelationType.UNKNOWN
+    check("CorrelationRecord is immutable", False)
+except (AttributeError, TypeError):
+    check("CorrelationRecord is immutable (raises on assignment)", True)
+
+summary = cr.summary_line()
+check("summary_line() non-empty", bool(summary))
+check("summary_line() contains type", "Repeated Failure" in summary)
+check("summary_line() for UNKNOWN says no correlation",
+      "No correlation" in cr_unknown.summary_line())
+print(f"    {summary}")
+
+
+print("\n[41] FailureCorrelationEngine — construction")
+engine = FailureCorrelationEngine()
+check("engine instantiates", engine is not None)
+for method in ["write","modify","patch","fix","repair","execute","commit"]:
+    check(f"engine has no .{method}()", not hasattr(engine, method))
+
+
+print("\n[42] No history → UNKNOWN")
+ev = make_ev_corr("SyntaxError", ("core/router.py",))
+rc = make_rc(RootCauseCategory.SYNTAX_ERROR)
+result = engine.correlate(ev, rc, FailureType.COMPILE, history=None)
+check("no history → UNKNOWN", result.correlation_type == CorrelationType.UNKNOWN)
+check("no history → confidence=0.0", result.confidence == 0.0)
+check("no history → is_correlated False", not result.is_correlated)
+
+result2 = engine.correlate(ev, rc, FailureType.COMPILE, history=[])
+check("empty history → UNKNOWN", result2.correlation_type == CorrelationType.UNKNOWN)
+
+
+print("\n[43] exit_code=0 → UNKNOWN")
+ev_ok = make_ev_corr("SyntaxError", ("core/router.py",), exit_code=0)
+history = [make_record(failure_type=FailureType.COMPILE,
+                       root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+                       error_type="SyntaxError")]
+result = engine.correlate(ev_ok, rc, FailureType.COMPILE, history=history)
+check("exit_code=0 → UNKNOWN", result.correlation_type == CorrelationType.UNKNOWN)
+
+
+print("\n[44] REPEATED_FAILURE detection")
+history = [
+    make_record(failure_type=FailureType.COMPILE,
+                root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+                description="Router syntax error Jan 10"),
+    make_record(failure_type=FailureType.COMPILE,
+                root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+                description="Router syntax error Jan 12"),
+]
+ev = make_ev_corr("SyntaxError", ("core/router.py",))
+rc = make_rc(RootCauseCategory.SYNTAX_ERROR)
+result = engine.correlate(ev, rc, FailureType.COMPILE, history=history)
+check("repeated SyntaxError → REPEATED_FAILURE",
+      result.correlation_type == CorrelationType.REPEATED_FAILURE)
+check("REPEATED_FAILURE confidence >= 0.95", result.confidence >= 0.95)
+check("related_failures contains history descriptions",
+      "Router syntax error Jan 10" in result.related_failures)
+check("description mentions count", "3" in result.description or "2" in result.description)
+print(f"    {result.summary_line()}")
+
+
+print("\n[45] SAME_COMMIT detection")
+history = [
+    make_record(commit="abc1234", description="Failure after abc1234"),
+]
+ev = make_ev_corr(stderr_lines=("Error in commit abc1234",))
+rc = make_rc()
+result = engine.correlate(ev, rc, FailureType.UNKNOWN, history=history)
+check("shared commit → SAME_COMMIT",
+      result.correlation_type == CorrelationType.SAME_COMMIT)
+check("SAME_COMMIT confidence >= 0.93", result.confidence >= 0.93)
+check("commit hash in related_commits", "abc1234" in result.related_commits)
+print(f"    {result.summary_line()}")
+
+
+print("\n[46] SAME_ROOT_CAUSE detection")
+history = [
+    make_record(root_cause_category=RootCauseCategory.MISSING_MODULE,
+                description="Missing openai module"),
+]
+ev = make_ev_corr("ModuleNotFoundError", ("tests/test_ai.py",))
+rc = make_rc(RootCauseCategory.MISSING_MODULE)
+result = engine.correlate(ev, rc, FailureType.IMPORT, history=history)
+check("same root cause → SAME_ROOT_CAUSE",
+      result.correlation_type == CorrelationType.SAME_ROOT_CAUSE)
+check("SAME_ROOT_CAUSE confidence >= 0.88", result.confidence >= 0.88)
+print(f"    {result.summary_line()}")
+
+
+print("\n[47] SAME_EXCEPTION detection")
+history = [
+    make_record(error_type="AttributeError",
+                description="AttributeError in skills"),
+]
+ev = make_ev_corr("AttributeError", ("core/skills/reasoning.py",))
+rc = make_rc(RootCauseCategory.INVALID_API)
+result = engine.correlate(ev, rc, FailureType.UNKNOWN, history=history)
+check("same exception → SAME_EXCEPTION",
+      result.correlation_type == CorrelationType.SAME_EXCEPTION)
+check("SAME_EXCEPTION confidence >= 0.85", result.confidence >= 0.85)
+check("error type in description", "AttributeError" in result.description)
+print(f"    {result.summary_line()}")
+
+
+print("\n[48] SAME_FILE detection")
+history = [
+    make_record(failing_files=("core/router.py",),
+                description="Router failure last week"),
+]
+ev = make_ev_corr(failing_files=("core/router.py", "core/agent.py"))
+rc = make_rc()
+result = engine.correlate(ev, rc, FailureType.UNKNOWN, history=history)
+check("shared file → SAME_FILE",
+      result.correlation_type == CorrelationType.SAME_FILE)
+check("SAME_FILE confidence >= 0.83", result.confidence >= 0.83)
+check("shared file in related_files", "core/router.py" in result.related_files)
+print(f"    {result.summary_line()}")
+
+
+print("\n[49] SAME_MODULE detection")
+history = [
+    make_record(failing_files=("core/skills/memory.py",),
+                description="Memory skill failure"),
+]
+ev = make_ev_corr(failing_files=("core/skills/reasoning.py",))
+rc = make_rc()
+result = engine.correlate(ev, rc, FailureType.UNKNOWN, history=history)
+check("same module → SAME_MODULE",
+      result.correlation_type == CorrelationType.SAME_MODULE)
+check("SAME_MODULE confidence >= 0.78", result.confidence >= 0.78)
+check("shared module in related_modules",
+      any("core.skills" in m for m in result.related_modules))
+print(f"    {result.summary_line()}")
+
+
+print("\n[50] Priority ordering — REPEATED_FAILURE beats SAME_FILE")
+history = [
+    make_record(failure_type=FailureType.COMPILE,
+                root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+                failing_files=("core/router.py",),
+                description="Previous syntax error"),
+]
+ev = make_ev_corr("SyntaxError", ("core/router.py",))
+rc = make_rc(RootCauseCategory.SYNTAX_ERROR)
+result = engine.correlate(ev, rc, FailureType.COMPILE, history=history)
+check("REPEATED_FAILURE takes priority over SAME_FILE",
+      result.correlation_type == CorrelationType.REPEATED_FAILURE)
+
+
+print("\n[51] No correlation — unrelated failure")
+history = [
+    make_record(failure_type=FailureType.COMPILE,
+                root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+                error_type="SyntaxError",
+                failing_files=("core/router.py",),
+                description="Unrelated syntax error"),
+]
+ev = make_ev_corr("", ("tests/test_knowledge_engine.py",))
+rc = make_rc(RootCauseCategory.UNKNOWN)
+result = engine.correlate(ev, rc, FailureType.UNKNOWN, history=history)
+check("unrelated failure → UNKNOWN", result.correlation_type == CorrelationType.UNKNOWN)
+check("no false correlation", not result.is_correlated)
+
+
+print("\n[52] Determinism")
+history = [make_record(failure_type=FailureType.COMPILE,
+                       root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+                       description="Previous")]
+ev = make_ev_corr("SyntaxError")
+rc = make_rc(RootCauseCategory.SYNTAX_ERROR)
+results = set()
+for _ in range(20):
+    r = engine.correlate(ev, rc, FailureType.COMPILE, history=history)
+    results.add((r.correlation_type, r.confidence))
+check("correlation is deterministic (20 runs)", len(results) == 1)
+
+
+print("\n[53] EngineeringDebugger Sprint 004 integration")
+from core.engineering.debugging.engine import FailureRecord as FR
+
+history_s4 = [
+    FR(failure_type=FailureType.COMPILE,
+       root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+       error_type="SyntaxError",
+       failing_files=("core/router.py",),
+       description="Previous router syntax error",
+       timestamp="2026-01-10T09:00:00+00:00"),
+]
+debugger_s4 = EngineeringDebugger(history=history_s4)
+
+rep_s4 = debugger_s4.analyse(
+    command="python -m compileall core/",
+    exit_code=1, stdout="",
+    stderr='SyntaxError: expected \':\'\n  File "core/router.py", line 77',
+)
+check("DebugReport has correlation field", hasattr(rep_s4, "correlation"))
+check("correlation is a CorrelationRecord",
+      isinstance(rep_s4.correlation, CorrelationRecord))
+check("correlation_type is CorrelationType",
+      isinstance(rep_s4.correlation.correlation_type, CorrelationType))
+check("repeated syntax error detected",
+      rep_s4.correlation.correlation_type == CorrelationType.REPEATED_FAILURE)
+check("correlation confidence > 0", rep_s4.correlation.confidence > 0.0)
+print(f"    {rep_s4.correlation.summary_line()}")
+
+# No history → no correlation
+debugger_no_hist = EngineeringDebugger()
+rep_no_hist = debugger_no_hist.analyse("cmd", 1, "", "SyntaxError")
+check("no history → UNKNOWN correlation",
+      rep_no_hist.correlation.correlation_type == CorrelationType.UNKNOWN)
+
+
+print("\n[54] DebugReport.report() includes correlation")
+report_text = rep_s4.report()
+check("report contains 'Correlation' section", "Correlation" in report_text)
+check("report contains correlation type",
+      "Repeated Failure" in report_text)
+print(f"    Full report length: {len(report_text)} chars")
+# Print the correlation section
+for line in report_text.splitlines():
+    if "Correlation" in line or "Repeated" in line:
+        print(f"    {line.strip()}")
+
+
+print(f"\n{'='*60}")
+print(f"GENESIS-017 SPRINT 004: ALL {passed} CHECKS PASS")
+print(f"{'='*60}")
+print(f"\nJarvis can now answer:")
+print(f"  'Has this failure happened before?'")
+print(f"  'Is it related to previous engineering activity?'")
+print(f"\nCorrelation types:")
+for ct in CorrelationType:
+    print(f"  {ct.value}")
+print(f"\nEngineering pipeline:")
+print(f"  Evidence → Classification → Root Cause → Correlation → Report")
+print(f"\nDesign principle:")
+print(f"  Observe history. Detect patterns. Never guess. Never repair.")
+print(f"\nDeferred to later sprints:")
+print(f"  Engineering recommendations, repair planning, autonomous fix")

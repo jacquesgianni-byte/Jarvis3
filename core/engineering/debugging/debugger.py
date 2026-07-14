@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from core.engineering.debugging.models import DebugReport, FailureEvidence, FailureType
 from core.engineering.debugging.extractor import EvidenceExtractor
 from core.engineering.debugging.analyzer import RootCauseAnalyzer
+from core.engineering.debugging.engine import FailureCorrelationEngine, FailureRecord
 from core.engineering.debugging.classifier import FailureClassifier
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,13 @@ class EngineeringDebugger:
         classifier: FailureClassifier | None = None,
         extractor: EvidenceExtractor | None = None,
         analyzer: RootCauseAnalyzer | None = None,
+        history: list | None = None,
     ):
         self._classifier = classifier or FailureClassifier()
         self._extractor  = extractor  or EvidenceExtractor()
         self._analyzer   = analyzer   or RootCauseAnalyzer()
+        self._correlator = FailureCorrelationEngine()
+        self._history: list[FailureRecord] = list(history) if history else []
 
     # ------------------------------------------------------------------
     # Public API
@@ -117,6 +121,14 @@ class EngineeringDebugger:
         # Determine root cause from evidence (Sprint 003)
         root_cause = self._analyzer.analyse(raw_evidence, failure_type)
 
+        # Correlate against failure history (Sprint 004)
+        correlation = self._correlator.correlate(
+            evidence=raw_evidence,
+            root_cause=root_cause,
+            failure_type=failure_type,
+            history=self._history,
+        )
+
         report = DebugReport(
             failure_type=failure_type,
             summary=summary,
@@ -124,6 +136,7 @@ class EngineeringDebugger:
             clues=tuple(clues),
             evidence=raw_evidence,
             root_cause=root_cause,
+            correlation=correlation,
         )
 
         logger.info(
