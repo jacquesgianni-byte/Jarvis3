@@ -1,4 +1,4 @@
-# Genesis-017 Sprints 001-005 — Engineering Debugging
+# Genesis-017 Sprints 001-006 — Engineering Debugging (COMPLETE)
 from core.engineering.debugging.debugger import EngineeringDebugger
 from core.engineering.debugging.models import DebugReport, FailureEvidence, FailureType
 from core.engineering.debugging.classifier import FailureClassifier
@@ -11,6 +11,10 @@ from core.engineering.debugging.recommendation import (
     Recommendation, RecommendationCategory, RecommendationPriority
 )
 from core.engineering.debugging.rec_engine import RecommendationEngine
+from core.engineering.debugging.repair import (
+    RepairPlan, RepairStep, RepairRisk, RepairEffort
+)
+from core.engineering.debugging.planner import RepairPlanner
 
 __all__ = [
     "EngineeringDebugger",
@@ -23,4 +27,6 @@ __all__ = [
     "FailureCorrelationEngine", "FailureRecord",
     "Recommendation", "RecommendationCategory", "RecommendationPriority",
     "RecommendationEngine",
+    "RepairPlan", "RepairStep", "RepairRisk", "RepairEffort",
+    "RepairPlanner",
 ]

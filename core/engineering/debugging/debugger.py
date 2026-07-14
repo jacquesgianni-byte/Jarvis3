@@ -34,6 +34,7 @@ from core.engineering.debugging.extractor import EvidenceExtractor
 from core.engineering.debugging.analyzer import RootCauseAnalyzer
 from core.engineering.debugging.engine import FailureCorrelationEngine, FailureRecord
 from core.engineering.debugging.rec_engine import RecommendationEngine
+from core.engineering.debugging.planner import RepairPlanner
 from core.engineering.debugging.classifier import FailureClassifier
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class EngineeringDebugger:
         self._analyzer   = analyzer   or RootCauseAnalyzer()
         self._correlator = FailureCorrelationEngine()
         self._rec_engine = RecommendationEngine()
+        self._planner    = RepairPlanner()
         self._history: list[FailureRecord] = list(history) if history else []
 
     # ------------------------------------------------------------------
@@ -139,6 +141,15 @@ class EngineeringDebugger:
             correlation=correlation,
         )
 
+        # Produce repair plan from full investigation (Sprint 006)
+        repair_plan = self._planner.plan(
+            evidence=raw_evidence,
+            failure_type=failure_type,
+            root_cause=root_cause,
+            correlation=correlation,
+            recommendations=recommendations,
+        )
+
         report = DebugReport(
             failure_type=failure_type,
             summary=summary,
@@ -148,6 +159,7 @@ class EngineeringDebugger:
             root_cause=root_cause,
             correlation=correlation,
             recommendations=recommendations,
+            repair_plan=repair_plan,
         )
 
         logger.info(

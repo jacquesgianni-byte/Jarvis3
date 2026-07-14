@@ -1,5 +1,5 @@
 """
-Engineering Debugging Models (Genesis-017 Sprints 001–005)
+Engineering Debugging Models (Genesis-017 Sprints 001–006)
 
 Pure data carriers for engineering failure analysis.
 Immutable once created — a debug report is a forensic record
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from core.engineering.debugging.root_cause import RootCause
     from core.engineering.debugging.correlation import CorrelationRecord
     from core.engineering.debugging.recommendation import Recommendation
+    from core.engineering.debugging.repair import RepairPlan
 
 
 class FailureType(Enum):
@@ -93,6 +94,7 @@ class DebugReport:
     root_cause:    RootCause       # Sprint 003 — deterministic root cause
     correlation:   CorrelationRecord  # Sprint 004 — failure correlation
     recommendations: tuple            # Sprint 005 — advisory recommendations
+    repair_plan:    RepairPlan        # Sprint 006 — structured repair plan
 
     def report(self) -> str:
         """Human-readable forensic report for Chief review."""
@@ -160,9 +162,18 @@ class DebugReport:
             for i, rec in enumerate(self.recommendations, 1):
                 lines.append(f"    {i}. {rec.summary_line()}")
 
+        if self.repair_plan.has_plan:
+            lines += ["", "Repair Plan:",
+                      f"    {self.repair_plan.title}",
+                      f"    Risk: {self.repair_plan.estimated_risk.value} | "
+                      f"Effort: {self.repair_plan.estimated_effort.value} | "
+                      f"Steps: {self.repair_plan.step_count}"]
+            for step in self.repair_plan.steps:
+                lines.append(f"    {step.order}. {step.title}")
+
         lines += [
             "",
             "Note: This report describes what happened.",
-            "      Recommendations are advisory only — no repairs proposed.",
+            "      Repair plan requires Chief approval before execution.",
         ]
         return "\n".join(lines)

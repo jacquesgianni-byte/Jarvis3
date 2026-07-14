@@ -83,15 +83,20 @@ from core.engineering.debugging.root_cause import RootCause, RootCauseCategory
 from core.engineering.debugging.correlation import CorrelationRecord, CorrelationType
 from core.engineering.debugging.recommendation import (
     Recommendation, RecommendationCategory, RecommendationPriority)
+from core.engineering.debugging.repair import (
+    RepairPlan, RepairStep, RepairRisk, RepairEffort)
 _rc = RootCause(category=RootCauseCategory.SYNTAX_ERROR, description="Syntax error.",
                 confidence=0.97, supporting_evidence=(), contributing_factors=())
 _no_corr = CorrelationRecord(correlation_type=CorrelationType.UNKNOWN, confidence=0.0,
                   description="no history", related_failures=(), related_files=(),
                   related_modules=(), related_commits=(), timeline=())
+_empty_plan = RepairPlan(title="No Repair Plan", summary="test", confidence=0.0,
+           steps=(), validation_steps=(), estimated_risk=RepairRisk.LOW,
+           estimated_effort=RepairEffort.MINOR, supporting_recommendations=())
 report = DebugReport(failure_type=FailureType.COMPILE, summary="SyntaxError on line 42",
                      confidence=0.95, clues=("SyntaxError: invalid syntax", "line 42"),
                      evidence=_ev, root_cause=_rc, correlation=_no_corr,
-                     recommendations=())
+                     recommendations=(), repair_plan=_empty_plan)
 check("DebugReport instantiates", report is not None)
 check("DebugReport is frozen", report.__dataclass_params__.frozen)
 check("evidence is a FailureEvidence", isinstance(report.evidence, FailureEvidence))
@@ -106,7 +111,8 @@ _rc_mut = RootCause(category=RootCauseCategory.UNKNOWN, description="t",
                     confidence=0.0, supporting_evidence=(), contributing_factors=())
 _rep_mut = DebugReport(failure_type=FailureType.COMPILE, summary="t",
                        confidence=0.9, clues=(), evidence=_ev_mut, root_cause=_rc_mut,
-                       correlation=_no_corr, recommendations=())
+                       correlation=_no_corr, recommendations=(),
+                       repair_plan=_empty_plan)
 try:
     _rep_mut.failure_type = FailureType.UNKNOWN
     check("DebugReport fields are immutable", False)
@@ -1248,8 +1254,8 @@ check("report contains 'Recommendations' section",
 check("report contains recommendation title",
       any(r.title.lower()[:10] in report_text.lower()
           for r in rep_s5.recommendations))
-check("report note says advisory only",
-      "advisory" in report_text.lower())
+check("report note says Chief approval required",
+      "Chief approval" in report_text or "advisory" in report_text.lower())
 print(f"    Full report length: {len(report_text)} chars")
 for line in report_text.splitlines():
     if "Recommendation" in line or "[HIGH]" in line or "[CRITICAL]" in line:
@@ -1272,3 +1278,343 @@ print(f"\nDesign principle:")
 print(f"  Advisory only. Evidence-backed. Never repairs. Never guesses.")
 print(f"\nDeferred to Sprint 006:")
 print(f"  Repair Planning — consuming recommendations to plan fixes")
+
+
+# ── Sprint 006 — Repair Planning ───────────────────────────────────────────
+
+from core.engineering.debugging.planner import RepairPlanner
+from core.engineering.debugging.engine import FailureRecord as FR3
+
+
+def make_ev_plan(error_type="", failing_files=(), line_numbers=(),
+                 exit_code=1) -> FailureEvidence:
+    return FailureEvidence(
+        command="cmd", exit_code=exit_code,
+        stdout=(), stderr=(),
+        timestamp="2026-01-15T10:00:00+00:00",
+        stack_trace=(), failing_files=tuple(failing_files),
+        line_numbers=tuple(line_numbers),
+        error_type=error_type, diagnostics=(),
+    )
+
+
+def make_rc_plan(category=RootCauseCategory.UNKNOWN,
+                 confidence=0.9) -> RootCause:
+    return RootCause(category=category, description="test",
+                     confidence=confidence, supporting_evidence=(),
+                     contributing_factors=())
+
+
+def make_corr_plan(ct=CorrelationType.UNKNOWN, files=(),
+                   commits=(), failures=()) -> CorrelationRecord:
+    return CorrelationRecord(
+        correlation_type=ct,
+        confidence=0.0 if ct == CorrelationType.UNKNOWN else 0.9,
+        description="test",
+        related_failures=tuple(failures),
+        related_files=tuple(files),
+        related_modules=(),
+        related_commits=tuple(commits),
+        timeline=(),
+    )
+
+
+def make_rec(category=RecommendationCategory.INVESTIGATE_SYNTAX,
+             priority=RecommendationPriority.HIGH,
+             confidence=0.95, title="Investigate") -> Recommendation:
+    return Recommendation(
+        category=category, priority=priority,
+        confidence=confidence, title=title,
+        description="test recommendation",
+        supporting_evidence=(), related_root_cause="", related_correlation="",
+    )
+
+
+print("\n[73] RepairRisk enum")
+check("LOW exists",      RepairRisk.LOW.value == "Low")
+check("MEDIUM exists",   RepairRisk.MEDIUM.value == "Medium")
+check("HIGH exists",     RepairRisk.HIGH.value == "High")
+check("CRITICAL exists", RepairRisk.CRITICAL.value == "Critical")
+check("exactly 4 risk levels", len(RepairRisk) == 4)
+
+
+print("\n[74] RepairEffort enum")
+check("MINOR exists",    RepairEffort.MINOR.value == "Minor")
+check("SMALL exists",    RepairEffort.SMALL.value == "Small")
+check("MODERATE exists", RepairEffort.MODERATE.value == "Moderate")
+check("LARGE exists",    RepairEffort.LARGE.value == "Large")
+check("MAJOR exists",    RepairEffort.MAJOR.value == "Major")
+check("exactly 5 effort levels", len(RepairEffort) == 5)
+
+
+print("\n[75] RepairStep — immutable model")
+step = RepairStep(
+    order=1, title="Review the syntax error",
+    description="Locate and correct the syntax error in core/router.py at line 77.",
+    depends_on=(),
+)
+check("RepairStep instantiates", step is not None)
+check("RepairStep is frozen", step.__dataclass_params__.frozen)
+check("order is int", isinstance(step.order, int))
+check("title is non-empty", bool(step.title))
+check("description is non-empty", bool(step.description))
+check("depends_on is tuple", isinstance(step.depends_on, tuple))
+try:
+    step.order = 2
+    check("RepairStep is immutable", False)
+except (AttributeError, TypeError):
+    check("RepairStep is immutable (raises on assignment)", True)
+
+
+print("\n[76] RepairPlan — immutable model")
+plan = RepairPlan(
+    title="Repair Plan: Syntax Error",
+    summary="Fix syntax error in core/router.py.",
+    confidence=0.95,
+    steps=(step,),
+    validation_steps=("Run compileall", "Run pytest"),
+    estimated_risk=RepairRisk.LOW,
+    estimated_effort=RepairEffort.MINOR,
+    supporting_recommendations=("Investigate syntax error",),
+)
+check("RepairPlan instantiates", plan is not None)
+check("RepairPlan is frozen", plan.__dataclass_params__.frozen)
+check("steps is tuple", isinstance(plan.steps, tuple))
+check("validation_steps is tuple", isinstance(plan.validation_steps, tuple))
+check("estimated_risk is RepairRisk", isinstance(plan.estimated_risk, RepairRisk))
+check("estimated_effort is RepairEffort", isinstance(plan.estimated_effort, RepairEffort))
+check("step_count correct", plan.step_count == 1)
+check("has_plan True when steps present", plan.has_plan)
+check("confidence is float", isinstance(plan.confidence, float))
+
+empty_plan = RepairPlan(title="No Repair Plan", summary="none",
+                        confidence=0.0, steps=(), validation_steps=(),
+                        estimated_risk=RepairRisk.LOW,
+                        estimated_effort=RepairEffort.MINOR,
+                        supporting_recommendations=())
+check("has_plan False when no steps", not empty_plan.has_plan)
+
+try:
+    plan.title = "hacked"
+    check("RepairPlan is immutable", False)
+except (AttributeError, TypeError):
+    check("RepairPlan is immutable (raises on assignment)", True)
+
+
+print("\n[77] RepairPlan.report() — human-readable")
+report_text = plan.report()
+check("report non-empty", len(report_text) > 50)
+check("report contains 'Repair Plan'", "Repair Plan" in report_text)
+check("report contains risk", "Low" in report_text)
+check("report contains effort", "Minor" in report_text)
+check("report contains step", "Review the syntax error" in report_text)
+check("report contains Chief approval note", "Chief approval" in report_text)
+check("report contains validation steps", "compileall" in report_text)
+print(f"    Report length: {len(report_text)} chars")
+
+
+print("\n[78] RepairPlanner — construction")
+planner = RepairPlanner()
+check("planner instantiates", planner is not None)
+for method in ["write","modify","patch","fix","repair","execute","generate","apply"]:
+    check(f"planner has no .{method}()", not hasattr(planner, method))
+
+
+print("\n[79] exit_code=0 → empty plan")
+ev = make_ev_plan(exit_code=0)
+rc = make_rc_plan()
+corr = make_corr_plan()
+result = planner.plan(ev, FailureType.UNKNOWN, rc, corr, ())
+check("exit_code=0 → no steps", not result.has_plan)
+check("exit_code=0 → confidence=0.0", result.confidence == 0.0)
+
+
+print("\n[80] SyntaxError → repair plan with steps")
+ev = make_ev_plan("SyntaxError", ("core/router.py",), (77,))
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR, 0.97)
+corr = make_corr_plan()
+recs = (make_rec(RecommendationCategory.INVESTIGATE_SYNTAX,
+                 RecommendationPriority.HIGH, 0.95, "Investigate syntax error"),)
+result = planner.plan(ev, FailureType.COMPILE, rc, corr, recs)
+check("SyntaxError produces steps", result.has_plan)
+check("at least 2 steps", result.step_count >= 2)
+check("title mentions Syntax Error", "Syntax Error" in result.title)
+check("risk is LOW for single syntax error", result.estimated_risk == RepairRisk.LOW)
+check("steps are ordered",
+      all(result.steps[i].order == i+1 for i in range(len(result.steps))))
+check("supporting_recommendations set",
+      len(result.supporting_recommendations) > 0)
+print(f"    Steps: {result.step_count} | Risk: {result.estimated_risk.value} | "
+      f"Effort: {result.estimated_effort.value}")
+for s in result.steps:
+    print(f"      {s.order}. {s.title}")
+
+
+print("\n[81] Repeated failure → CRITICAL risk")
+ev = make_ev_plan("SyntaxError", ("core/router.py",))
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr_plan(CorrelationType.REPEATED_FAILURE,
+                      files=("core/router.py",),
+                      failures=("Previous error",))
+recs = (make_rec(RecommendationCategory.MONITOR_REPEATED_FAILURES,
+                 RecommendationPriority.CRITICAL, 0.97,
+                 "Address recurring failure pattern"),)
+result = planner.plan(ev, FailureType.COMPILE, rc, corr, recs)
+check("repeated failure → CRITICAL risk", result.estimated_risk == RepairRisk.CRITICAL)
+check("plan includes commit review step",
+      any("commit" in s.title.lower() or "recurring" in s.description.lower()
+          for s in result.steps))
+check("effort MODERATE or higher for repeated",
+      result.estimated_effort in (RepairEffort.MODERATE, RepairEffort.LARGE,
+                                   RepairEffort.MAJOR))
+print(f"    Risk: {result.estimated_risk.value} | Effort: {result.estimated_effort.value}")
+for s in result.steps:
+    print(f"      {s.order}. {s.title}")
+
+
+print("\n[82] SAME_COMMIT → includes commit review step")
+ev = make_ev_plan("SyntaxError")
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr_plan(CorrelationType.SAME_COMMIT, commits=("abc1234",))
+recs = (make_rec(RecommendationCategory.REVIEW_RECENT_COMMITS,
+                 RecommendationPriority.HIGH, 0.95, "Review associated commit"),)
+result = planner.plan(ev, FailureType.COMPILE, rc, corr, recs)
+check("SAME_COMMIT → commit review step",
+      any("commit" in s.title.lower() for s in result.steps))
+check("risk HIGH for SAME_COMMIT", result.estimated_risk == RepairRisk.HIGH)
+
+
+print("\n[83] MissingModule → appropriate steps")
+ev = make_ev_plan("ModuleNotFoundError")
+rc = make_rc_plan(RootCauseCategory.MISSING_MODULE, 0.97)
+corr = make_corr_plan()
+recs = (make_rec(RecommendationCategory.VERIFY_DEPENDENCIES,
+                 RecommendationPriority.HIGH, 0.95, "Verify module dependencies"),)
+result = planner.plan(ev, FailureType.IMPORT, rc, corr, recs)
+check("MissingModule plan has steps", result.has_plan)
+check("plan includes module verification",
+      any("module" in s.title.lower() or "install" in s.title.lower()
+          for s in result.steps))
+print(f"    Steps: {[s.title for s in result.steps]}")
+
+
+print("\n[84] Validation steps always present")
+ev = make_ev_plan("SyntaxError", ("core/router.py",))
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR)
+corr = make_corr_plan()
+recs = ()
+result = planner.plan(ev, FailureType.COMPILE, rc, corr, recs)
+check("validation_steps non-empty", len(result.validation_steps) > 0)
+check("compileall in validation", any("compileall" in v for v in result.validation_steps))
+check("pytest in validation", any("pytest" in v for v in result.validation_steps))
+
+
+print("\n[85] Last step is always validation")
+check("last step title mentions validation",
+      "validat" in result.steps[-1].title.lower() or
+      "validat" in result.steps[-1].description.lower())
+
+
+print("\n[86] Steps have correct depends_on")
+ev = make_ev_plan("SyntaxError", ("core/router.py",), (77,))
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR, 0.97)
+corr = make_corr_plan()
+recs = (make_rec(),)
+result = planner.plan(ev, FailureType.COMPILE, rc, corr, recs)
+check("first step has no dependencies", result.steps[0].depends_on == ())
+if len(result.steps) > 1:
+    check("later steps have dependencies",
+          any(len(s.depends_on) > 0 for s in result.steps[1:]))
+
+
+print("\n[87] Confidence derived from root cause + recommendations")
+ev = make_ev_plan("SyntaxError")
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR, 0.97)
+recs = (make_rec(confidence=0.95),)
+result = planner.plan(ev, FailureType.COMPILE, rc, make_corr_plan(), recs)
+check("confidence is float", isinstance(result.confidence, float))
+check("confidence > 0 for known root cause", result.confidence > 0.0)
+check("confidence <= 1.0", result.confidence <= 1.0)
+
+
+print("\n[88] UNKNOWN root cause → empty plan")
+ev = make_ev_plan(exit_code=1)
+rc = make_rc_plan(RootCauseCategory.UNKNOWN, 0.0)
+result = planner.plan(ev, FailureType.UNKNOWN, rc, make_corr_plan(), ())
+check("UNKNOWN → no actionable plan", not result.has_plan)
+
+
+print("\n[89] Determinism")
+ev = make_ev_plan("SyntaxError", ("core/router.py",), (77,))
+rc = make_rc_plan(RootCauseCategory.SYNTAX_ERROR, 0.97)
+recs = (make_rec(),)
+results = set()
+for _ in range(20):
+    p = planner.plan(ev, FailureType.COMPILE, rc, make_corr_plan(), recs)
+    results.add(tuple((s.order, s.title) for s in p.steps))
+check("repair planning is deterministic (20 runs)", len(results) == 1)
+
+
+print("\n[90] EngineeringDebugger Sprint 006 integration")
+history_s6 = [
+    FR3(failure_type=FailureType.COMPILE,
+        root_cause_category=RootCauseCategory.SYNTAX_ERROR,
+        error_type="SyntaxError",
+        failing_files=("core/router.py",),
+        description="Previous router syntax error"),
+]
+debugger_s6 = EngineeringDebugger(history=history_s6)
+rep_s6 = debugger_s6.analyse(
+    command="python -m compileall core/",
+    exit_code=1, stdout="",
+    stderr='SyntaxError: expected \':\'\n  File "core/router.py", line 77',
+)
+check("DebugReport has repair_plan field", hasattr(rep_s6, "repair_plan"))
+check("repair_plan is a RepairPlan", isinstance(rep_s6.repair_plan, RepairPlan))
+check("repair_plan has steps for real failure", rep_s6.repair_plan.has_plan)
+check("risk is set", isinstance(rep_s6.repair_plan.estimated_risk, RepairRisk))
+check("effort is set", isinstance(rep_s6.repair_plan.estimated_effort, RepairEffort))
+check("steps are ordered",
+      all(rep_s6.repair_plan.steps[i].order == i+1
+          for i in range(len(rep_s6.repair_plan.steps))))
+print(f"    Plan: {rep_s6.repair_plan.title}")
+print(f"    Risk: {rep_s6.repair_plan.estimated_risk.value} | "
+      f"Effort: {rep_s6.repair_plan.estimated_effort.value} | "
+      f"Steps: {rep_s6.repair_plan.step_count}")
+for s in rep_s6.repair_plan.steps:
+    print(f"      {s.order}. {s.title}")
+
+debugger_ok = EngineeringDebugger()
+rep_ok = debugger_ok.analyse("cmd", 0, "all good", "")
+check("exit_code=0 → no repair plan steps", not rep_ok.repair_plan.has_plan)
+
+
+print("\n[91] DebugReport.report() includes repair plan")
+report_text = rep_s6.report()
+check("report contains 'Repair Plan' section", "Repair Plan" in report_text)
+check("report contains risk level",
+      rep_s6.repair_plan.estimated_risk.value in report_text)
+check("report contains step titles",
+      any(s.title[:15] in report_text for s in rep_s6.repair_plan.steps))
+check("report requires Chief approval", "Chief approval" in report_text)
+print(f"    Full report length: {len(report_text)} chars")
+for line in report_text.splitlines():
+    if "Repair Plan" in line or "Risk:" in line or "Steps:" in line:
+        print(f"    {line.strip()}")
+
+
+print(f"\n{'='*60}")
+print(f"GENESIS-017 SPRINT 006: ALL {passed} CHECKS PASS")
+print(f"{'='*60}")
+print(f"\nGenesis-017 COMPLETE.")
+print(f"\nJarvis can now conduct a complete engineering investigation:")
+print(f"  1. Collect evidence     (FailureEvidence)")
+print(f"  2. Classify failure     (FailureType)")
+print(f"  3. Determine root cause (RootCause)")
+print(f"  4. Correlate history    (CorrelationRecord)")
+print(f"  5. Recommend actions    (Recommendation)")
+print(f"  6. Plan the repair      (RepairPlan)")
+print(f"  7. Report to Chief      (DebugReport)")
+print(f"\nThe pipeline stops before execution.")
+print(f"Execution belongs to a future Genesis.")
+print(f"\nAwaiting Chief approval. 🏁")
