@@ -1,14 +1,11 @@
 """
-Genesis-018 Sprint 001 — Engineering Coordinator
-Central orchestrator for the Jarvis engineering pipeline.
+Genesis-018 Sprint 002 — Engineering Coordinator
+Central orchestrator with full session and workflow management.
 
-Responsibilities:
-  - Receive an EngineeringRequest
-  - Invoke Planning → Guardrails → Validation → (Debugging if needed)
-  - Return one unified EngineeringResult
-
-The coordinator performs NO engineering work itself.
-It delegates to existing Genesis subsystems only.
+Sprint 001: coordinate(), observer system, subsystem delegation
+Sprint 002: EngineeringSession creation, EngineeringStage tracking,
+            CoordinatorEventLog recording, stage duration measurement,
+            complete execution timeline on EngineeringResult
 """
 
 from __future__ import annotations
@@ -16,38 +13,23 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from .models import EngineeringRequest, EngineeringResult, EngineeringStatus
+from .models import (
+    CoordinatorEventLog,
+    EngineeringRequest,
+    EngineeringResult,
+    EngineeringSession,
+    EngineeringStage,
+    EngineeringStatus,
+    SessionEvent,
+)
 
 
 # ---------------------------------------------------------------------------
-# Internal pipeline step helpers
-# ---------------------------------------------------------------------------
-
-class _PipelineStep:
-    """
-    Lightweight wrapper that binds a named step to a callable.
-    Used internally by EngineeringCoordinator to build the pipeline.
-    """
-
-    def __init__(self, name: str, fn: Callable[..., Any]) -> None:
-        self.name = name
-        self.fn   = fn
-
-    def __repr__(self) -> str:
-        return f"_PipelineStep(name={self.name!r})"
-
-
-# ---------------------------------------------------------------------------
-# CoordinatorConfig
+# CoordinatorConfig  (Sprint 001 — unchanged)
 # ---------------------------------------------------------------------------
 
 class CoordinatorConfig:
-    """
-    Immutable configuration for the EngineeringCoordinator.
-
-    Allows callers to toggle which pipeline stages are active
-    without modifying the coordinator itself.
-    """
+    """Immutable configuration for the EngineeringCoordinator."""
 
     def __init__(
         self,
@@ -85,13 +67,13 @@ class CoordinatorConfig:
 
 
 # ---------------------------------------------------------------------------
-# CoordinatorEvent
+# CoordinatorEvent  (Sprint 001 — unchanged, distinct from SessionEvent)
 # ---------------------------------------------------------------------------
 
 class CoordinatorEvent:
     """
-    Represents a single event emitted during coordinator execution.
-    Observers can subscribe to receive these for logging or monitoring.
+    External observer event emitted during coordinator execution.
+    Distinct from SessionEvent (which is the internal session log entry).
     """
 
     def __init__(self, stage: str, status: EngineeringStatus, detail: str = "") -> None:
@@ -117,42 +99,34 @@ class EngineeringCoordinator:
     """
     Central orchestrator for the Jarvis engineering pipeline.
 
-    Connects existing Genesis engineering subsystems in the correct order:
-      Request → Planning → Guardrails → Validation → (Debugging) → Result
+    Sprint 001: delegates to subsystems, emits observer events,
+                returns EngineeringResult.
 
-    Design constraints (Genesis-018 Sprint 001):
-      - Must NOT perform engineering work itself.
-      - Must NOT invoke AI providers.
-      - Must NOT modify repositories.
-      - Must NOT execute repairs.
-      - Must NOT perform autonomous engineering decisions.
-      - Delegates all work to injected subsystem adapters.
+    Sprint 002: creates an EngineeringSession per request, advances
+                EngineeringStage at every pipeline transition, records
+                all events in a CoordinatorEventLog, measures stage
+                durations, and attaches the complete session + timeline
+                to EngineeringResult.
+
+    Design constraints (unchanged):
+        - Must NOT perform engineering work.
+        - Must NOT invoke AI providers.
+        - Must NOT modify repositories.
+        - Must NOT execute repairs.
+        - Delegates all work to injected subsystem adapters.
     """
 
-    VERSION = "018.001"
+    VERSION = "018.002"
 
     def __init__(
         self,
         *,
-        planner:   Optional[Any] = None,
-        guardrails: Optional[Any] = None,
+        planner:     Optional[Any] = None,
+        guardrails:  Optional[Any] = None,
         test_runner: Optional[Any] = None,
-        debugger:   Optional[Any] = None,
-        config:     Optional[CoordinatorConfig] = None,
+        debugger:    Optional[Any] = None,
+        config:      Optional[CoordinatorConfig] = None,
     ) -> None:
-        """
-        Initialise the coordinator with optional subsystem adapters.
-
-        All adapters are optional at construction time to support
-        incremental integration and testing with stubs.
-
-        Args:
-            planner:     Engineering Planner adapter (Genesis-016).
-            guardrails:  Engineering Guardrails adapter (Genesis-016).
-            test_runner: Engineering Test Runner adapter (Genesis-016).
-            debugger:    Engineering Debugger adapter (Genesis-017).
-            config:      Optional coordinator configuration.
-        """
         self._planner     = planner
         self._guardrails  = guardrails
         self._test_runner = test_runner
@@ -161,18 +135,16 @@ class EngineeringCoordinator:
         self._observers:  List[Callable[[CoordinatorEvent], None]] = []
 
     # ------------------------------------------------------------------
-    # Observer / event system
+    # Observer / event system  (Sprint 001 — unchanged)
     # ------------------------------------------------------------------
 
     def add_observer(self, fn: Callable[[CoordinatorEvent], None]) -> None:
-        """Register a callable that receives CoordinatorEvents during execution."""
         if not callable(fn):
             raise TypeError(f"Observer must be callable, got {type(fn).__name__}")
         if fn not in self._observers:
             self._observers.append(fn)
 
     def remove_observer(self, fn: Callable[[CoordinatorEvent], None]) -> None:
-        """Remove a previously registered observer."""
         self._observers = [o for o in self._observers if o is not fn]
 
     @property
@@ -180,17 +152,15 @@ class EngineeringCoordinator:
         return len(self._observers)
 
     def _emit(self, stage: str, status: EngineeringStatus, detail: str = "") -> None:
-        """Emit an event to all registered observers."""
         event = CoordinatorEvent(stage=stage, status=status, detail=detail)
         for observer in self._observers:
             try:
                 observer(event)
             except Exception:
-                # Observers must never crash the pipeline.
                 pass
 
     # ------------------------------------------------------------------
-    # Subsystem accessors
+    # Subsystem accessors  (Sprint 001 — unchanged)
     # ------------------------------------------------------------------
 
     @property
@@ -214,33 +184,30 @@ class EngineeringCoordinator:
         return self._config
 
     def describe(self) -> Dict[str, Any]:
-        """Return a summary of the coordinator's current configuration."""
         return {
-            "version":        self.VERSION,
-            "has_planner":    self.has_planner,
-            "has_guardrails": self.has_guardrails,
+            "version":         self.VERSION,
+            "has_planner":     self.has_planner,
+            "has_guardrails":  self.has_guardrails,
             "has_test_runner": self.has_test_runner,
-            "has_debugger":   self.has_debugger,
-            "config":         repr(self._config),
-            "observer_count": self.observer_count,
+            "has_debugger":    self.has_debugger,
+            "config":          repr(self._config),
+            "observer_count":  self.observer_count,
         }
 
     # ------------------------------------------------------------------
-    # Core pipeline
+    # Core pipeline  (Sprint 002 — session-aware)
     # ------------------------------------------------------------------
 
     def coordinate(self, request: EngineeringRequest) -> EngineeringResult:
         """
         Execute the full engineering pipeline for the given request.
 
-        Pipeline:
-            PENDING → PLANNING → VALIDATING → (DEBUGGING) → COMPLETE | FAILED
-
-        Args:
-            request: An immutable EngineeringRequest to process.
-
-        Returns:
-            An immutable EngineeringResult with the unified outcome.
+        Sprint 002 enhancements:
+          - Creates an EngineeringSession at the start.
+          - Advances EngineeringStage at every pipeline transition.
+          - Records every event with timestamps in CoordinatorEventLog.
+          - Measures per-stage wall-clock durations.
+          - Attaches complete session + timeline to EngineeringResult.
         """
         if not isinstance(request, EngineeringRequest):
             raise TypeError(
@@ -248,9 +215,16 @@ class EngineeringCoordinator:
                 f"got {type(request).__name__}"
             )
 
-        start_ms = int(time.monotonic() * 1000)
+        # ── Create session ─────────────────────────────────────────────
+        session = EngineeringSession.create(request)
+        session.advance_to(
+            EngineeringStage.INITIALISING,
+            "Session created — pipeline starting",
+        )
 
-        # Accumulated state across pipeline stages
+        start_ms = session.started_at
+
+        # Accumulated state
         plan:         Optional[str] = None
         validation:   Optional[str] = None
         debug_report: Optional[str] = None
@@ -262,13 +236,23 @@ class EngineeringCoordinator:
 
         # ── Stage 1: Planning ──────────────────────────────────────────
         if self._config.enable_planning:
+            stage_start = int(time.monotonic() * 1000)
+            session.advance_to(EngineeringStage.PLANNING, "Planning stage started")
             self._emit("planning", EngineeringStatus.PLANNING, "Invoking planner")
+
             plan, planning_warnings, planning_errors = self._run_planning(request)
             warnings.extend(planning_warnings)
             errors.extend(planning_errors)
 
+            stage_dur = int(time.monotonic() * 1000) - stage_start
             if planning_errors:
-                return self._fail(
+                session.advance_to(
+                    EngineeringStage.FAILED,
+                    "Planning stage failed",
+                    duration_ms=stage_dur,
+                )
+                return self._finalise(
+                    session=session,
                     status=EngineeringStatus.FAILED,
                     plan=plan,
                     errors=errors,
@@ -276,20 +260,35 @@ class EngineeringCoordinator:
                     start_ms=start_ms,
                     reason="Planning stage failed",
                 )
+            session.advance_to(
+                EngineeringStage.PLANNING,
+                "Planning stage completed",
+                duration_ms=stage_dur,
+            )
         else:
             warnings.append("Planning stage disabled by config")
 
         # ── Stage 2: Guardrails ────────────────────────────────────────
         if self._config.enable_guardrails:
+            stage_start = int(time.monotonic() * 1000)
+            session.advance_to(EngineeringStage.GUARDRAILS, "Guardrails stage started")
             self._emit("guardrails", EngineeringStatus.VALIDATING, "Checking guardrails")
+
             guardrail_pass, guardrail_warnings, guardrail_errors = self._run_guardrails(
                 request, plan
             )
             warnings.extend(guardrail_warnings)
             errors.extend(guardrail_errors)
 
+            stage_dur = int(time.monotonic() * 1000) - stage_start
             if not guardrail_pass:
-                return self._fail(
+                session.advance_to(
+                    EngineeringStage.FAILED,
+                    "Guardrails blocked the request",
+                    duration_ms=stage_dur,
+                )
+                return self._finalise(
+                    session=session,
                     status=EngineeringStatus.FAILED,
                     plan=plan,
                     errors=errors,
@@ -297,18 +296,34 @@ class EngineeringCoordinator:
                     start_ms=start_ms,
                     reason="Guardrails blocked the request",
                 )
+            session.advance_to(
+                EngineeringStage.GUARDRAILS,
+                "Guardrails passed",
+                duration_ms=stage_dur,
+            )
         else:
             warnings.append("Guardrails stage disabled by config")
 
-        # ── Stage 3: Validation (Testing) ─────────────────────────────
+        # ── Stage 3: Validation ────────────────────────────────────────
         validation_pass = True
         if self._config.enable_validation:
+            stage_start = int(time.monotonic() * 1000)
+            session.advance_to(EngineeringStage.VALIDATION, "Validation stage started")
             self._emit("validation", EngineeringStatus.VALIDATING, "Running validation")
+
             validation_pass, validation, val_warnings, val_errors = self._run_validation(
                 request, plan
             )
             warnings.extend(val_warnings)
             errors.extend(val_errors)
+
+            stage_dur = int(time.monotonic() * 1000) - stage_start
+            outcome = "Validation passed" if validation_pass else "Validation failed"
+            session.advance_to(
+                EngineeringStage.VALIDATION,
+                outcome,
+                duration_ms=stage_dur,
+            )
         else:
             warnings.append("Validation stage disabled by config")
             validation = "Validation skipped by config"
@@ -316,6 +331,11 @@ class EngineeringCoordinator:
         # ── Stage 4: Debugging (if validation failed) ──────────────────
         if not validation_pass:
             if self._config.enable_debugging and self.has_debugger:
+                stage_start = int(time.monotonic() * 1000)
+                session.advance_to(
+                    EngineeringStage.DEBUGGING,
+                    "Validation failed — invoking debugger",
+                )
                 self._emit(
                     "debugging", EngineeringStatus.DEBUGGING,
                     "Validation failed — invoking debugger"
@@ -325,69 +345,76 @@ class EngineeringCoordinator:
                 )
                 warnings.extend(debug_warnings)
                 errors.extend(debug_errors)
+
+                stage_dur = int(time.monotonic() * 1000) - stage_start
+                session.advance_to(
+                    EngineeringStage.DEBUGGING,
+                    "Debugging complete",
+                    duration_ms=stage_dur,
+                )
+
+                # Repair planning stage
+                if repair_plan is not None:
+                    session.advance_to(
+                        EngineeringStage.REPAIR_PLANNING,
+                        "Repair plan produced",
+                        detail=repair_plan[:80] if len(repair_plan) > 80 else repair_plan,
+                    )
             else:
                 errors.append(
                     "Validation failed and no debugger is available "
                     "or debugging is disabled by config"
                 )
 
-            # After debugging the status is still FAILED unless the
-            # repair plan is populated. The coordinator does NOT
-            # execute repairs — it only produces the plan.
-            end_ms = int(time.monotonic() * 1000)
-            self._emit(
-                "coordinator", EngineeringStatus.FAILED,
-                "Pipeline complete — validation failure, repair plan produced"
+            session.advance_to(
+                EngineeringStage.FAILED,
+                "Pipeline failed — validation could not be resolved",
             )
-            return EngineeringResult(
+            return self._finalise(
+                session=session,
                 status=EngineeringStatus.FAILED,
                 plan=plan,
                 validation=validation,
                 debug_report=debug_report,
                 repair_plan=repair_plan,
-                completed=False,
-                duration_ms=end_ms - start_ms,
                 errors=errors,
                 warnings=warnings,
+                start_ms=start_ms,
+                completed=False,
             )
 
         # ── Stage 5: Complete ──────────────────────────────────────────
-        end_ms = int(time.monotonic() * 1000)
+        session.advance_to(EngineeringStage.COMPLETE, "Pipeline complete — all stages passed")
         self._emit(
             "coordinator", EngineeringStatus.COMPLETE,
             "Pipeline complete — all stages passed"
         )
-        return EngineeringResult(
+        return self._finalise(
+            session=session,
             status=EngineeringStatus.COMPLETE,
             plan=plan,
             validation=validation,
-            debug_report=None,
-            repair_plan=None,
-            completed=True,
-            duration_ms=end_ms - start_ms,
             errors=errors,
             warnings=warnings,
+            start_ms=start_ms,
+            completed=True,
         )
 
     # ------------------------------------------------------------------
-    # Private stage runners
+    # Private stage runners  (Sprint 001 — unchanged)
     # ------------------------------------------------------------------
 
     def _run_planning(
         self, request: EngineeringRequest
     ) -> tuple[Optional[str], List[str], List[str]]:
-        """Delegate to the planner subsystem. Returns (plan, warnings, errors)."""
         warnings: List[str] = []
         errors:   List[str] = []
-
         if not self.has_planner:
             warnings.append("No planner registered — planning stage skipped")
             return None, warnings, errors
-
         try:
             result = self._planner.plan(request.request, context=request.context)
-            plan   = str(result) if result is not None else None
-            return plan, warnings, errors
+            return str(result) if result is not None else None, warnings, errors
         except Exception as exc:
             errors.append(f"Planner raised an exception: {exc}")
             return None, warnings, errors
@@ -395,14 +422,11 @@ class EngineeringCoordinator:
     def _run_guardrails(
         self, request: EngineeringRequest, plan: Optional[str]
     ) -> tuple[bool, List[str], List[str]]:
-        """Delegate to the guardrails subsystem. Returns (passed, warnings, errors)."""
         warnings: List[str] = []
         errors:   List[str] = []
-
         if not self.has_guardrails:
             warnings.append("No guardrails registered — guardrails stage skipped")
             return True, warnings, errors
-
         try:
             passed = self._guardrails.check(request.request, plan=plan)
             if not passed:
@@ -415,15 +439,12 @@ class EngineeringCoordinator:
     def _run_validation(
         self, request: EngineeringRequest, plan: Optional[str]
     ) -> tuple[bool, Optional[str], List[str], List[str]]:
-        """Delegate to the test runner. Returns (passed, validation_output, warnings, errors)."""
         warnings:   List[str] = []
         errors:     List[str] = []
         validation: Optional[str] = None
-
         if not self.has_test_runner:
             warnings.append("No test runner registered — validation stage skipped")
             return True, "No test runner — validation skipped", warnings, errors
-
         try:
             result     = self._test_runner.run(request.request, plan=plan)
             passed     = bool(getattr(result, "passed", True))
@@ -436,16 +457,13 @@ class EngineeringCoordinator:
     def _run_debugging(
         self, request: EngineeringRequest, validation: Optional[str]
     ) -> tuple[Optional[str], Optional[str], List[str], List[str]]:
-        """Delegate to the debugger subsystem. Returns (debug_report, repair_plan, warnings, errors)."""
         warnings:     List[str] = []
         errors:       List[str] = []
         debug_report: Optional[str] = None
         repair_plan:  Optional[str] = None
-
         if not self.has_debugger:
             warnings.append("No debugger registered — debugging stage skipped")
             return None, None, warnings, errors
-
         try:
             result       = self._debugger.debug(
                 request.request, failure_context=validation
@@ -458,34 +476,54 @@ class EngineeringCoordinator:
             return None, None, warnings, errors
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Finalise helper  (Sprint 002 — replaces _fail, handles session)
     # ------------------------------------------------------------------
 
-    def _fail(
+    def _finalise(
         self,
         *,
-        status:   EngineeringStatus,
-        plan:     Optional[str],
-        errors:   List[str],
-        warnings: List[str],
-        start_ms: int,
-        reason:   str,
+        session:      EngineeringSession,
+        status:       EngineeringStatus,
+        start_ms:     int,
+        errors:       List[str],
+        warnings:     List[str],
+        plan:         Optional[str] = None,
+        validation:   Optional[str] = None,
+        debug_report: Optional[str] = None,
+        repair_plan:  Optional[str] = None,
+        completed:    bool          = False,
+        reason:       Optional[str] = None,
     ) -> EngineeringResult:
-        """Construct a failed EngineeringResult."""
-        end_ms = int(time.monotonic() * 1000)
-        errors.append(reason)
-        self._emit("coordinator", EngineeringStatus.FAILED, reason)
-        return EngineeringResult(
+        """Build the final EngineeringResult, close the session, return."""
+        if reason:
+            errors.append(reason)
+            self._emit("coordinator", EngineeringStatus.FAILED, reason)
+
+        end_ms      = int(time.monotonic() * 1000)
+        duration_ms = end_ms - start_ms
+
+        result = EngineeringResult(
             status=status,
             plan=plan,
-            validation=None,
-            debug_report=None,
-            repair_plan=None,
-            completed=False,
-            duration_ms=end_ms - start_ms,
+            validation=validation,
+            debug_report=debug_report,
+            repair_plan=repair_plan,
+            completed=completed,
+            duration_ms=duration_ms,
             errors=errors,
             warnings=warnings,
+            # Sprint 002 fields
+            session=session,
+            timeline=session.events.timeline(),
+            stage_durations=session.stage_durations(),
         )
+
+        session.complete(result)
+        return result
+
+    # ------------------------------------------------------------------
+    # Repr
+    # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
         return (

@@ -1,17 +1,23 @@
 """
-Genesis-018 Sprint 001 — Engineering Coordinator Models
+Genesis-018 Sprint 002 — Engineering Coordinator Models
 Immutable data models for the Engineering Coordinator pipeline.
+
+Sprint 001: EngineeringStatus, EngineeringRequest, EngineeringResult
+Sprint 002: EngineeringStage, CoordinatorEventLog, EngineeringSession
+            + EngineeringResult expanded (backwards compatible)
 """
 
 from __future__ import annotations
 
+import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
-# EngineeringStatus
+# EngineeringStatus  (Sprint 001 — unchanged)
 # ---------------------------------------------------------------------------
 
 class EngineeringStatus(Enum):
@@ -39,7 +45,42 @@ class EngineeringStatus(Enum):
 
 
 # ---------------------------------------------------------------------------
-# EngineeringRequest
+# EngineeringStage  (Sprint 002 — new)
+# ---------------------------------------------------------------------------
+
+class EngineeringStage(Enum):
+    """
+    Fine-grained pipeline stages tracked inside an EngineeringSession.
+
+    Ordered to reflect natural pipeline progression:
+        INITIALISING → PLANNING → GUARDRAILS → VALIDATION
+            → DEBUGGING → REPAIR_PLANNING → COMPLETE | FAILED
+    """
+
+    INITIALISING   = "INITIALISING"
+    PLANNING       = "PLANNING"
+    GUARDRAILS     = "GUARDRAILS"
+    VALIDATION     = "VALIDATION"
+    DEBUGGING      = "DEBUGGING"
+    REPAIR_PLANNING = "REPAIR_PLANNING"
+    COMPLETE       = "COMPLETE"
+    FAILED         = "FAILED"
+
+    def is_terminal(self) -> bool:
+        """Return True if this stage ends the session."""
+        return self in (EngineeringStage.COMPLETE, EngineeringStage.FAILED)
+
+    def is_active(self) -> bool:
+        """Return True if this stage represents ongoing work."""
+        return not self.is_terminal()
+
+    def is_failure_path(self) -> bool:
+        """Return True if this stage only appears on the failure path."""
+        return self in (EngineeringStage.DEBUGGING, EngineeringStage.REPAIR_PLANNING)
+
+
+# ---------------------------------------------------------------------------
+# EngineeringRequest  (Sprint 001 — unchanged)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -47,18 +88,14 @@ class EngineeringRequest:
     """
     Immutable model representing a single engineering request submitted
     to the EngineeringCoordinator.
-
-    Callers construct this once and pass it to the coordinator.
-    The coordinator must not mutate it.
     """
 
     request:  str
-    context:  str                    = ""
-    priority: int                    = 0          # Higher = more urgent
-    metadata: Dict[str, Any]         = field(default_factory=dict)
+    context:  str            = ""
+    priority: int            = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Validate types on construction so bad inputs fail fast.
         if not isinstance(self.request, str):
             raise TypeError(
                 f"EngineeringRequest.request must be str, "
@@ -84,19 +121,13 @@ class EngineeringRequest:
 
     @property
     def has_context(self) -> bool:
-        """Return True if a non-empty context was provided."""
         return bool(self.context.strip())
 
     @property
     def is_high_priority(self) -> bool:
-        """Return True if priority is above the default baseline."""
         return self.priority > 0
 
     def with_metadata(self, **kwargs: Any) -> "EngineeringRequest":
-        """
-        Return a new EngineeringRequest with additional metadata merged in.
-        Original request is unchanged (immutable).
-        """
         merged = {**self.metadata, **kwargs}
         return EngineeringRequest(
             request=self.request,
@@ -117,27 +148,329 @@ class EngineeringRequest:
 
 
 # ---------------------------------------------------------------------------
-# EngineeringResult
+# SessionEvent  (Sprint 002 — new, internal building block)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SessionEvent:
+    """
+    A single immutable event recorded in a CoordinatorEventLog.
+
+    Once created, a SessionEvent cannot be modified.
+    """
+
+    stage:       EngineeringStage
+    description: str
+    timestamp_ms: int                    # monotonic milliseconds since epoch
+    detail:      str                     = ""
+    duration_ms: Optional[int]           = None   # set when stage completes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.stage, EngineeringStage):
+            raise TypeError(
+                f"SessionEvent.stage must be EngineeringStage, "
+                f"got {type(self.stage).__name__}"
+            )
+        if not isinstance(self.description, str) or not self.description.strip():
+            raise ValueError("SessionEvent.description must be a non-blank string")
+        if not isinstance(self.timestamp_ms, int):
+            raise TypeError(
+                f"SessionEvent.timestamp_ms must be int, "
+                f"got {type(self.timestamp_ms).__name__}"
+            )
+
+    @property
+    def has_duration(self) -> bool:
+        return self.duration_ms is not None
+
+    def __repr__(self) -> str:
+        dur = f", {self.duration_ms}ms" if self.has_duration else ""
+        return (
+            f"SessionEvent("
+            f"stage={self.stage.value}, "
+            f"description={self.description!r}"
+            f"{dur}"
+            f")"
+        )
+
+
+# ---------------------------------------------------------------------------
+# CoordinatorEventLog  (Sprint 002 — new)
+# ---------------------------------------------------------------------------
+
+class CoordinatorEventLog:
+    """
+    Chronological, append-only log of events recorded during an
+    EngineeringSession.
+
+    Events are immutable once recorded.
+    The log itself accepts new entries during pipeline execution
+    but is sealed when the session completes.
+    """
+
+    def __init__(self) -> None:
+        self._events: List[SessionEvent] = []
+        self._sealed: bool = False
+
+    # ------------------------------------------------------------------
+    # Recording
+    # ------------------------------------------------------------------
+
+    def record(
+        self,
+        stage:       EngineeringStage,
+        description: str,
+        *,
+        detail:      str          = "",
+        duration_ms: Optional[int] = None,
+    ) -> SessionEvent:
+        """
+        Append a new immutable event to the log.
+
+        Raises RuntimeError if the log has been sealed.
+        """
+        if self._sealed:
+            raise RuntimeError(
+                "CoordinatorEventLog is sealed — no further events may be recorded"
+            )
+        event = SessionEvent(
+            stage=stage,
+            description=description,
+            timestamp_ms=int(time.monotonic() * 1000),
+            detail=detail,
+            duration_ms=duration_ms,
+        )
+        self._events.append(event)
+        return event
+
+    def seal(self) -> None:
+        """Prevent any further events from being recorded."""
+        self._sealed = True
+
+    # ------------------------------------------------------------------
+    # Inspection
+    # ------------------------------------------------------------------
+
+    @property
+    def is_sealed(self) -> bool:
+        return self._sealed
+
+    @property
+    def event_count(self) -> int:
+        return len(self._events)
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self._events) == 0
+
+    def events(self) -> List[SessionEvent]:
+        """Return a snapshot of all recorded events (read-only copy)."""
+        return list(self._events)
+
+    def events_for_stage(self, stage: EngineeringStage) -> List[SessionEvent]:
+        """Return all events recorded for a specific stage."""
+        return [e for e in self._events if e.stage == stage]
+
+    def stages_visited(self) -> List[EngineeringStage]:
+        """Return ordered list of unique stages that appear in the log."""
+        seen: List[EngineeringStage] = []
+        for e in self._events:
+            if e.stage not in seen:
+                seen.append(e.stage)
+        return seen
+
+    def total_duration_ms(self) -> Optional[int]:
+        """
+        Return the wall-clock span from first to last event in milliseconds.
+        Returns None if fewer than two events exist.
+        """
+        if len(self._events) < 2:
+            return None
+        return self._events[-1].timestamp_ms - self._events[0].timestamp_ms
+
+    def timeline(self) -> List[str]:
+        """
+        Return a human-readable ordered list of event descriptions.
+        Suitable for display or logging.
+        """
+        lines = []
+        for e in self._events:
+            dur_part = f" [{e.duration_ms}ms]" if e.has_duration else ""
+            detail_part = f" — {e.detail}" if e.detail else ""
+            lines.append(f"[{e.stage.value}]{dur_part} {e.description}{detail_part}")
+        return lines
+
+    def __repr__(self) -> str:
+        return (
+            f"CoordinatorEventLog("
+            f"events={self.event_count}, "
+            f"sealed={self._sealed}"
+            f")"
+        )
+
+
+# ---------------------------------------------------------------------------
+# EngineeringSession  (Sprint 002 — new)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EngineeringSession:
+    """
+    Mutable lifecycle record for one engineering request, from receipt
+    through final result.
+
+    The session is the single source of truth for what happened, when
+    it happened, how long it took, and what the outcome was.
+
+    A completed session is fully replayable from the session object alone.
+    """
+
+    session_id:    str
+    request:       EngineeringRequest
+    status:        EngineeringStatus
+    started_at:    int                        # monotonic ms
+    completed_at:  Optional[int]              = None
+    events:        CoordinatorEventLog        = field(default_factory=CoordinatorEventLog)
+    current_stage: EngineeringStage           = EngineeringStage.INITIALISING
+    result:        Optional["EngineeringResult"] = None
+
+    @classmethod
+    def create(cls, request: EngineeringRequest) -> "EngineeringSession":
+        """Factory: create a new session for the given request."""
+        return cls(
+            session_id=str(uuid.uuid4()),
+            request=request,
+            status=EngineeringStatus.PENDING,
+            started_at=int(time.monotonic() * 1000),
+        )
+
+    # ------------------------------------------------------------------
+    # Stage transitions
+    # ------------------------------------------------------------------
+
+    def advance_to(self, stage: EngineeringStage, description: str, **log_kwargs) -> None:
+        """Advance the current stage and record the transition."""
+        self.current_stage = stage
+        self.events.record(stage, description, **log_kwargs)
+
+    def complete(self, result: "EngineeringResult") -> None:
+        """Mark the session as complete and seal the event log."""
+        self.result       = result
+        self.completed_at = int(time.monotonic() * 1000)
+        self.status       = result.status
+        self.events.seal()
+
+    # ------------------------------------------------------------------
+    # Derived properties
+    # ------------------------------------------------------------------
+
+    @property
+    def is_complete(self) -> bool:
+        return self.completed_at is not None
+
+    @property
+    def duration_ms(self) -> Optional[int]:
+        if self.completed_at is None:
+            return None
+        return self.completed_at - self.started_at
+
+    @property
+    def stages_visited(self) -> List[EngineeringStage]:
+        return self.events.stages_visited()
+
+    @property
+    def stage_count(self) -> int:
+        return len(self.stages_visited)
+
+    def stage_durations(self) -> Dict[str, Optional[int]]:
+        """
+        Return a mapping of stage name → total recorded duration (ms).
+        Stages with no duration-tagged events map to None.
+        """
+        durations: Dict[str, Optional[int]] = {}
+        for stage in self.stages_visited:
+            stage_events = self.events.events_for_stage(stage)
+            timed = [e.duration_ms for e in stage_events if e.has_duration]
+            durations[stage.value] = sum(timed) if timed else None
+        return durations
+
+    def replay(self) -> List[str]:
+        """
+        Return a complete human-readable replay of the session.
+
+        Given only this session object, answers:
+          - what happened
+          - when it happened (relative ms from session start)
+          - how long each stage took
+          - why it stopped
+          - what the outcome was
+        """
+        lines = [
+            f"Session: {self.session_id}",
+            f"Request: {self.request.request!r}",
+            f"Priority: {self.request.priority}",
+            f"Started:  t+0ms",
+        ]
+
+        origin = self.started_at
+        for event in self.events.events():
+            elapsed = event.timestamp_ms - origin
+            dur_part    = f" [{event.duration_ms}ms]" if event.has_duration else ""
+            detail_part = f" — {event.detail}" if event.detail else ""
+            lines.append(
+                f"  t+{elapsed}ms  [{event.stage.value}]{dur_part} "
+                f"{event.description}{detail_part}"
+            )
+
+        if self.is_complete:
+            lines.append(f"Completed: t+{self.duration_ms}ms")
+            lines.append(f"Outcome:   {self.status.value}")
+        else:
+            lines.append(f"Status:    {self.status.value} (in progress)")
+
+        return lines
+
+    def __repr__(self) -> str:
+        return (
+            f"EngineeringSession("
+            f"id={self.session_id[:8]}…, "
+            f"status={self.status.value}, "
+            f"stage={self.current_stage.value}, "
+            f"events={self.events.event_count}"
+            f")"
+        )
+
+
+# ---------------------------------------------------------------------------
+# EngineeringResult  (Sprint 002 — expanded, backwards compatible)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class EngineeringResult:
     """
-    Immutable model representing the unified outcome of an engineering request
-    after it has passed through the full coordinator pipeline.
+    Immutable model representing the unified outcome of an engineering request.
 
-    This is the public API surface returned by EngineeringCoordinator.
+    Sprint 001 fields: status, plan, validation, debug_report, repair_plan,
+                       completed, duration_ms, errors, warnings
+    Sprint 002 fields: session, timeline, stage_durations  (all optional,
+                       default None/empty — zero breaking changes)
     """
 
-    status:      EngineeringStatus
-    plan:        Optional[str]             = None
-    validation:  Optional[str]             = None
-    debug_report: Optional[str]            = None
-    repair_plan: Optional[str]             = None
-    completed:   bool                      = False
-    duration_ms: Optional[int]             = None
-    errors:      List[str]                 = field(default_factory=list)
-    warnings:    List[str]                 = field(default_factory=list)
+    # ── Sprint 001 fields ──────────────────────────────────────────────
+    status:       EngineeringStatus
+    plan:         Optional[str]              = None
+    validation:   Optional[str]             = None
+    debug_report: Optional[str]             = None
+    repair_plan:  Optional[str]             = None
+    completed:    bool                      = False
+    duration_ms:  Optional[int]             = None
+    errors:       List[str]                 = field(default_factory=list)
+    warnings:     List[str]                 = field(default_factory=list)
+
+    # ── Sprint 002 fields ──────────────────────────────────────────────
+    session:         Optional[EngineeringSession]  = None
+    timeline:        List[str]                     = field(default_factory=list)
+    stage_durations: Dict[str, Optional[int]]      = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, EngineeringStatus):
@@ -156,24 +489,22 @@ class EngineeringResult:
                 f"got {self.duration_ms}"
             )
 
+    # ── Sprint 001 properties (unchanged) ─────────────────────────────
+
     @property
     def succeeded(self) -> bool:
-        """Return True if the pipeline completed successfully."""
         return self.status == EngineeringStatus.COMPLETE and self.completed
 
     @property
     def failed(self) -> bool:
-        """Return True if the pipeline ended in failure."""
         return self.status == EngineeringStatus.FAILED
 
     @property
     def required_debugging(self) -> bool:
-        """Return True if the debugger was invoked during this request."""
         return self.debug_report is not None
 
     @property
     def has_repair_plan(self) -> bool:
-        """Return True if a repair plan was produced."""
         return self.repair_plan is not None
 
     @property
@@ -192,8 +523,36 @@ class EngineeringResult:
     def warning_count(self) -> int:
         return len(self.warnings)
 
+    # ── Sprint 002 properties ──────────────────────────────────────────
+
+    @property
+    def has_session(self) -> bool:
+        """Return True if a full EngineeringSession is attached."""
+        return self.session is not None
+
+    @property
+    def has_timeline(self) -> bool:
+        """Return True if a non-empty timeline was recorded."""
+        return bool(self.timeline)
+
+    @property
+    def has_stage_durations(self) -> bool:
+        return bool(self.stage_durations)
+
+    @property
+    def session_id(self) -> Optional[str]:
+        """Convenience accessor for the attached session's ID."""
+        return self.session.session_id if self.session is not None else None
+
+    def stages_visited(self) -> List[str]:
+        """Return ordered stage names from the attached session, or empty list."""
+        if self.session is None:
+            return []
+        return [s.value for s in self.session.stages_visited]
+
+    # ── Summary ───────────────────────────────────────────────────────
+
     def summary(self) -> str:
-        """Return a human-readable one-line summary of the result."""
         parts = [f"status={self.status.value}"]
         if self.duration_ms is not None:
             parts.append(f"duration={self.duration_ms}ms")
@@ -205,6 +564,8 @@ class EngineeringResult:
             parts.append("debugged=True")
         if self.has_repair_plan:
             parts.append("repaired=True")
+        if self.has_session:
+            parts.append(f"session={self.session_id[:8]}…")
         return f"EngineeringResult({', '.join(parts)})"
 
     def __repr__(self) -> str:
