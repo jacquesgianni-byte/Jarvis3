@@ -1,0 +1,372 @@
+{
+  "patterns": [
+    {
+      "id": "repository",
+      "name": "Repository",
+      "category": "architectural",
+      "intent": "Encapsulate data access logic behind a collection-like interface, decoupling the domain layer from persistence concerns.",
+      "problem": "Business logic becomes tangled with database queries, file I/O, or API calls. Changing the storage backend requires modifying domain code. Testing business logic requires a real database.",
+      "solution": "Define an abstract interface that looks like a collection (get, list, filter, add, remove). Implement it concretely for each storage backend. The domain layer depends only on the abstract interface.",
+      "when_to_use": [
+        "When you need to swap storage backends (JSON to SQLite, SQLite to Postgres) without touching business logic",
+        "When you want to test business logic without a real database using a mock or in-memory repository",
+        "When multiple parts of the application need to access the same data with a consistent interface",
+        "When data access logic is complex enough to warrant isolation"
+      ],
+      "when_not_to_use": [
+        "For simple scripts where a direct database call is clearer and the abstraction adds no value",
+        "When there is only ever one storage backend and no testing requirement",
+        "When the overhead of an extra layer slows delivery with no architectural benefit"
+      ],
+      "advantages": [
+        "Domain logic is completely decoupled from persistence technology",
+        "Storage backend can be swapped by changing one class",
+        "Business logic tests run without a database using a mock repository",
+        "Data access logic is centralised and not scattered across services"
+      ],
+      "disadvantages": [
+        "Adds an extra layer of abstraction that must be maintained",
+        "Can be over-engineering for simple CRUD applications",
+        "Leaky abstractions can emerge if the interface exposes database-specific concepts"
+      ],
+      "related_principles": ["solid-dip", "solid-srp", "solid-ocp", "separation-of-concerns"],
+      "examples": [
+        "Jarvis AcademyRepository ABC with JsonAcademyRepository as the concrete implementation",
+        "Jarvis KnowledgeRepository ABC with JsonKnowledgeRepository as the concrete implementation",
+        "A UserRepository interface with SqlUserRepository and InMemoryUserRepository implementations"
+      ],
+      "references": [
+        "Martin Fowler — Patterns of Enterprise Application Architecture (Chapter 10)",
+        "Eric Evans — Domain-Driven Design"
+      ],
+      "tags": ["repository", "data-access", "abstraction", "architectural", "testability", "decoupling"]
+    },
+    {
+      "id": "factory",
+      "name": "Factory",
+      "category": "creational",
+      "intent": "Centralise object creation logic so callers are decoupled from the concrete types they create.",
+      "problem": "When a caller constructs objects directly with 'new' or direct instantiation, it becomes coupled to the concrete type. Adding a new variant requires modifying every call site. Construction logic that belongs together gets duplicated across the codebase.",
+      "solution": "Define a factory function or class whose single responsibility is creating and returning objects. The caller asks the factory for an object; it never constructs one directly. Factories can return an abstract type, hiding which concrete class was instantiated.",
+      "when_to_use": [
+        "When the exact type of object to create is determined at runtime (e.g. based on configuration or user input)",
+        "When construction logic is complex and should not be duplicated at call sites",
+        "When you want callers to depend on an abstraction rather than a concrete class",
+        "When a family of related objects must be created consistently"
+      ],
+      "when_not_to_use": [
+        "When there is only one concrete type and no variation is expected",
+        "When the construction is trivial enough that a factory adds complexity without benefit",
+        "When direct instantiation is clearer and the indirection makes the code harder to follow"
+      ],
+      "advantages": [
+        "Callers are decoupled from concrete types",
+        "New variants can be added by extending the factory without modifying callers",
+        "Complex construction logic is centralised in one place",
+        "Makes switching implementations easier"
+      ],
+      "disadvantages": [
+        "Adds indirection that can make code harder to trace",
+        "Can become a dumping ground for unrelated construction logic",
+        "Overuse creates unnecessary complexity in simple systems"
+      ],
+      "related_principles": ["solid-ocp", "solid-dip", "dry"],
+      "examples": [
+        "A RepositoryFactory that reads configuration and returns either a JsonRepository or SqlRepository",
+        "A WorkerFactory in Jarvis Genesis-020 that creates the appropriate Engineering Worker type based on task category",
+        "Python's logging.getLogger() — callers never instantiate Logger directly"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Factory Method, Abstract Factory)",
+        "Robert C. Martin — Clean Architecture"
+      ],
+      "tags": ["factory", "creational", "instantiation", "decoupling", "abstraction"]
+    },
+    {
+      "id": "strategy",
+      "name": "Strategy",
+      "category": "behavioural",
+      "intent": "Define a family of algorithms, encapsulate each one, and make them interchangeable at runtime without modifying the context that uses them.",
+      "problem": "A class needs to perform an operation, but the exact algorithm varies. Hard-coding if/elif chains for each variant makes the class grow every time a new algorithm is needed, violating the Open/Closed Principle.",
+      "solution": "Extract each algorithm into its own class behind a shared interface. The context class receives the chosen strategy via constructor injection or a setter, and delegates the operation to it. Strategies are interchangeable because they share the same interface.",
+      "when_to_use": [
+        "When multiple variants of an algorithm exist and must be selectable at runtime",
+        "When you want to eliminate conditional logic that selects between algorithm variants",
+        "When algorithms should be independently testable without loading the full context",
+        "When new algorithms may be added in the future without modifying existing code"
+      ],
+      "when_not_to_use": [
+        "When there is only one algorithm and no variation is expected",
+        "When the number of strategies is small and stable, and a simple conditional is clearer",
+        "When clients must be aware of strategy differences to use the system correctly"
+      ],
+      "advantages": [
+        "Algorithms are independently testable and swappable",
+        "Adding a new strategy requires only a new class — no modification to the context",
+        "Eliminates complex conditional logic from the context",
+        "Follows Open/Closed and Dependency Inversion Principles"
+      ],
+      "disadvantages": [
+        "Increases the number of classes in the system",
+        "Clients must know which strategy to choose, which can leak implementation knowledge",
+        "Overhead of the abstraction is not justified when only one algorithm exists"
+      ],
+      "related_principles": ["solid-ocp", "solid-dip", "composition-over-inheritance"],
+      "examples": [
+        "A SearchStrategy interface with KeywordSearchStrategy and SubstringSearchStrategy implementations — the AcademyService could accept a search strategy",
+        "A SortStrategy interface with AlphabeticalSort and PrioritySort for ordering Engineering Worker queues",
+        "Python's sort() accepting a key function — the key function is the strategy"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Strategy)",
+        "Robert C. Martin — Agile Software Development: Principles, Patterns, and Practices"
+      ],
+      "tags": ["strategy", "behavioural", "algorithm", "runtime", "interchangeable", "decoupling"]
+    },
+    {
+      "id": "adapter",
+      "name": "Adapter",
+      "category": "structural",
+      "intent": "Convert the interface of an existing class into the interface a client expects, allowing incompatible interfaces to work together without modifying either.",
+      "problem": "You have an existing component with a useful implementation, but its interface does not match what your system expects. You cannot modify the existing component (it is a third-party library, a frozen module, or a legacy system).",
+      "solution": "Create an Adapter class that implements the interface your system expects, and internally delegates calls to the existing component, translating between the two interfaces.",
+      "when_to_use": [
+        "When integrating a third-party library whose interface does not match your system's abstractions",
+        "When reusing a legacy component without modifying it",
+        "When two independently developed modules need to interoperate",
+        "When writing an abstraction layer over an external API so it can be swapped later"
+      ],
+      "when_not_to_use": [
+        "When you can modify the original class directly — adapting is a workaround, not a first choice",
+        "When the impedance mismatch is so large that the adapter becomes more complex than a rewrite",
+        "When the adaptation is trivial enough that it does not warrant a full class"
+      ],
+      "advantages": [
+        "Integrates existing components without modifying their source",
+        "Isolates integration complexity inside the adapter, keeping the rest of the system clean",
+        "Enables swapping external dependencies by changing only the adapter"
+      ],
+      "disadvantages": [
+        "Adds an extra class and indirection for each adapted component",
+        "Can hide impedance mismatch rather than solving it properly",
+        "A poorly designed adapter leaks the adapted interface back to the caller"
+      ],
+      "related_principles": ["solid-ocp", "solid-srp", "separation-of-concerns"],
+      "examples": [
+        "A JarvisOpenAIAdapter that wraps the OpenAI SDK and implements a Jarvis LanguageModelProvider interface",
+        "A TavilySearchAdapter that wraps the Tavily API and implements a Jarvis WebSearchProvider interface",
+        "Python's io.TextIOWrapper adapting a binary stream to a text stream interface"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Adapter)",
+        "Martin Fowler — Patterns of Enterprise Application Architecture"
+      ],
+      "tags": ["adapter", "structural", "integration", "compatibility", "wrapping", "third-party"]
+    },
+    {
+      "id": "facade",
+      "name": "Facade",
+      "category": "structural",
+      "intent": "Provide a simplified, unified interface to a complex subsystem, reducing the learning curve and coupling for clients.",
+      "problem": "A subsystem is internally complex, composed of many classes with interdependencies. Clients that use the subsystem directly must understand all of its internals, creating tight coupling and making the subsystem hard to change.",
+      "solution": "Create a Facade class that exposes a simple, high-level interface covering the most common use cases of the subsystem. The facade delegates to the subsystem's classes internally. Clients interact with the facade, not the internals.",
+      "when_to_use": [
+        "When a subsystem is complex and clients only need a subset of its functionality",
+        "When you want to layer a system so higher layers have a clean entry point into lower layers",
+        "When you are wrapping a legacy system to present a modern interface",
+        "When you want to reduce the coupling surface between a client and a complex subsystem"
+      ],
+      "when_not_to_use": [
+        "When clients genuinely need fine-grained access to the subsystem internals",
+        "When the subsystem is simple enough that a facade adds no value",
+        "When the facade becomes a God Object, absorbing too much responsibility"
+      ],
+      "advantages": [
+        "Dramatically simplifies the interface for common use cases",
+        "Decouples clients from subsystem internals — the subsystem can evolve without affecting clients",
+        "Creates a natural layering boundary in the architecture"
+      ],
+      "disadvantages": [
+        "Can become a God Object if responsibilities are not carefully bounded",
+        "Clients that need full subsystem power are not served by the facade",
+        "A facade that is too thin adds indirection without value"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "law-of-demeter", "kiss"],
+      "examples": [
+        "AcademyService is a facade over AcademyRepository and AcademyLoader — callers interact with the service without knowing how data is loaded or stored",
+        "The Jarvis EngineeringCoordinator (Genesis-018) is a facade over the queue, dispatcher, and worker registry",
+        "A JarvisOS class that exposes start(), stop(), run_task() without exposing internal subsystem wiring"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Facade)",
+        "Robert C. Martin — Clean Architecture (Chapter 16)"
+      ],
+      "tags": ["facade", "structural", "simplification", "layering", "entry-point", "decoupling"]
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "category": "creational",
+      "intent": "Separate the construction of a complex object from its representation, allowing the same construction process to produce different representations.",
+      "problem": "A class requires many parameters or a multi-step construction process. Telescoping constructors (many optional parameters) are unreadable. Setting fields after construction leaves objects in invalid intermediate states.",
+      "solution": "Introduce a Builder class with methods for setting each part of the object. Each method returns the builder itself to allow chaining. A final build() method validates and returns the fully constructed, immutable object.",
+      "when_to_use": [
+        "When constructing an object requires many parameters, especially optional ones",
+        "When the object must be immutable once created but construction requires multiple steps",
+        "When the same construction steps should produce different representations",
+        "When construction requires validation that should happen before the object is returned"
+      ],
+      "when_not_to_use": [
+        "When the object has only one or two required fields — a constructor is simpler",
+        "When the object is mutable and can be configured after construction",
+        "When the additional class complexity is not justified by the construction problem"
+      ],
+      "advantages": [
+        "Eliminates telescoping constructors with many optional parameters",
+        "Objects are only returned in a valid, complete state",
+        "Construction steps are readable and self-documenting",
+        "The same builder process can produce different object types"
+      ],
+      "disadvantages": [
+        "Requires an extra Builder class for each target class",
+        "Overkill for objects with simple construction requirements",
+        "Mutable builder state before build() is called can be a source of bugs if the builder is shared"
+      ],
+      "related_principles": ["solid-srp", "kiss", "fail-fast"],
+      "examples": [
+        "A DiagnosticReportBuilder in Jarvis Genesis-017 that accumulates evidence, failures, and recommendations before producing an immutable report",
+        "Python's subprocess.Popen built via a command list and keyword arguments",
+        "An EngineeeringTaskBuilder that sets task type, priority, target file, and constraints before producing a frozen EngineeringTask"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Builder)",
+        "Joshua Bloch — Effective Java (Item 2)"
+      ],
+      "tags": ["builder", "creational", "construction", "immutability", "fluent", "validation"]
+    },
+    {
+      "id": "observer",
+      "name": "Observer",
+      "category": "behavioural",
+      "intent": "Define a one-to-many dependency so that when one object changes state, all its dependents are notified and updated automatically.",
+      "problem": "When one object changes state, an unknown number of other objects need to react. Hard-coding the notification calls couples the subject to every observer, making the system rigid and violating the Open/Closed Principle.",
+      "solution": "Define a Subject that maintains a list of Observer objects and notifies them by calling a standard update() method when its state changes. Observers register and deregister themselves. The Subject knows nothing about the concrete Observer types.",
+      "when_to_use": [
+        "When a change in one object requires updating others, and you do not know how many objects will need to change",
+        "When you want to decouple the object that triggers an event from the objects that respond to it",
+        "When objects should be able to register interest in events at runtime",
+        "When building event-driven or reactive systems"
+      ],
+      "when_not_to_use": [
+        "When the set of observers is fixed and known at compile time — direct calls are clearer",
+        "When notification order matters and the Observer pattern does not guarantee it",
+        "When cascading updates (observer triggers another observer) can create difficult-to-debug cycles"
+      ],
+      "advantages": [
+        "Subject and observers are loosely coupled — the subject does not know concrete observer types",
+        "New observers can be added without modifying the subject",
+        "Supports broadcast communication to multiple interested parties"
+      ],
+      "disadvantages": [
+        "Unexpected updates and cascading notifications can be hard to trace and debug",
+        "Observers that forget to deregister cause memory leaks",
+        "No guarantee on notification order, which can matter in some systems"
+      ],
+      "related_principles": ["solid-ocp", "solid-dip", "separation-of-concerns"],
+      "examples": [
+        "A Jarvis SessionEventBus where Engineering Workers subscribe to session state changes",
+        "A HealthMonitor that notifies registered listeners when a subsystem check fails",
+        "Python's logging system — handlers (observers) subscribe to loggers (subjects)"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Observer)",
+        "Martin Fowler — Patterns of Enterprise Application Architecture (Event-based patterns)"
+      ],
+      "tags": ["observer", "behavioural", "event", "notification", "decoupling", "reactive"]
+    },
+    {
+      "id": "command",
+      "name": "Command",
+      "category": "behavioural",
+      "intent": "Encapsulate a request as an object, allowing it to be queued, logged, undone, or parameterised without the caller knowing the receiver's implementation.",
+      "problem": "A caller needs to trigger an operation on a receiver, but the caller should not be coupled to how the receiver implements the operation. Operations may need to be queued, retried, logged, or undone.",
+      "solution": "Define a Command interface with an execute() method. Each concrete Command encapsulates a receiver and the action to perform on it. The invoker holds and executes commands without knowing what they do internally.",
+      "when_to_use": [
+        "When you need to queue or schedule operations for later execution",
+        "When operations need to be logged so they can be audited or replayed",
+        "When undo/redo functionality is required",
+        "When the caller should be decoupled from the receiver and the operation details",
+        "When building a task queue or workflow engine"
+      ],
+      "when_not_to_use": [
+        "When the operation is simple and immediate, and the indirection adds no value",
+        "When undo, queuing, and logging are never needed",
+        "When the number of command types would explode the class count beyond maintainability"
+      ],
+      "advantages": [
+        "Decouples the object that invokes the operation from the one that knows how to perform it",
+        "Commands can be queued, scheduled, logged, and replayed",
+        "Undo support is natural — each command can hold the state needed to reverse itself",
+        "New commands can be added without changing the invoker"
+      ],
+      "disadvantages": [
+        "Results in a large number of small command classes",
+        "Simple operations are made verbose by wrapping them in a class",
+        "Undo logic can become complex and error-prone"
+      ],
+      "related_principles": ["solid-srp", "solid-ocp", "solid-dip"],
+      "examples": [
+        "Jarvis Engineering Queue (Genesis-018) dispatches EngineeringTask objects that are a form of command",
+        "A RepairCommand encapsulating a specific code fix that the Debugging subsystem can execute, log, and roll back",
+        "Python's asyncio task scheduling — coroutines submitted to an event loop are command-like"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (Command)",
+        "Robert C. Martin — Agile Software Development: Principles, Patterns, and Practices"
+      ],
+      "tags": ["command", "behavioural", "queue", "undo", "logging", "decoupling", "task"]
+    },
+    {
+      "id": "dependency-injection",
+      "name": "Dependency Injection",
+      "category": "architectural",
+      "intent": "Supply a component's dependencies from outside rather than letting the component construct them internally, enabling flexibility, testability, and adherence to the Dependency Inversion Principle.",
+      "problem": "When a class constructs its own dependencies internally, it is tightly coupled to specific implementations. Changing an implementation requires modifying the class. Testing the class requires the real dependency to be present and functional.",
+      "solution": "Pass dependencies into the component via its constructor, a method, or a property. The component declares what it needs (the abstraction) but does not decide how to obtain it. The calling code or a DI container is responsible for constructing and injecting the correct implementation.",
+      "when_to_use": [
+        "When a class has external dependencies (databases, APIs, file systems, services) that should be swappable",
+        "When you want to test a class in isolation by injecting a mock or stub dependency",
+        "When the same class should work with different dependency implementations in different environments",
+        "As the default approach for wiring together any non-trivial system"
+      ],
+      "when_not_to_use": [
+        "For truly stateless utility functions with no external dependencies",
+        "When a DI container introduces more complexity than the problem it solves",
+        "When the dependency is a stable, implementation-level detail that genuinely should not vary"
+      ],
+      "advantages": [
+        "Classes are decoupled from specific dependency implementations",
+        "Dependencies can be replaced with mocks for isolated unit testing",
+        "The same class works in different environments by injecting different implementations",
+        "Wiring is explicit and visible at the composition root, not hidden inside classes"
+      ],
+      "disadvantages": [
+        "Wiring dependencies manually becomes verbose in large systems",
+        "DI containers add indirection that can make startup code hard to trace",
+        "Overuse can make code feel bureaucratic with many thin classes existing only to be injected"
+      ],
+      "related_principles": ["solid-dip", "solid-ocp", "composition-over-inheritance", "jarvis-architecture-before-implementation"],
+      "examples": [
+        "AcademyService(repository: AcademyRepository) — the repository is injected, not constructed internally",
+        "JsonAcademyRepository(principles_path, loader=None) — the loader is injectable for testing",
+        "All Jarvis subsystems receive their dependencies via constructor injection"
+      ],
+      "references": [
+        "Martin Fowler — Inversion of Control Containers and the Dependency Injection pattern (martinfowler.com, 2004)",
+        "Robert C. Martin — Clean Architecture (Chapter 11)",
+        "Mark Seemann — Dependency Injection Principles, Practices, and Patterns"
+      ],
+      "tags": ["dependency-injection", "di", "architectural", "testability", "decoupling", "solid-dip", "inversion-of-control"]
+    }
+  ]
+}
