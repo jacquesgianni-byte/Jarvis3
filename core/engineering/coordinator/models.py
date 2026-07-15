@@ -476,6 +476,10 @@ class EngineeringResult:
     queue_position:  Optional[int]                 = None   # 1-based position when enqueued
     queue_snapshot:  Optional["QueueSnapshot"]     = None   # snapshot at time of completion
 
+    # ── Sprint 004 fields ──────────────────────────────────────────────
+    dispatch_record:      Optional["DispatchRecord"] = None  # full dispatch lifecycle
+    dispatch_duration_ms: Optional[int]              = None  # dispatch-to-complete duration
+
     def __post_init__(self) -> None:
         if not isinstance(self.status, EngineeringStatus):
             raise TypeError(
@@ -564,6 +568,16 @@ class EngineeringResult:
     def has_queue_snapshot(self) -> bool:
         return self.queue_snapshot is not None
 
+    # ── Sprint 004 properties ──────────────────────────────────────────
+
+    @property
+    def has_dispatch_record(self) -> bool:
+        return self.dispatch_record is not None
+
+    @property
+    def dispatch_id(self) -> Optional[str]:
+        return self.dispatch_record.dispatch_id if self.dispatch_record is not None else None
+
     # ── Summary ───────────────────────────────────────────────────────
 
     def summary(self) -> str:
@@ -582,6 +596,8 @@ class EngineeringResult:
             parts.append(f"session={self.session_id[:8]}…")
         if self.has_queue_position:
             parts.append(f"queue_pos={self.queue_position}")
+        if self.has_dispatch_record:
+            parts.append(f"dispatch={self.dispatch_id[:8]}…")
         return f"EngineeringResult({', '.join(parts)})"
 
     def __repr__(self) -> str:
@@ -694,5 +710,127 @@ class QueueSnapshot:
             f"active={self.active_session_id is not None}, "
             f"pending={self.pending_count}, "
             f"completed={self.completed_count}"
+            f")"
+        )
+
+
+# ---------------------------------------------------------------------------
+# DispatchStatus  (Sprint 004 — new)
+# ---------------------------------------------------------------------------
+
+class DispatchStatus(Enum):
+    """
+    Lifecycle state of a single dispatch operation.
+
+    IDLE        — dispatcher has no pending work
+    READY       — a session is selected and ready to be dispatched
+    DISPATCHING — a session is currently being executed
+    COMPLETE    — the dispatched session has finished
+    """
+
+    IDLE        = "IDLE"
+    READY       = "READY"
+    DISPATCHING = "DISPATCHING"
+    COMPLETE    = "COMPLETE"
+
+    def is_terminal(self) -> bool:
+        return self == DispatchStatus.COMPLETE
+
+    def is_active(self) -> bool:
+        return self in (DispatchStatus.READY, DispatchStatus.DISPATCHING)
+
+    def is_idle(self) -> bool:
+        return self == DispatchStatus.IDLE
+
+
+# ---------------------------------------------------------------------------
+# DispatchRecord  (Sprint 004 — new)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DispatchRecord:
+    """
+    Immutable record of one dispatch operation — from selection through completion.
+
+    Every dispatch, successful or not, becomes part of the permanent
+    engineering history.
+    """
+
+    dispatch_id:   str
+    session_id:    str
+    queued_at:     int                    # monotonic ms — when session entered the queue
+    dispatched_at: int                    # monotonic ms — when dispatcher selected it
+    status:        DispatchStatus
+    completed_at:  Optional[int]  = None  # monotonic ms — when session finished
+    duration_ms:   Optional[int]  = None  # total dispatch lifecycle duration
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.dispatch_id, str) or not self.dispatch_id.strip():
+            raise ValueError("DispatchRecord.dispatch_id must be a non-blank string")
+        if not isinstance(self.session_id, str) or not self.session_id.strip():
+            raise ValueError("DispatchRecord.session_id must be a non-blank string")
+        if not isinstance(self.queued_at, int):
+            raise TypeError(
+                f"DispatchRecord.queued_at must be int, "
+                f"got {type(self.queued_at).__name__}"
+            )
+        if not isinstance(self.dispatched_at, int):
+            raise TypeError(
+                f"DispatchRecord.dispatched_at must be int, "
+                f"got {type(self.dispatched_at).__name__}"
+            )
+        if not isinstance(self.status, DispatchStatus):
+            raise TypeError(
+                f"DispatchRecord.status must be DispatchStatus, "
+                f"got {type(self.status).__name__}"
+            )
+        if self.duration_ms is not None:
+            if not isinstance(self.duration_ms, int):
+                raise TypeError(
+                    f"DispatchRecord.duration_ms must be int or None, "
+                    f"got {type(self.duration_ms).__name__}"
+                )
+            if self.duration_ms < 0:
+                raise ValueError(
+                    f"DispatchRecord.duration_ms must be >= 0, "
+                    f"got {self.duration_ms}"
+                )
+
+    @property
+    def wait_ms(self) -> int:
+        """Time between enqueue and dispatch (scheduling latency)."""
+        return self.dispatched_at - self.queued_at
+
+    @property
+    def is_complete(self) -> bool:
+        return self.status == DispatchStatus.COMPLETE
+
+    @property
+    def has_duration(self) -> bool:
+        return self.duration_ms is not None
+
+    def complete(self, completed_at: int) -> "DispatchRecord":
+        """
+        Return a new DispatchRecord marked as COMPLETE.
+        Original is unchanged (immutable).
+        """
+        return DispatchRecord(
+            dispatch_id=self.dispatch_id,
+            session_id=self.session_id,
+            queued_at=self.queued_at,
+            dispatched_at=self.dispatched_at,
+            status=DispatchStatus.COMPLETE,
+            completed_at=completed_at,
+            duration_ms=completed_at - self.queued_at,
+        )
+
+    def __repr__(self) -> str:
+        dur = f", {self.duration_ms}ms" if self.has_duration else ""
+        return (
+            f"DispatchRecord("
+            f"id={self.dispatch_id[:8]}…, "
+            f"session={self.session_id[:8]}…, "
+            f"status={self.status.value}"
+            f"{dur}"
             f")"
         )

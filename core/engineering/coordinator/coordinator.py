@@ -15,6 +15,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .models import (
     CoordinatorEventLog,
+    DispatchRecord,
+    DispatchStatus,
     EngineeringRequest,
     EngineeringResult,
     EngineeringSession,
@@ -23,6 +25,7 @@ from .models import (
     QueueSnapshot,
     SessionEvent,
 )
+from .dispatcher import DispatchPolicy, EngineeringDispatcher
 from .queue import EngineeringQueue
 
 
@@ -118,7 +121,7 @@ class EngineeringCoordinator:
         - Delegates all work to injected subsystem adapters.
     """
 
-    VERSION = "018.003"
+    VERSION = "018.004"
 
     def __init__(
         self,
@@ -135,7 +138,8 @@ class EngineeringCoordinator:
         self._debugger    = debugger
         self._config      = config or CoordinatorConfig()
         self._observers:  List[Callable[[CoordinatorEvent], None]] = []
-        self._queue       = EngineeringQueue()   # Sprint 003: coordinator owns one queue
+        self._queue       = EngineeringQueue()       # Sprint 003: coordinator owns one queue
+        self._dispatcher  = EngineeringDispatcher()  # Sprint 004: coordinator owns one dispatcher
 
     # ------------------------------------------------------------------
     # Observer / event system  (Sprint 001 — unchanged)
@@ -197,6 +201,8 @@ class EngineeringCoordinator:
             "observer_count":  self.observer_count,
             # Sprint 003
             "queue":           repr(self._queue),
+            # Sprint 004
+            "dispatcher":      repr(self._dispatcher),
         }
 
     # ------------------------------------------------------------------
@@ -235,7 +241,10 @@ class EngineeringCoordinator:
                 f"got {type(request).__name__}"
             )
         session  = EngineeringSession.create(request)
+        enqueue_ms = int(time.monotonic() * 1000)
         position = self._queue.enqueue(session)
+        # Store enqueue timestamp for dispatcher latency tracking
+        session._enqueue_ms = enqueue_ms  # type: ignore[attr-defined]
         self._emit(
             "queue", EngineeringStatus.PENDING,
             f"Request enqueued at position {position}: {request.request!r}"
@@ -244,23 +253,46 @@ class EngineeringCoordinator:
 
     def process_next(self) -> Optional[EngineeringResult]:
         """
-        Dequeue the next pending request and process it synchronously.
+        Dispatch and process the next pending request synchronously.
+
+        Sprint 004: routes through EngineeringDispatcher before execution.
 
         Returns:
             EngineeringResult if a request was available, None if the queue
-            was empty.
+            was empty or dispatcher cannot dispatch.
 
         Raises:
             RuntimeError: if another session is already active.
         """
-        session = self._queue.dequeue()
-        if session is None:
+        if not self._dispatcher.can_dispatch(self._queue):
             return None
 
+        # Retrieve enqueue timestamp for latency tracking
+        next_session = self._queue.peek()
+        queued_at    = getattr(next_session, "_enqueue_ms", None)
+
+        # Dispatcher selects and dequeues the session
+        dispatch_record = self._dispatcher.dispatch_next(
+            self._queue, queued_at=queued_at
+        )
+        if dispatch_record is None:
+            return None
+
+        session  = self._queue.active_session
         position = self._queue.position_of(session.session_id)
-        result   = self._execute_session(session, queue_position=position)
+        result   = self._execute_session(
+            session,
+            queue_position=position,
+            dispatch_record=dispatch_record,
+        )
 
         self._queue.mark_active_complete()
+        completed_record = self._dispatcher.complete_dispatch()
+        # Patch the dispatch_record on the result with the completed version
+        # We use object.__setattr__ since EngineeringResult is frozen
+        if completed_record is not None:
+            object.__setattr__(result, "dispatch_record", completed_record)
+            object.__setattr__(result, "dispatch_duration_ms", completed_record.duration_ms)
         return result
 
     def process_all(self) -> List[EngineeringResult]:
@@ -276,6 +308,27 @@ class EngineeringCoordinator:
             if result is not None:
                 results.append(result)
         return results
+
+    # ------------------------------------------------------------------
+    # Dispatcher API  (Sprint 004)
+    # ------------------------------------------------------------------
+
+    @property
+    def dispatcher(self) -> EngineeringDispatcher:
+        """Direct access to the coordinator's dispatcher (read-intended)."""
+        return self._dispatcher
+
+    def dispatch_history(self) -> List[DispatchRecord]:
+        """Return ordered list of all completed DispatchRecords."""
+        return self._dispatcher.dispatch_history()
+
+    def dispatch_statistics(self) -> Dict[str, int]:
+        """Return dispatcher statistics dict."""
+        return self._dispatcher.statistics()
+
+    def current_dispatch(self) -> Optional[DispatchRecord]:
+        """Return the currently active DispatchRecord, or None."""
+        return self._dispatcher.current_dispatch()
 
     # ------------------------------------------------------------------
     # Core pipeline  (Sprint 002 — session-aware)
@@ -298,7 +351,8 @@ class EngineeringCoordinator:
         self,
         session: EngineeringSession,
         *,
-        queue_position: Optional[int],
+        queue_position:  Optional[int],
+        dispatch_record: Optional[DispatchRecord] = None,
     ) -> EngineeringResult:
         """Internal: run the full pipeline for an already-created session."""
         request = session.request
@@ -347,6 +401,7 @@ class EngineeringCoordinator:
                     start_ms=start_ms,
                     reason="Planning stage failed",
                     queue_position=queue_position,
+                    dispatch_record=dispatch_record,
                 )
             session.advance_to(
                 EngineeringStage.PLANNING,
@@ -384,6 +439,7 @@ class EngineeringCoordinator:
                     start_ms=start_ms,
                     reason="Guardrails blocked the request",
                     queue_position=queue_position,
+                    dispatch_record=dispatch_record,
                 )
             session.advance_to(
                 EngineeringStage.GUARDRAILS,
@@ -572,18 +628,19 @@ class EngineeringCoordinator:
     def _finalise(
         self,
         *,
-        session:        EngineeringSession,
-        status:         EngineeringStatus,
-        start_ms:       int,
-        errors:         List[str],
-        warnings:       List[str],
-        plan:           Optional[str] = None,
-        validation:     Optional[str] = None,
-        debug_report:   Optional[str] = None,
-        repair_plan:    Optional[str] = None,
-        completed:      bool          = False,
-        reason:         Optional[str] = None,
-        queue_position: Optional[int] = None,
+        session:         EngineeringSession,
+        status:          EngineeringStatus,
+        start_ms:        int,
+        errors:          List[str],
+        warnings:        List[str],
+        plan:            Optional[str]          = None,
+        validation:      Optional[str]          = None,
+        debug_report:    Optional[str]          = None,
+        repair_plan:     Optional[str]          = None,
+        completed:       bool                   = False,
+        reason:          Optional[str]          = None,
+        queue_position:  Optional[int]          = None,
+        dispatch_record: Optional[DispatchRecord] = None,
     ) -> EngineeringResult:
         """Build the final EngineeringResult, close the session, return."""
         if reason:
@@ -611,6 +668,11 @@ class EngineeringCoordinator:
             # Sprint 003 fields
             queue_position=queue_position,
             queue_snapshot=snapshot,
+            # Sprint 004 fields
+            dispatch_record=dispatch_record,
+            dispatch_duration_ms=(
+                dispatch_record.duration_ms if dispatch_record is not None else None
+            ),
         )
 
         session.complete(result)
