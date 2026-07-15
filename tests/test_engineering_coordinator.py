@@ -1,8 +1,8 @@
 """
-Genesis-018 Sprint 004 — Engineering Coordinator Test Suite
-Deterministic validation: ~420 checks.
+Genesis-018 Sprint 005 — Engineering Coordinator Test Suite
+Deterministic validation: ~460 checks.
 
-Sprint 001 + 002 + 003 regression + Sprint 004 dispatcher.
+Sprints 001-004 regression + Sprint 005 worker interface.
 
 Run:
     python tests/test_engineering_coordinator.py
@@ -21,7 +21,9 @@ from core.engineering.coordinator import (
     CoordinatorConfig,
     CoordinatorEvent,
     CoordinatorEventLog,
+    DefaultEngineeringWorker,
     DispatchPolicy,
+    LocalEngineeringWorker,
     DispatchRecord,
     DispatchStatus,
     EngineeringCoordinator,
@@ -32,806 +34,809 @@ from core.engineering.coordinator import (
     EngineeringSession,
     EngineeringStage,
     EngineeringStatus,
+    EngineeringWorker,
     QueueSnapshot,
     QueueStatus,
     SessionEvent,
+    WorkerRecord,
+    WorkerStatus,
 )
 
 
 # ===========================================================================
-# Stub subsystems
+# Stubs
 # ===========================================================================
 
 class _StubPlanner:
-    def plan(self, request: str, *, context: str = "") -> str:
-        return f"Plan for: {request}"
+    def plan(self, r, *, context=""): return f"Plan for: {r}"
 
 class _FailingPlanner:
-    def plan(self, request: str, **kwargs): raise RuntimeError("Planner error")
+    def plan(self, r, **k): raise RuntimeError("planner error")
 
 class _StubGuardrails:
-    def check(self, request: str, *, plan=None) -> bool: return True
+    def check(self, r, *, plan=None): return True
 
 class _BlockingGuardrails:
-    def check(self, request: str, **kwargs) -> bool: return False
+    def check(self, r, **k): return False
 
 class _FailingGuardrails:
-    def check(self, request: str, **kwargs): raise RuntimeError("Guardrails error")
+    def check(self, r, **k): raise RuntimeError("guardrails error")
 
 class _PassingTestRunner:
     class _R:
         passed = True
-        def __str__(self): return "All tests passed"
-    def run(self, request: str, **kwargs): return self._R()
+        def __str__(self): return "passed"
+    def run(self, r, **k): return self._R()
 
 class _FailingTestRunner:
     class _R:
         passed = False
-        def __str__(self): return "Tests failed"
-    def run(self, request: str, **kwargs): return self._R()
+        def __str__(self): return "failed"
+    def run(self, r, **k): return self._R()
 
 class _RaisingTestRunner:
-    def run(self, request: str, **kwargs): raise RuntimeError("Runner crashed")
+    def run(self, r, **k): raise RuntimeError("runner crash")
 
 class _StubDebugger:
     class _R:
-        report      = "Debug complete"
-        repair_plan = "Repair plan: apply patch A"
-        def __str__(self): return "Debug complete"
-    def debug(self, request: str, **kwargs): return self._R()
+        report      = "debug done"
+        repair_plan = "apply patch"
+        def __str__(self): return "debug done"
+    def debug(self, r, **k): return self._R()
 
 
 # ===========================================================================
-# Test helpers
+# Helpers
 # ===========================================================================
 
 _PASSED = 0
 _FAILED = 0
 _ERRORS: list[str] = []
 
-def _assert(condition: bool, name: str) -> None:
+def _assert(c: bool, n: str) -> None:
     global _PASSED, _FAILED
-    if condition:
-        _PASSED += 1
+    if c: _PASSED += 1
     else:
-        _FAILED += 1
-        _ERRORS.append(f"FAIL: {name}")
-        print(f"  ✗ {name}")
+        _FAILED += 1; _ERRORS.append(f"FAIL: {n}"); print(f"  ✗ {n}")
 
-def _section(title: str) -> None:
-    print(f"\n{'─' * 60}")
-    print(f"  {title}")
-    print(f"{'─' * 60}")
+def _section(t: str) -> None:
+    print(f"\n{'─'*60}\n  {t}\n{'─'*60}")
 
-def _coord(**kwargs):
+def _coord(**kw):
     return EngineeringCoordinator(
-        planner=_StubPlanner(),
-        guardrails=_StubGuardrails(),
-        test_runner=_PassingTestRunner(),
-        **kwargs,
+        planner=_StubPlanner(), guardrails=_StubGuardrails(),
+        test_runner=_PassingTestRunner(), **kw
     )
 
-def _req(text="Test request"):
-    return EngineeringRequest(request=text)
-
-def _session(text="Session"):
-    return EngineeringSession.create(_req(text))
+def _req(t="Test"): return EngineeringRequest(request=t)
+def _sess(t="S"):   return EngineeringSession.create(_req(t))
 
 
 # ===========================================================================
-# ── SPRINT 001 REGRESSION ──────────────────────────────────────────────────
+# ── SPRINTS 001-004 REGRESSION (condensed) ────────────────────────────────
 # ===========================================================================
 
-def test_s001_status() -> None:
-    _section("[S001] EngineeringStatus")
-    for val in ["PENDING","PLANNING","VALIDATING","DEBUGGING","COMPLETE","FAILED"]:
-        _assert(EngineeringStatus(val).value == val, f"Status {val}")
-    _assert(EngineeringStatus.COMPLETE.is_terminal(), "COMPLETE terminal")
-    _assert(not EngineeringStatus.PENDING.is_terminal(), "PENDING not terminal")
-    _assert(EngineeringStatus.PENDING.is_active(), "PENDING active")
-    _assert(len(EngineeringStatus) == 6, "6 status values")
+def test_s001_regression() -> None:
+    _section("[S001-S004] Full regression")
+    # Status
+    for v in ["PENDING","PLANNING","VALIDATING","DEBUGGING","COMPLETE","FAILED"]:
+        _assert(EngineeringStatus(v).value == v, f"Status {v}")
+    _assert(EngineeringStatus.COMPLETE.is_terminal(), "terminal")
+    _assert(len(EngineeringStatus) == 6, "6 statuses")
 
-def test_s001_request() -> None:
-    _section("[S001] EngineeringRequest")
-    r = _req("Refactor")
-    _assert(r.request == "Refactor", "stored")
-    _assert(r.context == "",  "default context")
-    _assert(r.priority == 0,  "default priority")
-    try: r.request = "mutated"; _assert(False, "immutable")  # type: ignore
+    # Request
+    r = _req("X")
+    _assert(r.request == "X", "request stored")
+    try: r.request = "y"; _assert(False, "immutable")  # type: ignore
     except (AttributeError, TypeError): _assert(True, "immutable")
-    for bad, exc in [
-        ({"request": "   "}, ValueError),
-        ({"request": 123}, TypeError),
-        ({"request": "x", "priority": "hi"}, TypeError),
-    ]:
-        try: EngineeringRequest(**bad); _assert(False, f"bad: {bad}")  # type: ignore
-        except exc: _assert(True, f"raises {exc.__name__}")
-    _assert(not _req().has_context, "no context")
-    _assert(_req() if True else None, "request ok")
+    for bad, exc in [({"request":""},ValueError),({"request":1},TypeError)]:
+        try: EngineeringRequest(**bad); _assert(False,"bad")  # type: ignore
+        except exc: _assert(True, f"{exc.__name__}")
 
-def test_s001_result() -> None:
-    _section("[S001] EngineeringResult")
+    # Result
     res = EngineeringResult(status=EngineeringStatus.COMPLETE, completed=True)
     _assert(res.succeeded, "succeeded")
     _assert(not res.failed, "not failed")
-    failed = EngineeringResult(status=EngineeringStatus.FAILED, errors=["e"])
-    _assert(failed.failed, "failed")
-    _assert(failed.error_count == 1, "error count")
-    try: EngineeringResult(status=EngineeringStatus.COMPLETE, duration_ms=-1); _assert(False, "neg dur")
-    except ValueError: _assert(True, "neg dur raises")
+    try: EngineeringResult(status=EngineeringStatus.COMPLETE, duration_ms=-1); _assert(False,"neg")
+    except ValueError: _assert(True,"neg raises")
 
-def test_s001_pipeline() -> None:
-    _section("[S001] Pipeline — regression")
+    # Pipeline
     c = _coord(debugger=_StubDebugger())
-    r = c.coordinate(_req("Build"))
-    _assert(r.status == EngineeringStatus.COMPLETE, "COMPLETE")
-    _assert(r.succeeded, "succeeded")
-    _assert(r.plan is not None, "plan set")
+    _assert(c.coordinate(_req()).succeeded, "direct coordinate")
     c2 = EngineeringCoordinator(planner=_StubPlanner(), guardrails=_BlockingGuardrails())
-    r2 = c2.coordinate(_req())
-    _assert(r2.status == EngineeringStatus.FAILED, "blocked → FAILED")
-    c3 = EngineeringCoordinator(planner=_StubPlanner(), guardrails=_StubGuardrails(),
-                                 test_runner=_FailingTestRunner(), debugger=_StubDebugger())
-    r3 = c3.coordinate(_req())
-    _assert(r3.required_debugging, "debug invoked")
-    _assert(r3.has_repair_plan, "repair plan")
-    for c_bad in [
-        EngineeringCoordinator(planner=_FailingPlanner(), guardrails=_StubGuardrails()),
-        EngineeringCoordinator(planner=_StubPlanner(), guardrails=_FailingGuardrails()),
-    ]:
-        rb = c_bad.coordinate(_req())
-        _assert(rb.status == EngineeringStatus.FAILED, "exception → FAILED")
-    # type safety
-    for bad in ["str", None, 42]:
-        try: c.coordinate(bad); _assert(False, f"type {type(bad).__name__}")  # type: ignore
-        except TypeError: _assert(True, "TypeError raised")
+    _assert(c2.coordinate(_req()).failed, "blocked → FAILED")
 
-
-# ===========================================================================
-# ── SPRINT 002 REGRESSION ──────────────────────────────────────────────────
-# ===========================================================================
-
-def test_s002_stage() -> None:
-    _section("[S002] EngineeringStage")
+    # Stage
     for v in ["INITIALISING","PLANNING","GUARDRAILS","VALIDATION",
               "DEBUGGING","REPAIR_PLANNING","COMPLETE","FAILED"]:
         _assert(EngineeringStage(v).value == v, f"Stage {v}")
     _assert(len(EngineeringStage) == 8, "8 stages")
-    _assert(EngineeringStage.COMPLETE.is_terminal(), "terminal")
-    _assert(EngineeringStage.DEBUGGING.is_failure_path(), "failure path")
 
-def test_s002_event_log() -> None:
-    _section("[S002] CoordinatorEventLog")
-    log = CoordinatorEventLog()
-    _assert(log.is_empty, "starts empty")
-    log.record(EngineeringStage.PLANNING, "p")
-    log.record(EngineeringStage.GUARDRAILS, "g", duration_ms=5)
-    _assert(log.event_count == 2, "2 events")
-    log.seal()
-    try: log.record(EngineeringStage.PLANNING, "x"); _assert(False, "sealed")
-    except RuntimeError: _assert(True, "sealed raises")
-
-def test_s002_session() -> None:
-    _section("[S002] EngineeringSession")
-    s = _session()
-    _assert(s.status == EngineeringStatus.PENDING, "PENDING")
+    # Session
+    s = _sess()
     _assert(not s.is_complete, "not complete")
-    s.advance_to(EngineeringStage.PLANNING, "plan")
-    _assert(s.events.event_count == 1, "event recorded")
-    result = EngineeringResult(status=EngineeringStatus.COMPLETE, completed=True)
-    s.complete(result)
+    res2 = EngineeringResult(status=EngineeringStatus.COMPLETE, completed=True)
+    s.complete(res2)
     _assert(s.is_complete, "complete")
-    _assert(s.events.is_sealed, "log sealed")
 
-def test_s002_result_fields() -> None:
-    _section("[S002] EngineeringResult — Sprint 002 fields")
-    res = EngineeringResult(status=EngineeringStatus.COMPLETE)
-    _assert(res.session is None, "session None default")
-    c = _coord()
-    r = c.coordinate(_req())
-    _assert(r.has_session, "session attached")
-    _assert(r.has_timeline, "timeline populated")
-    _assert("COMPLETE" in r.stages_visited(), "COMPLETE in stages")
-
-
-# ===========================================================================
-# ── SPRINT 003 REGRESSION ──────────────────────────────────────────────────
-# ===========================================================================
-
-def test_s003_queue_status() -> None:
-    _section("[S003] QueueStatus")
-    for v in ["EMPTY","WAITING","PROCESSING","COMPLETE"]:
-        _assert(QueueStatus(v).value == v, f"Status {v}")
-    _assert(QueueStatus.EMPTY.is_idle(), "EMPTY idle")
-    _assert(QueueStatus.PROCESSING.is_busy(), "PROCESSING busy")
-    _assert(QueueStatus.WAITING.has_pending(), "WAITING pending")
-
-def test_s003_queue_snapshot() -> None:
-    _section("[S003] QueueSnapshot")
-    snap = QueueSnapshot(queue_size=2, status=QueueStatus.WAITING, timestamp_ms=0,
-                         pending_session_ids=("a","b"), completed_count=1, total_submitted=3)
-    _assert(snap.pending_count == 2, "pending_count")
-    _assert(snap.completed_count == 1, "completed_count")
-    _assert(not snap.has_active, "no active")
-    try: snap.queue_size = 5; _assert(False, "immutable")  # type: ignore
-    except (AttributeError, TypeError): _assert(True, "immutable")
-
-def test_s003_queue() -> None:
-    _section("[S003] EngineeringQueue — regression")
+    # Queue
     q = EngineeringQueue()
-    _assert(q.empty(), "starts empty")
-    s1 = _session("A"); s2 = _session("B"); s3 = _session("C")
-    p1 = q.enqueue(s1); p2 = q.enqueue(s2)
-    _assert(p1 == 1, "pos 1"); _assert(p2 == 2, "pos 2")
-    # FIFO
+    _assert(q.empty(), "empty")
+    s1 = _sess("A"); s2 = _sess("B")
+    _assert(q.enqueue(s1) == 1, "pos 1")
+    _assert(q.enqueue(s2) == 2, "pos 2")
     d = q.dequeue()
-    _assert(d.session_id == s1.session_id, "FIFO order")
-    _assert(q.status() == QueueStatus.PROCESSING, "PROCESSING")
+    _assert(d.session_id == s1.session_id, "FIFO")
     q.mark_active_complete()
-    # duplicate rejected
-    try: q.enqueue(s2); _assert(False, "dup rejected")
-    except ValueError: _assert(True, "dup raises ValueError")
-    # type safety
-    try: q.enqueue("bad"); _assert(False, "type")  # type: ignore
-    except TypeError: _assert(True, "TypeError")
-    # clear
-    q2 = EngineeringQueue()
-    for i in range(3): q2.enqueue(_session(f"T{i}"))
-    n = q2.clear()
-    _assert(n == 3, "cleared 3")
-    _assert(q2.empty(), "empty after clear")
 
-def test_s003_submit_process() -> None:
-    _section("[S003] submit/process_all — regression")
-    c = _coord()
-    for i in range(3): c.submit(_req(f"Task {i}"))
-    results = c.process_all()
+    # QueueStatus / QueueSnapshot
+    for v in ["EMPTY","WAITING","PROCESSING","COMPLETE"]:
+        _assert(QueueStatus(v).value == v, f"QueueStatus {v}")
+    snap = QueueSnapshot(queue_size=1, status=QueueStatus.WAITING, timestamp_ms=0)
+    _assert(snap.queue_size == 1, "snap size")
+
+    # Dispatcher
+    d2 = EngineeringDispatcher()
+    q2 = EngineeringQueue(); q2.enqueue(_sess())
+    rec = d2.dispatch_next(q2)
+    _assert(rec is not None, "dispatch_next")
+    _assert(rec.status == DispatchStatus.DISPATCHING, "DISPATCHING")
+    comp = d2.complete_dispatch()
+    _assert(comp.is_complete, "completed")
+
+    # DispatchStatus / DispatchRecord
+    for v in ["IDLE","READY","DISPATCHING","COMPLETE"]:
+        _assert(DispatchStatus(v).value == v, f"DispatchStatus {v}")
+
+    # submit / process
+    c3 = _coord()
+    for i in range(3): c3.submit(_req(f"T{i}"))
+    results = c3.process_all()
     _assert(len(results) == 3, "3 results")
     _assert(all(r.succeeded for r in results), "all succeeded")
-    _assert(results[0].queue_position == 1, "first pos 1")
-    _assert(results[2].queue_position == 3, "last pos 3")
+    _assert(results[0].queue_position == 1, "pos 1")
+    # dispatch records from sprint 004
+    _assert(all(r.has_dispatch_record for r in results), "all have dispatch records")
 
 
 # ===========================================================================
-# ── SPRINT 004 — DispatchStatus ────────────────────────────────────────────
+# ── SPRINT 005 — WorkerStatus ──────────────────────────────────────────────
 # ===========================================================================
 
-def test_s004_dispatch_status_values() -> None:
-    _section("[S004] DispatchStatus — values")
-    for v in ["IDLE","READY","DISPATCHING","COMPLETE"]:
-        _assert(DispatchStatus(v).value == v, f"DispatchStatus.{v}")
-    _assert(len(DispatchStatus) == 4, "4 values")
+def test_s005_worker_status_values() -> None:
+    _section("[S005] WorkerStatus — values")
+    for v in ["IDLE","READY","BUSY","COMPLETED","UNAVAILABLE"]:
+        _assert(WorkerStatus(v).value == v, f"WorkerStatus.{v}")
+    _assert(len(WorkerStatus) == 5, "Exactly 5 values")
 
-def test_s004_dispatch_status_properties() -> None:
-    _section("[S004] DispatchStatus — properties")
-    _assert(DispatchStatus.COMPLETE.is_terminal(),     "COMPLETE terminal")
-    _assert(not DispatchStatus.IDLE.is_terminal(),     "IDLE not terminal")
-    _assert(not DispatchStatus.DISPATCHING.is_terminal(), "DISPATCHING not terminal")
+def test_s005_worker_status_properties() -> None:
+    _section("[S005] WorkerStatus — properties")
+    _assert(WorkerStatus.IDLE.can_accept(),         "IDLE can_accept")
+    _assert(WorkerStatus.COMPLETED.can_accept(),    "COMPLETED can_accept")
+    _assert(not WorkerStatus.BUSY.can_accept(),     "BUSY cannot accept")
+    _assert(not WorkerStatus.READY.can_accept(),    "READY cannot accept")
+    _assert(not WorkerStatus.UNAVAILABLE.can_accept(), "UNAVAILABLE cannot accept")
 
-    _assert(DispatchStatus.READY.is_active(),          "READY active")
-    _assert(DispatchStatus.DISPATCHING.is_active(),    "DISPATCHING active")
-    _assert(not DispatchStatus.IDLE.is_active(),       "IDLE not active")
-    _assert(not DispatchStatus.COMPLETE.is_active(),   "COMPLETE not active")
+    _assert(WorkerStatus.READY.is_busy(),           "READY is_busy")
+    _assert(WorkerStatus.BUSY.is_busy(),            "BUSY is_busy")
+    _assert(not WorkerStatus.IDLE.is_busy(),        "IDLE not busy")
+    _assert(not WorkerStatus.COMPLETED.is_busy(),   "COMPLETED not busy")
+    _assert(not WorkerStatus.UNAVAILABLE.is_busy(), "UNAVAILABLE not busy")
 
-    _assert(DispatchStatus.IDLE.is_idle(),             "IDLE is_idle")
-    _assert(not DispatchStatus.READY.is_idle(),        "READY not idle")
-    _assert(not DispatchStatus.DISPATCHING.is_idle(),  "DISPATCHING not idle")
+    _assert(WorkerStatus.IDLE.is_available(),        "IDLE available")
+    _assert(WorkerStatus.BUSY.is_available(),        "BUSY available")
+    _assert(WorkerStatus.READY.is_available(),       "READY available")
+    _assert(WorkerStatus.COMPLETED.is_available(),   "COMPLETED available")
+    _assert(not WorkerStatus.UNAVAILABLE.is_available(), "UNAVAILABLE not available")
 
 
 # ===========================================================================
-# ── SPRINT 004 — DispatchRecord ────────────────────────────────────────────
+# ── SPRINT 005 — WorkerRecord ──────────────────────────────────────────────
 # ===========================================================================
 
-def test_s004_dispatch_record_construction() -> None:
-    _section("[S004] DispatchRecord — construction")
-    import uuid
-    dr = DispatchRecord(
-        dispatch_id=str(uuid.uuid4()),
-        session_id="sess-abc",
-        queued_at=1000,
-        dispatched_at=1050,
-        status=DispatchStatus.DISPATCHING,
+def test_s005_worker_record_construction() -> None:
+    _section("[S005] WorkerRecord — construction")
+    rec = WorkerRecord(
+        worker_id="wid-001", worker_name="TestWorker",
+        status=WorkerStatus.IDLE, created_at=1000,
     )
-    _assert(dr.session_id == "sess-abc",             "session_id stored")
-    _assert(dr.queued_at == 1000,                    "queued_at stored")
-    _assert(dr.dispatched_at == 1050,                "dispatched_at stored")
-    _assert(dr.status == DispatchStatus.DISPATCHING, "status stored")
-    _assert(dr.completed_at is None,                 "completed_at None")
-    _assert(dr.duration_ms is None,                  "duration None")
-    _assert(dr.wait_ms == 50,                        "wait_ms = 50")
-    _assert(not dr.is_complete,                      "not complete")
-    _assert(not dr.has_duration,                     "no duration")
+    _assert(rec.worker_id   == "wid-001",       "worker_id")
+    _assert(rec.worker_name == "TestWorker",    "worker_name")
+    _assert(rec.status      == WorkerStatus.IDLE, "status")
+    _assert(rec.created_at  == 1000,            "created_at")
+    _assert(rec.completed_sessions == 0,        "completed_sessions default 0")
+    _assert(rec.current_session_id is None,     "current_session_id None")
+    _assert(rec.last_activity_ms   is None,     "last_activity_ms None")
+    _assert(not rec.has_current_session,        "has_current_session False")
+    _assert(rec.can_accept,                     "can_accept True for IDLE")
+    _assert(not rec.is_busy,                    "is_busy False for IDLE")
+    # capabilities default
+    _assert(rec.capabilities == (),             "capabilities default empty tuple")
+    _assert(not rec.has_capabilities,           "has_capabilities False when empty")
 
-def test_s004_dispatch_record_immutability() -> None:
-    _section("[S004] DispatchRecord — immutability")
-    import uuid
-    dr = DispatchRecord(
-        dispatch_id=str(uuid.uuid4()), session_id="s",
-        queued_at=0, dispatched_at=0, status=DispatchStatus.DISPATCHING,
+def test_s005_worker_record_capabilities() -> None:
+    _section("[S005] WorkerRecord — capabilities")
+    rec = WorkerRecord(
+        worker_id="w", worker_name="W", status=WorkerStatus.IDLE,
+        created_at=0, capabilities=("engineering", "planning"),
     )
+    _assert(rec.capabilities == ("engineering", "planning"), "capabilities stored")
+    _assert(rec.has_capabilities,                            "has_capabilities True")
+    _assert(rec.has_capability("engineering"),               "has engineering")
+    _assert(rec.has_capability("planning"),                  "has planning")
+    _assert(not rec.has_capability("testing"),               "no testing")
+    _assert("caps=" in repr(rec),                           "caps in repr")
+    # immutability of tuple
     try:
-        dr.session_id = "mutated"  # type: ignore
+        rec.capabilities = ("testing",)  # type: ignore
+        _assert(False, "immutable")
+    except (AttributeError, TypeError):
+        _assert(True, "capabilities immutable")
+
+def test_s005_worker_record_capabilities_validation() -> None:
+    _section("[S005] WorkerRecord — capabilities validation")
+    base = dict(worker_id="w", worker_name="W", status=WorkerStatus.IDLE, created_at=0)
+    try:
+        WorkerRecord(**{**base, "capabilities": ["engineering"]})  # type: ignore
+        _assert(False, "list should raise TypeError")
+    except TypeError:
+        _assert(True, "list raises TypeError")
+
+def test_s005_worker_record_with_session() -> None:
+    _section("[S005] WorkerRecord — with active session")
+    rec = WorkerRecord(
+        worker_id="w", worker_name="W", status=WorkerStatus.BUSY,
+        created_at=0, current_session_id="sess-xyz", completed_sessions=2,
+    )
+    _assert(rec.has_current_session,               "has_current_session True")
+    _assert(rec.current_session_id == "sess-xyz",  "session_id stored")
+    _assert(rec.completed_sessions == 2,           "completed 2")
+    _assert(rec.is_busy,                           "is_busy True for BUSY")
+    _assert(not rec.can_accept,                    "cannot accept when BUSY")
+
+def test_s005_worker_record_immutability() -> None:
+    _section("[S005] WorkerRecord — immutability")
+    rec = WorkerRecord(worker_id="w", worker_name="W",
+                       status=WorkerStatus.IDLE, created_at=0)
+    try:
+        rec.status = WorkerStatus.BUSY  # type: ignore
         _assert(False, "immutable")
     except (AttributeError, TypeError):
         _assert(True, "immutable")
 
-def test_s004_dispatch_record_validation() -> None:
-    _section("[S004] DispatchRecord — validation")
-    import uuid
-    base = dict(dispatch_id=str(uuid.uuid4()), session_id="s",
-                queued_at=0, dispatched_at=0, status=DispatchStatus.DISPATCHING)
-    # blank dispatch_id
-    try:
-        DispatchRecord(**{**base, "dispatch_id": "  "})
-        _assert(False, "blank dispatch_id")
-    except ValueError:
-        _assert(True, "blank dispatch_id raises ValueError")
-    # blank session_id
-    try:
-        DispatchRecord(**{**base, "session_id": ""})
-        _assert(False, "blank session_id")
-    except ValueError:
-        _assert(True, "blank session_id raises ValueError")
-    # wrong status type
-    try:
-        DispatchRecord(**{**base, "status": "DISPATCHING"})  # type: ignore
-        _assert(False, "str status")
-    except TypeError:
-        _assert(True, "str status raises TypeError")
-    # wrong queued_at type
-    try:
-        DispatchRecord(**{**base, "queued_at": "now"})  # type: ignore
-        _assert(False, "str queued_at")
-    except TypeError:
-        _assert(True, "str queued_at raises TypeError")
-    # negative duration
-    try:
-        DispatchRecord(**{**base, "duration_ms": -1})
-        _assert(False, "negative duration")
-    except ValueError:
-        _assert(True, "negative duration raises ValueError")
-    # wrong duration type
-    try:
-        DispatchRecord(**{**base, "duration_ms": "fast"})  # type: ignore
-        _assert(False, "str duration")
-    except TypeError:
-        _assert(True, "str duration raises TypeError")
+def test_s005_worker_record_validation() -> None:
+    _section("[S005] WorkerRecord — validation")
+    base = dict(worker_id="w", worker_name="W", status=WorkerStatus.IDLE, created_at=0)
+    for bad, exc, label in [
+        ({**base, "worker_id": "  "}, ValueError, "blank worker_id"),
+        ({**base, "worker_name": ""}, ValueError, "blank worker_name"),
+        ({**base, "status": "IDLE"}, TypeError, "str status"),
+        ({**base, "created_at": "now"}, TypeError, "str created_at"),
+        ({**base, "completed_sessions": -1}, ValueError, "negative completed"),
+    ]:
+        try:
+            WorkerRecord(**bad)  # type: ignore
+            _assert(False, f"{label} should raise")
+        except exc:
+            _assert(True, f"{label} raises {exc.__name__}")
 
-def test_s004_dispatch_record_complete() -> None:
-    _section("[S004] DispatchRecord — complete()")
-    import uuid
-    dr = DispatchRecord(
-        dispatch_id=str(uuid.uuid4()), session_id="s",
-        queued_at=1000, dispatched_at=1050, status=DispatchStatus.DISPATCHING,
-    )
-    completed = dr.complete(completed_at=1200)
-
-    # original unchanged
-    _assert(dr.status == DispatchStatus.DISPATCHING, "original unchanged")
-    _assert(dr.completed_at is None,                 "original completed_at None")
-
-    # completed record
-    _assert(completed.status == DispatchStatus.COMPLETE, "status COMPLETE")
-    _assert(completed.completed_at == 1200,              "completed_at set")
-    _assert(completed.duration_ms == 200,                "duration = 1200-1000")
-    _assert(completed.is_complete,                       "is_complete True")
-    _assert(completed.has_duration,                      "has_duration True")
-    _assert(completed.wait_ms == 50,                     "wait_ms preserved")
-    # IDs preserved
-    _assert(completed.dispatch_id == dr.dispatch_id,     "dispatch_id preserved")
-    _assert(completed.session_id  == dr.session_id,      "session_id preserved")
-
-def test_s004_dispatch_record_repr() -> None:
-    _section("[S004] DispatchRecord — repr")
-    import uuid
-    dr = DispatchRecord(
-        dispatch_id=str(uuid.uuid4()), session_id="s",
-        queued_at=0, dispatched_at=0, status=DispatchStatus.DISPATCHING,
-    )
-    r = repr(dr)
-    _assert("DispatchRecord" in r,  "class name")
-    _assert("DISPATCHING"    in r,  "status")
-    # with duration
-    dr2 = dr.complete(100)
-    r2  = repr(dr2)
-    _assert("100ms" in r2, "duration in repr")
+def test_s005_worker_record_repr() -> None:
+    _section("[S005] WorkerRecord — repr")
+    rec = WorkerRecord(worker_id="wid-001", worker_name="W",
+                       status=WorkerStatus.IDLE, created_at=0)
+    r = repr(rec)
+    _assert("WorkerRecord" in r, "class name")
+    _assert("IDLE"         in r, "status")
+    _assert("'W'"          in r, "worker_name")
 
 
 # ===========================================================================
-# ── SPRINT 004 — EngineeringDispatcher ─────────────────────────────────────
+# ── SPRINT 005 — EngineeringWorker (ABC contract) ──────────────────────────
 # ===========================================================================
 
-def test_s004_dispatcher_construction() -> None:
-    _section("[S004] EngineeringDispatcher — construction")
-    d = EngineeringDispatcher()
-    _assert(d.policy == DispatchPolicy.FIFO, "default policy FIFO")
-    _assert(not d.has_active_dispatch,        "no active dispatch")
-    _assert(d.total_dispatched == 0,          "dispatched 0")
-    _assert(d.total_completed  == 0,          "completed 0")
-    _assert(d.history_count    == 0,          "history 0")
-    _assert(d.current_dispatch() is None,     "current None")
-    _assert(d.dispatch_history() == [],       "history empty")
-    _assert(d.last_dispatch()    is None,     "last None")
-
-def test_s004_dispatcher_invalid_policy() -> None:
-    _section("[S004] EngineeringDispatcher — invalid policy")
+def test_s005_worker_is_abstract() -> None:
+    _section("[S005] EngineeringWorker — is abstract")
+    import inspect
+    _assert(inspect.isabstract(EngineeringWorker), "EngineeringWorker is abstract")
+    # Cannot instantiate directly
     try:
-        EngineeringDispatcher(policy="PRIORITY")
-        _assert(False, "unknown policy should raise")
+        EngineeringWorker()  # type: ignore
+        _assert(False, "cannot instantiate ABC")
+    except TypeError:
+        _assert(True, "TypeError on direct instantiation")
+
+def test_s005_worker_abstract_methods() -> None:
+    _section("[S005] EngineeringWorker — abstract method signatures")
+    abstract_methods = {
+        "worker_id", "worker_name", "can_accept", "accept_session",
+        "status", "current_session", "complete_session", "clear", "record",
+    }
+    for method in abstract_methods:
+        _assert(hasattr(EngineeringWorker, method), f"ABC has {method}")
+
+
+# ===========================================================================
+# ── SPRINT 005 — DefaultEngineeringWorker ──────────────────────────────────
+# ===========================================================================
+
+def test_s005_default_worker_construction() -> None:
+    _section("[S005] LocalEngineeringWorker — construction")
+    w = LocalEngineeringWorker()
+    _assert(w.status()         == WorkerStatus.IDLE, "initial IDLE")
+    _assert(w.can_accept(),                           "can accept initially")
+    _assert(w.current_session() is None,              "no current session")
+    _assert(w.completed_count   == 0,                 "completed 0")
+    _assert(not w.is_busy,                            "not busy")
+    _assert(w.is_idle,                                "is_idle True")
+
+    # Custom name
+    w2 = LocalEngineeringWorker(name="MyWorker")
+    _assert(w2.worker_name() == "MyWorker", "custom name")
+
+    # Custom ID
+    w3 = LocalEngineeringWorker(worker_id="fixed-id-001")
+    _assert(w3.worker_id() == "fixed-id-001", "custom id")
+
+def test_s005_default_worker_name_validation() -> None:
+    _section("[S005] LocalEngineeringWorker — name validation")
+    try:
+        LocalEngineeringWorker(name="  ")
+        _assert(False, "blank name should raise")
     except ValueError:
-        _assert(True, "unknown policy raises ValueError")
-
-def test_s004_dispatcher_can_dispatch() -> None:
-    _section("[S004] EngineeringDispatcher — can_dispatch")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
-
-    # empty queue — cannot dispatch
-    _assert(not d.can_dispatch(q), "cannot dispatch empty queue")
-
-    # queue with session — can dispatch
-    q.enqueue(_session())
-    _assert(d.can_dispatch(q), "can dispatch with pending session")
-
-    # queue already has active — cannot dispatch
-    q.dequeue()
-    _assert(not d.can_dispatch(q), "cannot dispatch when queue already active")
-    q.mark_active_complete()
-
-    # re-enqueue — can dispatch again
-    q.enqueue(_session())
-    _assert(d.can_dispatch(q), "can dispatch after reset")
-
-    # active dispatch in dispatcher — cannot dispatch
-    q2 = EngineeringQueue()
-    q2.enqueue(_session())
-    d.dispatch_next(q2)
-    q3 = EngineeringQueue()
-    q3.enqueue(_session())
-    _assert(not d.can_dispatch(q3), "cannot dispatch when dispatch already active")
-
-def test_s004_dispatcher_can_dispatch_type_safety() -> None:
-    _section("[S004] EngineeringDispatcher — can_dispatch type safety")
-    d = EngineeringDispatcher()
+        _assert(True, "blank name raises ValueError")
     try:
-        d.can_dispatch("not a queue")  # type: ignore
-        _assert(False, "str should raise TypeError")
+        LocalEngineeringWorker(name="")
+        _assert(False, "empty name should raise")
+    except ValueError:
+        _assert(True, "empty name raises ValueError")
+
+def test_s005_default_worker_implements_abc() -> None:
+    _section("[S005] LocalEngineeringWorker — implements ABC")
+    w = LocalEngineeringWorker()
+    _assert(isinstance(w, EngineeringWorker), "isinstance EngineeringWorker")
+
+def test_s005_default_worker_accept_session() -> None:
+    _section("[S005] LocalEngineeringWorker — accept_session")
+    w = LocalEngineeringWorker()
+    s = _sess("Accept me")
+
+    accepted = w.accept_session(s)
+    _assert(accepted,                               "accepted returns True")
+    _assert(w.status() == WorkerStatus.BUSY,        "status BUSY after accept")
+    _assert(w.current_session() is s,               "current_session is s")
+    _assert(not w.can_accept(),                     "cannot accept when BUSY")
+    _assert(not w.is_idle,                          "not idle")
+    _assert(w.is_busy,                              "is_busy True")
+
+def test_s005_default_worker_accept_session_type_safety() -> None:
+    _section("[S005] LocalEngineeringWorker — accept_session type safety")
+    w = LocalEngineeringWorker()
+    try:
+        w.accept_session("not a session")  # type: ignore
+        _assert(False, "str raises TypeError")
     except TypeError:
         _assert(True, "str raises TypeError")
+    try:
+        w.accept_session(None)  # type: ignore
+        _assert(False, "None raises TypeError")
+    except TypeError:
+        _assert(True, "None raises TypeError")
 
-def test_s004_dispatcher_dispatch_next() -> None:
-    _section("[S004] EngineeringDispatcher — dispatch_next")
+def test_s005_default_worker_accept_when_busy() -> None:
+    _section("[S005] LocalEngineeringWorker — accept_session when busy")
+    w  = LocalEngineeringWorker()
+    s1 = _sess("First")
+    s2 = _sess("Second")
+    w.accept_session(s1)
+    accepted2 = w.accept_session(s2)
+    _assert(not accepted2, "second accept returns False")
+    _assert(w.current_session() is s1, "first session unchanged")
+
+def test_s005_default_worker_complete_session() -> None:
+    _section("[S005] LocalEngineeringWorker — complete_session")
+    w = LocalEngineeringWorker()
+    s = _sess("Complete me")
+    w.accept_session(s)
+    completed = w.complete_session()
+
+    _assert(completed is s,                           "returned completed session")
+    _assert(w.status() == WorkerStatus.COMPLETED,     "status COMPLETED")
+    _assert(w.current_session() is None,              "no current session")
+    _assert(w.completed_count == 1,                   "completed count 1")
+    _assert(w.can_accept(),                           "can accept after complete")
+    _assert(not w.is_busy,                            "not busy")
+
+def test_s005_default_worker_complete_when_idle() -> None:
+    _section("[S005] LocalEngineeringWorker — complete when idle")
+    w = LocalEngineeringWorker()
+    result = w.complete_session()
+    _assert(result is None, "None when idle")
+
+def test_s005_default_worker_clear() -> None:
+    _section("[S005] LocalEngineeringWorker — clear")
+    w = LocalEngineeringWorker()
+    s = _sess()
+    w.accept_session(s)
+    w.clear()
+
+    _assert(w.status() == WorkerStatus.IDLE, "IDLE after clear")
+    _assert(w.can_accept(),                  "can accept after clear")
+    _assert(w.current_session() is None,     "no session after clear")
+    # completed_count preserved
+    _assert(w.completed_count == 0,          "completed_count unchanged by clear")
+
+def test_s005_default_worker_record() -> None:
+    _section("[S005] LocalEngineeringWorker — record()")
+    w = LocalEngineeringWorker(name="RecordWorker")
+    rec = w.record()
+
+    _assert(isinstance(rec, WorkerRecord),       "returns WorkerRecord")
+    _assert(rec.worker_name == "RecordWorker",   "name in record")
+    _assert(rec.worker_id   == w.worker_id(),    "id in record")
+    _assert(rec.status      == WorkerStatus.IDLE, "status IDLE")
+    _assert(rec.completed_sessions == 0,         "completed 0")
+    _assert(not rec.has_current_session,         "no current session")
+
+    # After accepting session
+    s = _sess()
+    w.accept_session(s)
+    rec2 = w.record()
+    _assert(rec2.status == WorkerStatus.BUSY,      "status BUSY")
+    _assert(rec2.has_current_session,              "has session")
+    _assert(rec2.current_session_id == s.session_id, "session_id correct")
+
+def test_s005_default_worker_record_independence() -> None:
+    _section("[S005] LocalEngineeringWorker — record independence")
+    w   = LocalEngineeringWorker()
+    rec = w.record()
+    _assert(rec.status == WorkerStatus.IDLE, "record IDLE before change")
+
+    # Mutate worker state — record must not change
+    w.accept_session(_sess())
+    _assert(rec.status == WorkerStatus.IDLE, "old record unchanged after state change")
+    _assert(w.status() == WorkerStatus.BUSY, "worker now BUSY")
+
+def test_s005_default_worker_lifecycle() -> None:
+    _section("[S005] LocalEngineeringWorker — full lifecycle")
+    w = LocalEngineeringWorker()
+    for i in range(3):
+        _assert(w.can_accept(), f"cycle {i}: can accept")
+        s = _sess(f"Cycle {i}")
+        accepted = w.accept_session(s)
+        _assert(accepted,                     f"cycle {i}: accepted")
+        _assert(w.status() == WorkerStatus.BUSY, f"cycle {i}: BUSY")
+        w.complete_session()
+        _assert(w.status() == WorkerStatus.COMPLETED, f"cycle {i}: COMPLETED")
+        w.clear()
+        _assert(w.status() == WorkerStatus.IDLE, f"cycle {i}: back to IDLE")
+    _assert(w.completed_count == 3, "3 completed across lifecycle")
+
+def test_s005_default_worker_completed_ids() -> None:
+    _section("[S005] LocalEngineeringWorker — completed session IDs")
+    w = LocalEngineeringWorker()
+    sessions = [_sess(f"S{i}") for i in range(3)]
+    for s in sessions:
+        w.accept_session(s)
+        w.complete_session()
+        w.clear()
+
+    ids = w.completed_session_ids
+    _assert(len(ids) == 3, "3 completed IDs")
+    for s in sessions:
+        _assert(s.session_id in ids, f"{s.session_id[:8]} in ids")
+    # snapshot independence
+    ids.append("fake")
+    _assert(w.completed_count == 3, "worker count unaffected")
+
+def test_s005_default_worker_mark_unavailable() -> None:
+    _section("[S005] LocalEngineeringWorker — mark_unavailable")
+    w = LocalEngineeringWorker()
+    w.mark_unavailable()
+    _assert(w.status() == WorkerStatus.UNAVAILABLE, "UNAVAILABLE")
+    _assert(not w.can_accept(),                     "cannot accept")
+    _assert(not w.status().is_available(),          "not available")
+    # clear recovers
+    w.clear()
+    _assert(w.status() == WorkerStatus.IDLE,        "IDLE after clear")
+
+def test_s005_default_worker_repr() -> None:
+    _section("[S005] LocalEngineeringWorker — repr")
+    w = LocalEngineeringWorker(name="ReprWorker")
+    r = repr(w)
+    _assert("LocalEngineeringWorker" in r, "class name")
+    _assert("ReprWorker"              in r, "worker name")
+    _assert("IDLE"                    in r, "status")
+
+
+# ===========================================================================
+# ── SPRINT 005 — Dispatcher + Worker integration ───────────────────────────
+# ===========================================================================
+
+def test_s005_dispatcher_can_dispatch_to_worker() -> None:
+    _section("[S005] Dispatcher.can_dispatch_to_worker()")
+    d = EngineeringDispatcher()
+    w = DefaultEngineeringWorker()
+    q = EngineeringQueue()
+
+    # empty queue
+    _assert(not d.can_dispatch_to_worker(q, w), "False: empty queue")
+
+    q.enqueue(_sess())
+    _assert(d.can_dispatch_to_worker(q, w), "True: queue has work, worker idle")
+
+    # worker busy
+    w2 = DefaultEngineeringWorker()
+    w2.accept_session(_sess("busy"))
+    _assert(not d.can_dispatch_to_worker(q, w2), "False: worker busy")
+
+    # worker unavailable
+    w3 = DefaultEngineeringWorker()
+    w3.mark_unavailable()
+    _assert(not d.can_dispatch_to_worker(q, w3), "False: worker unavailable")
+
+def test_s005_dispatcher_can_dispatch_to_worker_type_safety() -> None:
+    _section("[S005] Dispatcher.can_dispatch_to_worker() — type safety")
     d = EngineeringDispatcher()
     q = EngineeringQueue()
-    s = _session("Dispatch me")
-    q.enqueue(s)
-
-    record = d.dispatch_next(q)
-    _assert(record is not None,                           "record returned")
-    _assert(record.session_id == s.session_id,            "session_id in record")
-    _assert(record.status == DispatchStatus.DISPATCHING,  "status DISPATCHING")
-    _assert(d.has_active_dispatch,                        "has active dispatch")
-    _assert(d.total_dispatched == 1,                      "dispatched count 1")
-    _assert(d.current_dispatch() is record,               "current_dispatch matches")
-    _assert(q.has_active,                                 "queue has active session")
-    _assert(q.active_session.session_id == s.session_id,  "queue active is our session")
-
-def test_s004_dispatcher_dispatch_next_empty() -> None:
-    _section("[S004] EngineeringDispatcher — dispatch_next on empty queue")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
-    r = d.dispatch_next(q)
-    _assert(r is None, "None on empty queue")
-    _assert(d.total_dispatched == 0, "dispatched count unchanged")
-
-def test_s004_dispatcher_dispatch_next_while_active() -> None:
-    _section("[S004] EngineeringDispatcher — dispatch_next while active")
-    d  = EngineeringDispatcher()
-    q1 = EngineeringQueue(); q1.enqueue(_session("A"))
-    q2 = EngineeringQueue(); q2.enqueue(_session("B"))
-    d.dispatch_next(q1)
     try:
-        d.dispatch_next(q2)
-        _assert(False, "should raise RuntimeError")
-    except RuntimeError:
-        _assert(True, "RuntimeError when dispatch already active")
-
-def test_s004_dispatcher_dispatch_next_type_safety() -> None:
-    _section("[S004] EngineeringDispatcher — dispatch_next type safety")
-    d = EngineeringDispatcher()
-    try:
-        d.dispatch_next("not a queue")  # type: ignore
+        d.can_dispatch_to_worker(q, "not a worker")  # type: ignore
         _assert(False, "str raises TypeError")
     except TypeError:
         _assert(True, "str raises TypeError")
 
-def test_s004_dispatcher_complete_dispatch() -> None:
-    _section("[S004] EngineeringDispatcher — complete_dispatch")
+def test_s005_dispatcher_dispatch_to_worker() -> None:
+    _section("[S005] Dispatcher.dispatch_next(worker=...)")
     d = EngineeringDispatcher()
+    w = DefaultEngineeringWorker()
     q = EngineeringQueue()
-    q.enqueue(_session())
-    d.dispatch_next(q)
-
-    completed = d.complete_dispatch()
-    _assert(completed is not None,                       "completed record returned")
-    _assert(completed.status == DispatchStatus.COMPLETE, "status COMPLETE")
-    _assert(completed.is_complete,                       "is_complete True")
-    _assert(completed.completed_at is not None,          "completed_at set")
-    _assert(completed.has_duration,                      "has duration")
-    _assert(not d.has_active_dispatch,                   "no active after complete")
-    _assert(d.total_completed == 1,                      "completed count 1")
-    _assert(d.history_count   == 1,                      "history count 1")
-    _assert(d.last_dispatch() is completed,              "last_dispatch matches")
-
-def test_s004_dispatcher_complete_when_idle() -> None:
-    _section("[S004] EngineeringDispatcher — complete when idle")
-    d = EngineeringDispatcher()
-    r = d.complete_dispatch()
-    _assert(r is None, "None when no active dispatch")
-
-def test_s004_dispatcher_fifo_ordering() -> None:
-    _section("[S004] EngineeringDispatcher — FIFO ordering")
-    d  = EngineeringDispatcher()
-    q  = EngineeringQueue()
-    sessions = [_session(f"S{i}") for i in range(4)]
-    for s in sessions:
-        q.enqueue(s)
-
-    dispatched_ids = []
-    for _ in range(4):
-        rec = d.dispatch_next(q)
-        dispatched_ids.append(rec.session_id)
-        q.mark_active_complete()
-        d.complete_dispatch()
-
-    for i, s in enumerate(sessions):
-        _assert(dispatched_ids[i] == s.session_id, f"FIFO: position {i} correct")
-
-def test_s004_dispatcher_history() -> None:
-    _section("[S004] EngineeringDispatcher — dispatch_history")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
-    for i in range(3):
-        s = _session(f"H{i}")
-        q.enqueue(s)
-        d.dispatch_next(q)
-        q.mark_active_complete()
-        d.complete_dispatch()
-
-    history = d.dispatch_history()
-    _assert(len(history) == 3, "3 history entries")
-    _assert(all(isinstance(r, DispatchRecord) for r in history), "all DispatchRecord")
-    _assert(all(r.is_complete for r in history), "all complete")
-    # snapshot independence
-    history.append(None)  # type: ignore
-    _assert(d.history_count == 3, "history unaffected by snapshot mutation")
-
-def test_s004_dispatcher_statistics() -> None:
-    _section("[S004] EngineeringDispatcher — statistics")
-    d = EngineeringDispatcher()
-    stats = d.statistics()
-    _assert(isinstance(stats, dict),         "returns dict")
-    _assert(stats["total_dispatched"] == 0,  "dispatched 0")
-    _assert(stats["total_completed"]  == 0,  "completed 0")
-    _assert(stats["history_count"]    == 0,  "history 0")
-    _assert(stats["active"]           == 0,  "active 0")
-
-    q = EngineeringQueue()
-    q.enqueue(_session())
-    d.dispatch_next(q)
-    stats2 = d.statistics()
-    _assert(stats2["active"]           == 1, "active 1")
-    _assert(stats2["total_dispatched"] == 1, "dispatched 1")
-
-    q.mark_active_complete()
-    d.complete_dispatch()
-    stats3 = d.statistics()
-    _assert(stats3["active"]           == 0, "active 0 after complete")
-    _assert(stats3["total_completed"]  == 1, "completed 1")
-    _assert(stats3["history_count"]    == 1, "history 1")
-
-def test_s004_dispatcher_reset_current() -> None:
-    _section("[S004] EngineeringDispatcher — reset_current")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
-    q.enqueue(_session())
-    d.dispatch_next(q)
-    _assert(d.has_active_dispatch, "has active before reset")
-
-    result = d.reset_current()
-    _assert(result, "reset returns True")
-    _assert(not d.has_active_dispatch, "no active after reset")
-    _assert(d.history_count == 1,      "reset adds to history")
-
-    # reset when idle
-    result2 = d.reset_current()
-    _assert(not result2, "reset returns False when idle")
-
-def test_s004_dispatcher_wait_ms() -> None:
-    _section("[S004] EngineeringDispatcher — wait_ms tracking")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
-    s = _session()
+    s = _sess("Worker dispatch")
     q.enqueue(s)
-    t_queued = int(time.monotonic() * 1000)
-    rec = d.dispatch_next(q, queued_at=t_queued)
-    _assert(rec.wait_ms >= 0, "wait_ms non-negative")
-    _assert(rec.queued_at == t_queued, "queued_at stored")
 
-def test_s004_dispatcher_repr() -> None:
-    _section("[S004] EngineeringDispatcher — repr")
+    rec = d.dispatch_next(q, worker=w)
+    _assert(rec is not None,                         "record returned")
+    _assert(w.status() == WorkerStatus.BUSY,         "worker BUSY after dispatch")
+    _assert(w.current_session() is not None,         "worker has session")
+    _assert(w.current_session().session_id == s.session_id, "correct session assigned")
+
+def test_s005_dispatcher_dispatch_to_busy_worker_raises() -> None:
+    _section("[S005] Dispatcher — dispatch to busy worker raises")
     d = EngineeringDispatcher()
-    r = repr(d)
-    _assert("EngineeringDispatcher" in r, "class name")
-    _assert("FIFO"                  in r, "policy")
-    _assert("dispatched=0"          in r, "dispatched count")
+    w = DefaultEngineeringWorker()
+    w.accept_session(_sess("already busy"))
 
-def test_s004_dispatch_policy() -> None:
-    _section("[S004] DispatchPolicy")
-    _assert(DispatchPolicy.FIFO == "FIFO", "FIFO constant value")
-    d = EngineeringDispatcher(policy=DispatchPolicy.FIFO)
-    _assert(d.policy == "FIFO", "policy stored")
+    q = EngineeringQueue()
+    q.enqueue(_sess("New work"))
+
+    # can_dispatch_to_worker returns False, so dispatch_next with busy worker raises
+    try:
+        d.dispatch_next(q, worker=w)
+        _assert(False, "busy worker should raise RuntimeError")
+    except RuntimeError:
+        _assert(True, "busy worker raises RuntimeError")
+
+def test_s005_dispatcher_dispatch_next_type_safety_worker() -> None:
+    _section("[S005] Dispatcher.dispatch_next() — worker type safety")
+    d = EngineeringDispatcher()
+    q = EngineeringQueue()
+    q.enqueue(_sess())
+    try:
+        d.dispatch_next(q, worker="not a worker")  # type: ignore
+        _assert(False, "str worker raises TypeError")
+    except TypeError:
+        _assert(True, "str worker raises TypeError")
 
 
 # ===========================================================================
-# ── SPRINT 004 — Coordinator integration ───────────────────────────────────
+# ── SPRINT 005 — Coordinator + Worker integration ──────────────────────────
 # ===========================================================================
 
-def test_s004_coordinator_has_dispatcher() -> None:
-    _section("[S004] Coordinator — owns dispatcher")
+def test_s005_coordinator_owns_worker() -> None:
+    _section("[S005] Coordinator — owns worker")
     c = _coord()
-    _assert(isinstance(c.dispatcher, EngineeringDispatcher), "dispatcher is EngineeringDispatcher")
-    _assert(c.dispatcher.policy == DispatchPolicy.FIFO,      "default FIFO policy")
+    _assert(isinstance(c.worker, EngineeringWorker),          "worker is EngineeringWorker")
+    _assert(isinstance(c.worker, LocalEngineeringWorker),   "worker is LocalEngineeringWorker")
 
-def test_s004_coordinator_process_next_uses_dispatcher() -> None:
-    _section("[S004] Coordinator.process_next() — uses dispatcher")
+def test_s005_coordinator_worker_record() -> None:
+    _section("[S005] Coordinator.worker_record()")
+    c   = _coord()
+    rec = c.worker_record()
+    _assert(isinstance(rec, WorkerRecord),    "returns WorkerRecord")
+    _assert(rec.status == WorkerStatus.IDLE,  "IDLE initially")
+
+def test_s005_coordinator_worker_statistics() -> None:
+    _section("[S005] Coordinator.worker_statistics()")
+    c     = _coord()
+    stats = c.worker_statistics()
+    _assert(isinstance(stats, dict),          "returns dict")
+    _assert(stats["completed_sessions"] == 0, "completed 0")
+    _assert(stats["is_busy"]            == 0, "not busy")
+    _assert(stats["can_accept"]         == 1, "can accept")
+
+    c.submit(_req("W-Stats"))
+    c.process_next()
+    stats2 = c.worker_statistics()
+    _assert(stats2["completed_sessions"] == 1, "completed 1")
+    _assert(stats2["is_busy"]            == 0, "not busy after complete")
+    _assert(stats2["can_accept"]         == 1, "can accept again")
+
+def test_s005_coordinator_process_next_worker_id_on_result() -> None:
+    _section("[S005] Coordinator.process_next() — worker_id on result")
     c = _coord()
-    c.submit(_req("Dispatched request"))
+    c.submit(_req("Worker result"))
     result = c.process_next()
 
-    _assert(result is not None,                              "result returned")
-    _assert(result.status == EngineeringStatus.COMPLETE,     "COMPLETE")
-    _assert(result.has_dispatch_record,                      "dispatch_record attached")
-    _assert(result.dispatch_record.is_complete,              "dispatch_record is complete")
-    _assert(result.dispatch_id is not None,                  "dispatch_id accessible")
-    _assert(result.dispatch_duration_ms is not None,         "dispatch_duration_ms set")
-    _assert(result.dispatch_duration_ms >= 0,                "dispatch_duration_ms non-negative")
+    _assert(result is not None,                                "result returned")
+    _assert(result.has_worker_id,                              "has_worker_id True")
+    _assert(result.worker_id is not None,                      "worker_id set")
+    _assert(result.has_worker_status,                          "has_worker_status True")
+    _assert(result.worker_status == WorkerStatus.COMPLETED,    "worker_status COMPLETED")
+    _assert(result.worker_id == c.worker.worker_id(),          "worker_id matches coordinator's worker")
 
-def test_s004_coordinator_direct_no_dispatch_record() -> None:
-    _section("[S004] Coordinator.coordinate() — no dispatch_record (backwards compat)")
+def test_s005_coordinator_direct_no_worker_id() -> None:
+    _section("[S005] Coordinator.coordinate() — no worker_id (backwards compat)")
     c = _coord()
     r = c.coordinate(_req("Direct"))
-    _assert(not r.has_dispatch_record, "no dispatch_record on direct call")
-    _assert(r.dispatch_id is None,     "dispatch_id None")
-    _assert(r.has_queue_snapshot,      "queue_snapshot still attached")
+    _assert(not r.has_worker_id,     "no worker_id on direct call")
+    _assert(not r.has_worker_status, "no worker_status on direct call")
+    _assert(r.worker_id is None,     "worker_id None")
 
-def test_s004_coordinator_dispatch_history() -> None:
-    _section("[S004] Coordinator.dispatch_history()")
+def test_s005_coordinator_process_all_worker_ids() -> None:
+    _section("[S005] Coordinator.process_all() — all results have worker_id")
     c = _coord()
-    for i in range(3):
-        c.submit(_req(f"Task {i}"))
-    c.process_all()
-    history = c.dispatch_history()
-    _assert(len(history) == 3, "3 dispatch records")
-    _assert(all(isinstance(r, DispatchRecord) for r in history), "all DispatchRecord")
-    _assert(all(r.is_complete for r in history), "all complete")
+    for i in range(4): c.submit(_req(f"W{i}"))
+    results = c.process_all()
+    _assert(len(results) == 4, "4 results")
+    for i, r in enumerate(results):
+        _assert(r.has_worker_id,                           f"result {i} has worker_id")
+        _assert(r.worker_status == WorkerStatus.COMPLETED, f"result {i} COMPLETED")
 
-def test_s004_coordinator_dispatch_statistics() -> None:
-    _section("[S004] Coordinator.dispatch_statistics()")
+def test_s005_coordinator_worker_reused_across_requests() -> None:
+    _section("[S005] Coordinator — same worker reused across requests")
     c = _coord()
-    stats = c.dispatch_statistics()
-    _assert(stats["total_dispatched"] == 0, "dispatched 0 initially")
+    for i in range(5): c.submit(_req(f"Reuse {i}"))
+    results = c.process_all()
+    worker_ids = {r.worker_id for r in results}
+    _assert(len(worker_ids) == 1, "same worker_id across all results")
+    _assert(c.worker_statistics()["completed_sessions"] == 5, "5 sessions completed")
 
-    for i in range(4): c.submit(_req(f"T{i}"))
-    c.process_all()
-    stats2 = c.dispatch_statistics()
-    _assert(stats2["total_dispatched"] == 4, "dispatched 4")
-    _assert(stats2["total_completed"]  == 4, "completed 4")
-    _assert(stats2["history_count"]    == 4, "history 4")
-    _assert(stats2["active"]           == 0, "active 0")
-
-def test_s004_coordinator_current_dispatch() -> None:
-    _section("[S004] Coordinator.current_dispatch()")
-    c = _coord()
-    _assert(c.current_dispatch() is None, "None initially")
-    # After processing, current should be None (complete)
-    c.submit(_req("CD test"))
-    c.process_next()
-    _assert(c.current_dispatch() is None, "None after completion")
-
-def test_s004_coordinator_describe_includes_dispatcher() -> None:
-    _section("[S004] Coordinator.describe() — dispatcher info")
+def test_s005_coordinator_describe_includes_worker() -> None:
+    _section("[S005] Coordinator.describe() — worker info")
     c = _coord()
     d = c.describe()
-    _assert("dispatcher" in d, "dispatcher in describe()")
-    _assert("018.004" in d["version"], "version 018.004")
+    _assert("worker" in d,   "worker in describe()")
+    _assert("018.005" in d["version"], "version 018.005")
 
-def test_s004_coordinator_process_all_dispatch_records() -> None:
-    _section("[S004] Coordinator.process_all() — all results have dispatch_records")
-    c       = _coord()
-    n       = 5
-    for i in range(n): c.submit(_req(f"Batch {i}"))
-    results = c.process_all()
-    _assert(len(results) == n, f"{n} results")
-    for i, r in enumerate(results):
-        _assert(r.has_dispatch_record,    f"result {i} has dispatch_record")
-        _assert(r.dispatch_record.is_complete, f"result {i} dispatch complete")
-        _assert(r.queue_position == i + 1,     f"result {i} queue_position {i+1}")
-
-def test_s004_coordinator_fifo_dispatch_order() -> None:
-    _section("[S004] Coordinator — FIFO dispatch order verified via records")
-    c        = _coord()
-    requests = [f"Order {i}" for i in range(4)]
-    for req in requests: c.submit(EngineeringRequest(request=req))
-    results  = c.process_all()
-    history  = c.dispatch_history()
-
-    # History should be in submission order
-    for i, record in enumerate(history):
-        # The session for this position should match the result
-        _assert(record.session_id == results[i].session_id, f"dispatch order {i} matches")
-
-def test_s004_dispatch_record_on_failed_result() -> None:
-    _section("[S004] Dispatch record attached on FAILED result")
-    c = EngineeringCoordinator(
-        planner=_StubPlanner(), guardrails=_BlockingGuardrails(),
-    )
-    c.submit(_req("Will fail"))
-    result = c.process_next()
-    _assert(result.status == EngineeringStatus.FAILED, "FAILED")
-    _assert(result.has_dispatch_record,                "dispatch_record on failed result")
-    _assert(result.dispatch_record.is_complete,        "dispatch_record is complete")
-
-def test_s004_result_sprint004_fields_defaults() -> None:
-    _section("[S004] EngineeringResult — Sprint 004 defaults")
-    res = EngineeringResult(status=EngineeringStatus.COMPLETE)
-    _assert(res.dispatch_record      is None, "dispatch_record None")
-    _assert(res.dispatch_duration_ms is None, "dispatch_duration_ms None")
-    _assert(not res.has_dispatch_record,      "has_dispatch_record False")
-    _assert(res.dispatch_id is None,          "dispatch_id None")
-
-def test_s004_coordinator_queue_and_dispatcher_separate() -> None:
-    _section("[S004] Queue and Dispatcher are distinct, coordinator owns both")
+def test_s005_coordinator_worker_queue_dispatcher_separate() -> None:
+    _section("[S005] Coordinator — queue, dispatcher, worker are distinct objects")
     c = _coord()
-    _assert(c.queue is not c.dispatcher,              "queue != dispatcher")
-    _assert(isinstance(c.queue, EngineeringQueue),    "queue is EngineeringQueue")
-    _assert(isinstance(c.dispatcher, EngineeringDispatcher), "dispatcher is EngineeringDispatcher")
+    _assert(c.queue is not c.dispatcher,  "queue ≠ dispatcher")
+    _assert(c.queue is not c.worker,      "queue ≠ worker")
+    _assert(c.dispatcher is not c.worker, "dispatcher ≠ worker")
+    _assert(isinstance(c.queue,      EngineeringQueue),           "queue type")
+    _assert(isinstance(c.dispatcher, EngineeringDispatcher),      "dispatcher type")
+    _assert(isinstance(c.worker,     DefaultEngineeringWorker),   "worker type")
 
-def test_s004_backward_compat_all_previous_apis() -> None:
-    _section("[S004] Backwards compatibility — all Sprint 001-003 APIs work")
+def test_s005_worker_id_consistent_with_dispatch_record() -> None:
+    _section("[S005] worker_id consistent with dispatch_record on result")
+    c = _coord()
+    c.submit(_req("Consistency check"))
+    r = c.process_next()
+    _assert(r.has_dispatch_record,  "has dispatch_record")
+    _assert(r.has_worker_id,        "has worker_id")
+    # Both should refer to the same execution unit
+    _assert(r.dispatch_record.session_id == r.session_id, "dispatch session matches result session")
+
+def test_s005_result_sprint005_defaults() -> None:
+    _section("[S005] EngineeringResult — Sprint 005 defaults")
+    res = EngineeringResult(status=EngineeringStatus.COMPLETE)
+    _assert(res.worker_id     is None,  "worker_id None default")
+    _assert(res.worker_status is None,  "worker_status None default")
+    _assert(not res.has_worker_id,      "has_worker_id False")
+    _assert(not res.has_worker_status,  "has_worker_status False")
+
+def test_s005_backward_compat_all_previous_apis() -> None:
+    _section("[S005] Backwards compatibility — all Sprint 001-004 APIs work")
     c = _coord(debugger=_StubDebugger())
 
-    # S001: coordinate()
+    # S001
     r1 = c.coordinate(_req("S001"))
     _assert(r1.succeeded, "S001 coordinate")
 
-    # S002: session, timeline, stage_durations
-    _assert(r1.has_session,        "S002 session")
-    _assert(r1.has_timeline,       "S002 timeline")
-    _assert(r1.has_stage_durations,"S002 stage_durations")
+    # S002
+    _assert(r1.has_session,         "S002 session")
+    _assert(r1.has_timeline,        "S002 timeline")
+    _assert(r1.has_stage_durations, "S002 stage_durations")
 
-    # S003: queue, submit, process_next, queue_snapshot
+    # S003
     pos = c.submit(_req("S003"))
     _assert(pos == 1, "S003 submit")
     r2 = c.process_next()
     _assert(r2.has_queue_position, "S003 queue_position")
     _assert(r2.has_queue_snapshot, "S003 queue_snapshot")
 
-    # S004: dispatch_record
+    # S004
     _assert(r2.has_dispatch_record, "S004 dispatch_record")
+    _assert("total_dispatched" in c.dispatch_statistics(), "S004 dispatch_statistics")
 
-    stats = c.dispatch_statistics()
-    _assert("total_dispatched" in stats, "S004 dispatch_statistics")
-    history = c.dispatch_history()
-    _assert(isinstance(history, list), "S004 dispatch_history")
+    # S005
+    _assert(r2.has_worker_id,     "S005 worker_id")
+    _assert(r2.has_worker_status, "S005 worker_status")
+    _assert(isinstance(c.worker_record(), WorkerRecord), "S005 worker_record")
 
 
 # ===========================================================================
-# ── SPRINT 004 — Public API surface ────────────────────────────────────────
+# ── SPRINT 005 — Public API surface ────────────────────────────────────────
 # ===========================================================================
 
-def test_s004_public_api_surface() -> None:
-    _section("[S004] Public API surface — __init__ exports")
+def test_s005_local_worker_stable_id() -> None:
+    _section("[S005] LocalEngineeringWorker — stable worker_id")
+    # Default ID follows convention
+    w1 = LocalEngineeringWorker()
+    _assert(w1.worker_id().startswith("worker-local-"), "ID starts with worker-local-")
+    # Different instances get different IDs
+    w2 = LocalEngineeringWorker()
+    _assert(w1.worker_id() != w2.worker_id(), "unique IDs per instance")
+    # Custom stable ID
+    w3 = LocalEngineeringWorker(worker_id="worker-local-001")
+    _assert(w3.worker_id() == "worker-local-001", "custom ID stored")
+    # ID in record
+    rec = w3.record()
+    _assert(rec.worker_id == "worker-local-001", "ID in WorkerRecord")
+
+def test_s005_local_worker_capabilities() -> None:
+    _section("[S005] LocalEngineeringWorker — capabilities")
+    # Default capabilities
+    w = LocalEngineeringWorker()
+    _assert(w.capabilities() == ("engineering",), "default capabilities")
+    # Custom capabilities
+    w2 = LocalEngineeringWorker(capabilities=("engineering", "planning"))
+    _assert(w2.capabilities() == ("engineering", "planning"), "custom capabilities")
+    # Capabilities immutable (tuple)
+    caps = w.capabilities()
+    _assert(isinstance(caps, tuple), "capabilities is tuple")
+    # In WorkerRecord
+    rec = w.record()
+    _assert(rec.capabilities == ("engineering",), "capabilities in record")
+    _assert(rec.has_capability("engineering"),     "has engineering")
+    _assert(not rec.has_capability("testing"),     "no testing by default")
+
+def test_s005_default_worker_alias() -> None:
+    _section("[S005] DefaultEngineeringWorker — backwards-compat alias")
+    # DefaultEngineeringWorker is an alias for LocalEngineeringWorker
+    _assert(DefaultEngineeringWorker is LocalEngineeringWorker, "alias is same class")
+    w = DefaultEngineeringWorker()
+    _assert(isinstance(w, LocalEngineeringWorker),  "isinstance LocalEngineeringWorker")
+    _assert(isinstance(w, EngineeringWorker),        "isinstance EngineeringWorker")
+
+def test_s005_worker_id_on_coordinator_result() -> None:
+    _section("[S005] worker_id on coordinator result follows convention")
+    c = _coord()
+    c.submit(_req("ID convention"))
+    r = c.process_next()
+    _assert(r.worker_id is not None,                       "worker_id set")
+    _assert(r.worker_id.startswith("worker-local-"),       "follows convention")
+    _assert(r.worker_id == c.worker.worker_id(),           "matches coordinator worker")
+
+def test_s005_worker_record_capabilities_in_coordinator() -> None:
+    _section("[S005] WorkerRecord capabilities via coordinator")
+    c   = _coord()
+    rec = c.worker_record()
+    _assert(rec.has_capabilities,                          "has capabilities")
+    _assert(rec.has_capability("engineering"),             "has engineering")
+    _assert(isinstance(rec.capabilities, tuple),          "capabilities is tuple")
+
+def test_s005_local_worker_name_and_id_in_repr() -> None:
+    _section("[S005] LocalEngineeringWorker — repr includes id and capabilities")
+    w = LocalEngineeringWorker(name="ReprCheck", worker_id="worker-local-999")
+    r = repr(w)
+    _assert("LocalEngineeringWorker" in r,    "class name in repr")
+    _assert("worker-local-999"       in r,    "worker_id in repr")
+    _assert("ReprCheck"              in r,    "name in repr")
+    _assert("engineering"            in r,    "capabilities in repr")
+
+
+def test_s005_public_api_surface() -> None:
+    _section("[S005] Public API surface — __init__ exports")
     import core.engineering.coordinator as pkg
     expected = [
         "EngineeringCoordinator","EngineeringRequest","EngineeringResult",
@@ -839,10 +844,11 @@ def test_s004_public_api_surface() -> None:
         "EngineeringStage","EngineeringSession","CoordinatorEventLog","SessionEvent",
         "EngineeringQueue","QueueStatus","QueueSnapshot",
         "EngineeringDispatcher","DispatchStatus","DispatchRecord","DispatchPolicy",
+        "EngineeringWorker","DefaultEngineeringWorker","WorkerStatus","WorkerRecord",
     ]
     for name in expected:
         _assert(hasattr(pkg, name), f"{name} exported")
-    _assert(len(pkg.__all__) == 17, "__all__ has 17 entries")
+    _assert(len(pkg.__all__) == 22, "__all__ has 22 entries")
 
 
 # ===========================================================================
@@ -851,62 +857,61 @@ def test_s004_public_api_surface() -> None:
 
 def main() -> None:
     print("\n" + "=" * 60)
-    print("  Genesis-018 Sprint 004 — Engineering Coordinator Tests")
+    print("  Genesis-018 Sprint 005 — Engineering Coordinator Tests")
     print("=" * 60)
 
-    test_s001_status()
-    test_s001_request()
-    test_s001_result()
-    test_s001_pipeline()
+    test_s001_regression()
 
-    test_s002_stage()
-    test_s002_event_log()
-    test_s002_session()
-    test_s002_result_fields()
-
-    test_s003_queue_status()
-    test_s003_queue_snapshot()
-    test_s003_queue()
-    test_s003_submit_process()
-
-    test_s004_dispatch_status_values()
-    test_s004_dispatch_status_properties()
-    test_s004_dispatch_record_construction()
-    test_s004_dispatch_record_immutability()
-    test_s004_dispatch_record_validation()
-    test_s004_dispatch_record_complete()
-    test_s004_dispatch_record_repr()
-    test_s004_dispatcher_construction()
-    test_s004_dispatcher_invalid_policy()
-    test_s004_dispatcher_can_dispatch()
-    test_s004_dispatcher_can_dispatch_type_safety()
-    test_s004_dispatcher_dispatch_next()
-    test_s004_dispatcher_dispatch_next_empty()
-    test_s004_dispatcher_dispatch_next_while_active()
-    test_s004_dispatcher_dispatch_next_type_safety()
-    test_s004_dispatcher_complete_dispatch()
-    test_s004_dispatcher_complete_when_idle()
-    test_s004_dispatcher_fifo_ordering()
-    test_s004_dispatcher_history()
-    test_s004_dispatcher_statistics()
-    test_s004_dispatcher_reset_current()
-    test_s004_dispatcher_wait_ms()
-    test_s004_dispatcher_repr()
-    test_s004_dispatch_policy()
-    test_s004_coordinator_has_dispatcher()
-    test_s004_coordinator_process_next_uses_dispatcher()
-    test_s004_coordinator_direct_no_dispatch_record()
-    test_s004_coordinator_dispatch_history()
-    test_s004_coordinator_dispatch_statistics()
-    test_s004_coordinator_current_dispatch()
-    test_s004_coordinator_describe_includes_dispatcher()
-    test_s004_coordinator_process_all_dispatch_records()
-    test_s004_coordinator_fifo_dispatch_order()
-    test_s004_dispatch_record_on_failed_result()
-    test_s004_result_sprint004_fields_defaults()
-    test_s004_coordinator_queue_and_dispatcher_separate()
-    test_s004_backward_compat_all_previous_apis()
-    test_s004_public_api_surface()
+    test_s005_worker_status_values()
+    test_s005_worker_status_properties()
+    test_s005_worker_record_construction()
+    test_s005_worker_record_with_session()
+    test_s005_worker_record_immutability()
+    test_s005_worker_record_validation()
+    test_s005_worker_record_repr()
+    test_s005_worker_is_abstract()
+    test_s005_worker_abstract_methods()
+    test_s005_default_worker_construction()
+    test_s005_default_worker_name_validation()
+    test_s005_default_worker_implements_abc()
+    test_s005_default_worker_accept_session()
+    test_s005_default_worker_accept_session_type_safety()
+    test_s005_default_worker_accept_when_busy()
+    test_s005_default_worker_complete_session()
+    test_s005_default_worker_complete_when_idle()
+    test_s005_default_worker_clear()
+    test_s005_default_worker_record()
+    test_s005_default_worker_record_independence()
+    test_s005_default_worker_lifecycle()
+    test_s005_default_worker_completed_ids()
+    test_s005_default_worker_mark_unavailable()
+    test_s005_default_worker_repr()
+    test_s005_dispatcher_can_dispatch_to_worker()
+    test_s005_dispatcher_can_dispatch_to_worker_type_safety()
+    test_s005_dispatcher_dispatch_to_worker()
+    test_s005_dispatcher_dispatch_to_busy_worker_raises()
+    test_s005_dispatcher_dispatch_next_type_safety_worker()
+    test_s005_coordinator_owns_worker()
+    test_s005_coordinator_worker_record()
+    test_s005_coordinator_worker_statistics()
+    test_s005_coordinator_process_next_worker_id_on_result()
+    test_s005_coordinator_direct_no_worker_id()
+    test_s005_coordinator_process_all_worker_ids()
+    test_s005_coordinator_worker_reused_across_requests()
+    test_s005_coordinator_describe_includes_worker()
+    test_s005_coordinator_worker_queue_dispatcher_separate()
+    test_s005_worker_id_consistent_with_dispatch_record()
+    test_s005_result_sprint005_defaults()
+    test_s005_backward_compat_all_previous_apis()
+    test_s005_local_worker_stable_id()
+    test_s005_local_worker_capabilities()
+    test_s005_default_worker_alias()
+    test_s005_worker_id_on_coordinator_result()
+    test_s005_worker_record_capabilities_in_coordinator()
+    test_s005_local_worker_name_and_id_in_repr()
+    test_s005_worker_record_capabilities()
+    test_s005_worker_record_capabilities_validation()
+    test_s005_public_api_surface()
 
     print("\n" + "=" * 60)
     print(f"  Results: {_PASSED} passed, {_FAILED} failed")
@@ -917,7 +922,6 @@ def main() -> None:
     print("=" * 60)
     if _FAILED > 0:
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

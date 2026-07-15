@@ -24,9 +24,12 @@ from .models import (
     EngineeringStatus,
     QueueSnapshot,
     SessionEvent,
+    WorkerRecord,
+    WorkerStatus,
 )
 from .dispatcher import DispatchPolicy, EngineeringDispatcher
 from .queue import EngineeringQueue
+from .worker import DefaultEngineeringWorker, EngineeringWorker, LocalEngineeringWorker
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +124,7 @@ class EngineeringCoordinator:
         - Delegates all work to injected subsystem adapters.
     """
 
-    VERSION = "018.004"
+    VERSION = "018.005"
 
     def __init__(
         self,
@@ -140,6 +143,7 @@ class EngineeringCoordinator:
         self._observers:  List[Callable[[CoordinatorEvent], None]] = []
         self._queue       = EngineeringQueue()       # Sprint 003: coordinator owns one queue
         self._dispatcher  = EngineeringDispatcher()  # Sprint 004: coordinator owns one dispatcher
+        self._worker      = LocalEngineeringWorker()    # Sprint 005: coordinator owns one worker
 
     # ------------------------------------------------------------------
     # Observer / event system  (Sprint 001 — unchanged)
@@ -203,6 +207,9 @@ class EngineeringCoordinator:
             "queue":           repr(self._queue),
             # Sprint 004
             "dispatcher":      repr(self._dispatcher),
+            # Sprint 005
+            "worker":          repr(self._worker),
+            "worker_id":       self._worker.worker_id(),
         }
 
     # ------------------------------------------------------------------
@@ -255,25 +262,26 @@ class EngineeringCoordinator:
         """
         Dispatch and process the next pending request synchronously.
 
-        Sprint 004: routes through EngineeringDispatcher before execution.
+        Sprint 004: routes through EngineeringDispatcher.
+        Sprint 005: also routes through EngineeringWorker before execution.
 
         Returns:
             EngineeringResult if a request was available, None if the queue
-            was empty or dispatcher cannot dispatch.
+            is empty or worker cannot accept.
 
         Raises:
             RuntimeError: if another session is already active.
         """
-        if not self._dispatcher.can_dispatch(self._queue):
+        if not self._dispatcher.can_dispatch_to_worker(self._queue, self._worker):
             return None
 
         # Retrieve enqueue timestamp for latency tracking
         next_session = self._queue.peek()
         queued_at    = getattr(next_session, "_enqueue_ms", None)
 
-        # Dispatcher selects and dequeues the session
+        # Dispatcher selects, dequeues, and assigns to worker
         dispatch_record = self._dispatcher.dispatch_next(
-            self._queue, queued_at=queued_at
+            self._queue, queued_at=queued_at, worker=self._worker
         )
         if dispatch_record is None:
             return None
@@ -286,13 +294,20 @@ class EngineeringCoordinator:
             dispatch_record=dispatch_record,
         )
 
+        # Complete the worker before closing the queue slot
+        self._worker.complete_session()
+        worker_record = self._worker.record()
+
         self._queue.mark_active_complete()
         completed_record = self._dispatcher.complete_dispatch()
-        # Patch the dispatch_record on the result with the completed version
-        # We use object.__setattr__ since EngineeringResult is frozen
+
+        # Patch frozen result with completed dispatch + worker info
         if completed_record is not None:
-            object.__setattr__(result, "dispatch_record", completed_record)
+            object.__setattr__(result, "dispatch_record",      completed_record)
             object.__setattr__(result, "dispatch_duration_ms", completed_record.duration_ms)
+        object.__setattr__(result, "worker_id",     worker_record.worker_id)
+        object.__setattr__(result, "worker_status", worker_record.status)
+
         return result
 
     def process_all(self) -> List[EngineeringResult]:
@@ -329,6 +344,28 @@ class EngineeringCoordinator:
     def current_dispatch(self) -> Optional[DispatchRecord]:
         """Return the currently active DispatchRecord, or None."""
         return self._dispatcher.current_dispatch()
+
+    # ------------------------------------------------------------------
+    # Worker API  (Sprint 005)
+    # ------------------------------------------------------------------
+
+    @property
+    def worker(self) -> EngineeringWorker:
+        """Direct access to the coordinator's worker (read-intended)."""
+        return self._worker
+
+    def worker_record(self) -> WorkerRecord:
+        """Return an immutable snapshot of the worker's current state."""
+        return self._worker.record()
+
+    def worker_statistics(self) -> Dict[str, int]:
+        """Return worker utilisation statistics."""
+        rec = self._worker.record()
+        return {
+            "completed_sessions": rec.completed_sessions,
+            "is_busy":            1 if rec.is_busy else 0,
+            "can_accept":         1 if rec.can_accept else 0,
+        }
 
     # ------------------------------------------------------------------
     # Core pipeline  (Sprint 002 — session-aware)

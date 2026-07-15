@@ -1,23 +1,29 @@
 """
-Genesis-018 Sprint 004 — Engineering Coordinator Package
+Genesis-018 Sprint 005 — Engineering Coordinator Package
+(Architectural refinement: LocalEngineeringWorker, stable worker_id, capabilities)
 
 Public API:
-    EngineeringCoordinator  — central orchestrator
-    EngineeringRequest      — immutable input model
-    EngineeringResult       — immutable output model
-    EngineeringStatus       — pipeline lifecycle enum
-    EngineeringStage        — fine-grained pipeline stage enum     (Sprint 002)
-    EngineeringSession      — full session lifecycle record         (Sprint 002)
-    CoordinatorEventLog     — chronological event timeline          (Sprint 002)
-    SessionEvent            — single immutable log entry            (Sprint 002)
-    EngineeringQueue        — FIFO request queue                    (Sprint 003)
-    QueueStatus             — queue operational state enum          (Sprint 003)
-    QueueSnapshot           — immutable point-in-time queue state   (Sprint 003)
-    EngineeringDispatcher   — selects next session to execute       (Sprint 004)
-    DispatchStatus          — dispatch lifecycle enum               (Sprint 004)
-    DispatchRecord          — immutable dispatch history entry      (Sprint 004)
-    CoordinatorConfig       — coordinator configuration
-    CoordinatorEvent        — external observer event
+    EngineeringCoordinator      — central orchestrator
+    EngineeringRequest          — immutable input model
+    EngineeringResult           — immutable output model
+    EngineeringStatus           — pipeline lifecycle enum
+    EngineeringStage            — fine-grained stage enum          (Sprint 002)
+    EngineeringSession          — full session lifecycle record     (Sprint 002)
+    CoordinatorEventLog         — chronological event timeline      (Sprint 002)
+    SessionEvent                — single immutable log entry        (Sprint 002)
+    EngineeringQueue            — FIFO request queue                (Sprint 003)
+    QueueStatus                 — queue operational state enum      (Sprint 003)
+    QueueSnapshot               — immutable queue state snapshot    (Sprint 003)
+    EngineeringDispatcher       — selects next session              (Sprint 004)
+    DispatchStatus              — dispatch lifecycle enum           (Sprint 004)
+    DispatchRecord              — immutable dispatch history entry  (Sprint 004)
+    EngineeringWorker           — abstract worker interface         (Sprint 005)
+    LocalEngineeringWorker      — local single-threaded worker      (Sprint 005)
+    DefaultEngineeringWorker    — alias for LocalEngineeringWorker  (Sprint 005)
+    WorkerStatus                — worker operational state enum     (Sprint 005)
+    WorkerRecord                — immutable worker state snapshot   (Sprint 005)
+    CoordinatorConfig           — coordinator configuration
+    CoordinatorEvent            — external observer event
 """
 
 from .coordinator import CoordinatorConfig, CoordinatorEvent, EngineeringCoordinator
@@ -34,8 +40,11 @@ from .models import (
     QueueSnapshot,
     QueueStatus,
     SessionEvent,
+    WorkerRecord,
+    WorkerStatus,
 )
 from .queue import EngineeringQueue
+from .worker import DefaultEngineeringWorker, EngineeringWorker, LocalEngineeringWorker
 
 __all__ = [
     # Sprint 001
@@ -59,4 +68,10 @@ __all__ = [
     "DispatchStatus",
     "DispatchRecord",
     "DispatchPolicy",
+    # Sprint 005
+    "EngineeringWorker",
+    "LocalEngineeringWorker",
+    "DefaultEngineeringWorker",   # backwards-compat alias
+    "WorkerStatus",
+    "WorkerRecord",
 ]

@@ -480,6 +480,10 @@ class EngineeringResult:
     dispatch_record:      Optional["DispatchRecord"] = None  # full dispatch lifecycle
     dispatch_duration_ms: Optional[int]              = None  # dispatch-to-complete duration
 
+    # ── Sprint 005 fields ──────────────────────────────────────────────
+    worker_id:     Optional[str]          = None   # ID of the worker that executed this
+    worker_status: Optional["WorkerStatus"] = None  # worker status at completion
+
     def __post_init__(self) -> None:
         if not isinstance(self.status, EngineeringStatus):
             raise TypeError(
@@ -578,6 +582,16 @@ class EngineeringResult:
     def dispatch_id(self) -> Optional[str]:
         return self.dispatch_record.dispatch_id if self.dispatch_record is not None else None
 
+    # ── Sprint 005 properties ──────────────────────────────────────────
+
+    @property
+    def has_worker_id(self) -> bool:
+        return self.worker_id is not None
+
+    @property
+    def has_worker_status(self) -> bool:
+        return self.worker_status is not None
+
     # ── Summary ───────────────────────────────────────────────────────
 
     def summary(self) -> str:
@@ -598,6 +612,8 @@ class EngineeringResult:
             parts.append(f"queue_pos={self.queue_position}")
         if self.has_dispatch_record:
             parts.append(f"dispatch={self.dispatch_id[:8]}…")
+        if self.has_worker_id:
+            parts.append(f"worker={self.worker_id[:8]}…")
         return f"EngineeringResult({', '.join(parts)})"
 
     def __repr__(self) -> str:
@@ -832,5 +848,121 @@ class DispatchRecord:
             f"session={self.session_id[:8]}…, "
             f"status={self.status.value}"
             f"{dur}"
+            f")"
+        )
+
+
+# ---------------------------------------------------------------------------
+# WorkerStatus  (Sprint 005 — new)
+# ---------------------------------------------------------------------------
+
+class WorkerStatus(Enum):
+    """
+    Operational state of an EngineeringWorker.
+
+    IDLE        — worker exists and is ready to accept work
+    READY       — worker has been assigned a session and is about to execute
+    BUSY        — worker is actively executing a session
+    COMPLETED   — worker has finished its most recent session
+    UNAVAILABLE — worker cannot accept work (error, shutdown, etc.)
+    """
+
+    IDLE        = "IDLE"
+    READY       = "READY"
+    BUSY        = "BUSY"
+    COMPLETED   = "COMPLETED"
+    UNAVAILABLE = "UNAVAILABLE"
+
+    def can_accept(self) -> bool:
+        """Return True if a worker in this status can accept a new session."""
+        return self in (WorkerStatus.IDLE, WorkerStatus.COMPLETED)
+
+    def is_busy(self) -> bool:
+        """Return True if the worker is currently executing."""
+        return self in (WorkerStatus.READY, WorkerStatus.BUSY)
+
+    def is_available(self) -> bool:
+        """Return True if the worker is operational (not UNAVAILABLE)."""
+        return self != WorkerStatus.UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# WorkerRecord  (Sprint 005 — new)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class WorkerRecord:
+    """
+    Immutable snapshot of an EngineeringWorker's state at a point in time.
+
+    Used for logging, monitoring, and passing worker state into results
+    without coupling the caller to the live worker object.
+    """
+
+    worker_id:          str
+    worker_name:        str
+    status:             WorkerStatus
+    created_at:         int                   # monotonic ms
+    completed_sessions: int                   = 0
+    current_session_id: Optional[str]         = None
+    last_activity_ms:   Optional[int]         = None
+    capabilities:       Tuple[str, ...]       = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.worker_id, str) or not self.worker_id.strip():
+            raise ValueError("WorkerRecord.worker_id must be a non-blank string")
+        if not isinstance(self.worker_name, str) or not self.worker_name.strip():
+            raise ValueError("WorkerRecord.worker_name must be a non-blank string")
+        if not isinstance(self.status, WorkerStatus):
+            raise TypeError(
+                f"WorkerRecord.status must be WorkerStatus, "
+                f"got {type(self.status).__name__}"
+            )
+        if not isinstance(self.created_at, int):
+            raise TypeError(
+                f"WorkerRecord.created_at must be int, "
+                f"got {type(self.created_at).__name__}"
+            )
+        if not isinstance(self.completed_sessions, int) or self.completed_sessions < 0:
+            raise ValueError(
+                f"WorkerRecord.completed_sessions must be a non-negative int, "
+                f"got {self.completed_sessions!r}"
+            )
+        if not isinstance(self.capabilities, tuple):
+            raise TypeError(
+                f"WorkerRecord.capabilities must be tuple, "
+                f"got {type(self.capabilities).__name__}"
+            )
+
+    @property
+    def is_busy(self) -> bool:
+        return self.status.is_busy()
+
+    @property
+    def can_accept(self) -> bool:
+        return self.status.can_accept()
+
+    @property
+    def has_current_session(self) -> bool:
+        return self.current_session_id is not None
+
+    @property
+    def has_capabilities(self) -> bool:
+        return len(self.capabilities) > 0
+
+    def has_capability(self, cap: str) -> bool:
+        """Return True if this worker declares the given capability."""
+        return cap in self.capabilities
+
+    def __repr__(self) -> str:
+        session_part = f", session={self.current_session_id[:8]}…" if self.has_current_session else ""
+        cap_part = f", caps={self.capabilities}" if self.has_capabilities else ""
+        return (
+            f"WorkerRecord("
+            f"id={self.worker_id[:8]}…, "
+            f"name={self.worker_name!r}, "
+            f"status={self.status.value}"
+            f"{cap_part}"
+            f"{session_part}"
             f")"
         )

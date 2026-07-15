@@ -32,8 +32,10 @@ from .models import (
     DispatchRecord,
     DispatchStatus,
     EngineeringSession,
+    WorkerStatus,
 )
 from .queue import EngineeringQueue
+from .worker import EngineeringWorker
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +107,7 @@ class EngineeringDispatcher:
         Conditions for True:
             - No dispatch is currently active
             - The queue has at least one pending session
-            - The queue has no currently active session (it will be set by us)
+            - The queue has no currently active session
         """
         if not isinstance(queue, EngineeringQueue):
             raise TypeError(
@@ -118,36 +120,62 @@ class EngineeringDispatcher:
             and not queue.has_active
         )
 
+    def can_dispatch_to_worker(
+        self,
+        queue: EngineeringQueue,
+        worker: EngineeringWorker,
+    ) -> bool:
+        """
+        Return True if a dispatch to the given worker is possible.
+
+        Conditions for True:
+            - can_dispatch(queue) is True
+            - The worker can accept a new session
+        """
+        if not isinstance(worker, EngineeringWorker):
+            raise TypeError(
+                f"can_dispatch_to_worker() worker must be EngineeringWorker, "
+                f"got {type(worker).__name__}"
+            )
+        return self.can_dispatch(queue) and worker.can_accept()
+
     def dispatch_next(
         self,
         queue: EngineeringQueue,
         *,
         queued_at: Optional[int] = None,
+        worker: Optional[EngineeringWorker] = None,
     ) -> Optional[DispatchRecord]:
         """
         Select the next session from the queue and create a DispatchRecord.
 
         The selected session is moved to active status in the queue via
-        queue.dequeue().  The caller is responsible for executing the session
-        and calling complete_dispatch() when done.
+        queue.dequeue().  If a worker is provided, the session is assigned
+        to it via worker.accept_session().
 
         Args:
             queue:     The EngineeringQueue to select from.
             queued_at: Monotonic ms timestamp when the session was enqueued.
-                       Used to calculate scheduling latency (wait_ms).
-                       If None, defaults to dispatched_at (wait_ms = 0).
+            worker:    Optional EngineeringWorker to assign the session to.
+                       If provided and worker cannot accept, dispatch fails.
 
         Returns:
             A DispatchRecord in DISPATCHING status, or None if cannot dispatch.
 
         Raises:
-            TypeError:    if queue is not an EngineeringQueue.
+            TypeError:    if queue or worker is the wrong type.
             RuntimeError: if a dispatch is already active.
+            RuntimeError: if worker is provided but cannot accept the session.
         """
         if not isinstance(queue, EngineeringQueue):
             raise TypeError(
                 f"dispatch_next() expects EngineeringQueue, "
                 f"got {type(queue).__name__}"
+            )
+        if worker is not None and not isinstance(worker, EngineeringWorker):
+            raise TypeError(
+                f"dispatch_next() worker must be EngineeringWorker or None, "
+                f"got {type(worker).__name__}"
             )
         if self._current is not None:
             raise RuntimeError(
@@ -159,6 +187,17 @@ class EngineeringDispatcher:
         session = self._select_next(queue)
         if session is None:
             return None
+
+        # Assign session to worker if one was provided
+        if worker is not None:
+            accepted = worker.accept_session(session)
+            if not accepted:
+                # Put session back is not possible with deque after dequeue,
+                # so we raise to signal the caller must handle recovery.
+                raise RuntimeError(
+                    f"Worker {worker.worker_id()!r} refused to accept session "
+                    f"{session.session_id!r}"
+                )
 
         now = int(time.monotonic() * 1000)
         record = DispatchRecord(
