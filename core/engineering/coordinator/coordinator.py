@@ -20,8 +20,10 @@ from .models import (
     EngineeringSession,
     EngineeringStage,
     EngineeringStatus,
+    QueueSnapshot,
     SessionEvent,
 )
+from .queue import EngineeringQueue
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +118,7 @@ class EngineeringCoordinator:
         - Delegates all work to injected subsystem adapters.
     """
 
-    VERSION = "018.002"
+    VERSION = "018.003"
 
     def __init__(
         self,
@@ -133,6 +135,7 @@ class EngineeringCoordinator:
         self._debugger    = debugger
         self._config      = config or CoordinatorConfig()
         self._observers:  List[Callable[[CoordinatorEvent], None]] = []
+        self._queue       = EngineeringQueue()   # Sprint 003: coordinator owns one queue
 
     # ------------------------------------------------------------------
     # Observer / event system  (Sprint 001 — unchanged)
@@ -192,7 +195,87 @@ class EngineeringCoordinator:
             "has_debugger":    self.has_debugger,
             "config":          repr(self._config),
             "observer_count":  self.observer_count,
+            # Sprint 003
+            "queue":           repr(self._queue),
         }
+
+    # ------------------------------------------------------------------
+    # Queue API  (Sprint 003)
+    # ------------------------------------------------------------------
+
+    @property
+    def queue(self) -> EngineeringQueue:
+        """Direct access to the coordinator's queue (read-intended)."""
+        return self._queue
+
+    def queue_snapshot(self) -> QueueSnapshot:
+        """Return an immutable snapshot of the current queue state."""
+        return self._queue.snapshot()
+
+    def queue_statistics(self) -> Dict[str, int]:
+        """Return queue statistics dict."""
+        return self._queue.statistics()
+
+    def submit(self, request: EngineeringRequest) -> int:
+        """
+        Enqueue a request without processing it immediately.
+
+        Creates an EngineeringSession, adds it to the queue, and returns
+        the 1-based queue position.  Call process_next() to execute.
+
+        Args:
+            request: The EngineeringRequest to queue.
+
+        Returns:
+            1-based position in the queue.
+        """
+        if not isinstance(request, EngineeringRequest):
+            raise TypeError(
+                f"submit() expects EngineeringRequest, "
+                f"got {type(request).__name__}"
+            )
+        session  = EngineeringSession.create(request)
+        position = self._queue.enqueue(session)
+        self._emit(
+            "queue", EngineeringStatus.PENDING,
+            f"Request enqueued at position {position}: {request.request!r}"
+        )
+        return position
+
+    def process_next(self) -> Optional[EngineeringResult]:
+        """
+        Dequeue the next pending request and process it synchronously.
+
+        Returns:
+            EngineeringResult if a request was available, None if the queue
+            was empty.
+
+        Raises:
+            RuntimeError: if another session is already active.
+        """
+        session = self._queue.dequeue()
+        if session is None:
+            return None
+
+        position = self._queue.position_of(session.session_id)
+        result   = self._execute_session(session, queue_position=position)
+
+        self._queue.mark_active_complete()
+        return result
+
+    def process_all(self) -> List[EngineeringResult]:
+        """
+        Process every pending request in FIFO order, one at a time.
+
+        Returns:
+            Ordered list of EngineeringResults (same order as submission).
+        """
+        results: List[EngineeringResult] = []
+        while not self._queue.empty():
+            result = self.process_next()
+            if result is not None:
+                results.append(result)
+        return results
 
     # ------------------------------------------------------------------
     # Core pipeline  (Sprint 002 — session-aware)
@@ -200,23 +283,27 @@ class EngineeringCoordinator:
 
     def coordinate(self, request: EngineeringRequest) -> EngineeringResult:
         """
-        Execute the full engineering pipeline for the given request.
-
-        Sprint 002 enhancements:
-          - Creates an EngineeringSession at the start.
-          - Advances EngineeringStage at every pipeline transition.
-          - Records every event with timestamps in CoordinatorEventLog.
-          - Measures per-stage wall-clock durations.
-          - Attaches complete session + timeline to EngineeringResult.
+        Execute the full engineering pipeline immediately (bypasses queue).
+        Backwards compatible with Sprint 001/002.
         """
         if not isinstance(request, EngineeringRequest):
             raise TypeError(
                 f"coordinate() expects EngineeringRequest, "
                 f"got {type(request).__name__}"
             )
-
-        # ── Create session ─────────────────────────────────────────────
         session = EngineeringSession.create(request)
+        return self._execute_session(session, queue_position=None)
+
+    def _execute_session(
+        self,
+        session: EngineeringSession,
+        *,
+        queue_position: Optional[int],
+    ) -> EngineeringResult:
+        """Internal: run the full pipeline for an already-created session."""
+        request = session.request
+
+        # ── Initialise ─────────────────────────────────────────────────
         session.advance_to(
             EngineeringStage.INITIALISING,
             "Session created — pipeline starting",
@@ -259,6 +346,7 @@ class EngineeringCoordinator:
                     warnings=warnings,
                     start_ms=start_ms,
                     reason="Planning stage failed",
+                    queue_position=queue_position,
                 )
             session.advance_to(
                 EngineeringStage.PLANNING,
@@ -295,6 +383,7 @@ class EngineeringCoordinator:
                     warnings=warnings,
                     start_ms=start_ms,
                     reason="Guardrails blocked the request",
+                    queue_position=queue_position,
                 )
             session.advance_to(
                 EngineeringStage.GUARDRAILS,
@@ -353,7 +442,6 @@ class EngineeringCoordinator:
                     duration_ms=stage_dur,
                 )
 
-                # Repair planning stage
                 if repair_plan is not None:
                     session.advance_to(
                         EngineeringStage.REPAIR_PLANNING,
@@ -381,6 +469,7 @@ class EngineeringCoordinator:
                 warnings=warnings,
                 start_ms=start_ms,
                 completed=False,
+                queue_position=queue_position,
             )
 
         # ── Stage 5: Complete ──────────────────────────────────────────
@@ -398,6 +487,7 @@ class EngineeringCoordinator:
             warnings=warnings,
             start_ms=start_ms,
             completed=True,
+            queue_position=queue_position,
         )
 
     # ------------------------------------------------------------------
@@ -482,17 +572,18 @@ class EngineeringCoordinator:
     def _finalise(
         self,
         *,
-        session:      EngineeringSession,
-        status:       EngineeringStatus,
-        start_ms:     int,
-        errors:       List[str],
-        warnings:     List[str],
-        plan:         Optional[str] = None,
-        validation:   Optional[str] = None,
-        debug_report: Optional[str] = None,
-        repair_plan:  Optional[str] = None,
-        completed:    bool          = False,
-        reason:       Optional[str] = None,
+        session:        EngineeringSession,
+        status:         EngineeringStatus,
+        start_ms:       int,
+        errors:         List[str],
+        warnings:       List[str],
+        plan:           Optional[str] = None,
+        validation:     Optional[str] = None,
+        debug_report:   Optional[str] = None,
+        repair_plan:    Optional[str] = None,
+        completed:      bool          = False,
+        reason:         Optional[str] = None,
+        queue_position: Optional[int] = None,
     ) -> EngineeringResult:
         """Build the final EngineeringResult, close the session, return."""
         if reason:
@@ -501,6 +592,7 @@ class EngineeringCoordinator:
 
         end_ms      = int(time.monotonic() * 1000)
         duration_ms = end_ms - start_ms
+        snapshot    = self._queue.snapshot()
 
         result = EngineeringResult(
             status=status,
@@ -516,6 +608,9 @@ class EngineeringCoordinator:
             session=session,
             timeline=session.events.timeline(),
             stage_durations=session.stage_durations(),
+            # Sprint 003 fields
+            queue_position=queue_position,
+            queue_snapshot=snapshot,
         )
 
         session.complete(result)

@@ -472,6 +472,10 @@ class EngineeringResult:
     timeline:        List[str]                     = field(default_factory=list)
     stage_durations: Dict[str, Optional[int]]      = field(default_factory=dict)
 
+    # ── Sprint 003 fields ──────────────────────────────────────────────
+    queue_position:  Optional[int]                 = None   # 1-based position when enqueued
+    queue_snapshot:  Optional["QueueSnapshot"]     = None   # snapshot at time of completion
+
     def __post_init__(self) -> None:
         if not isinstance(self.status, EngineeringStatus):
             raise TypeError(
@@ -550,6 +554,16 @@ class EngineeringResult:
             return []
         return [s.value for s in self.session.stages_visited]
 
+    # ── Sprint 003 properties ──────────────────────────────────────────
+
+    @property
+    def has_queue_position(self) -> bool:
+        return self.queue_position is not None
+
+    @property
+    def has_queue_snapshot(self) -> bool:
+        return self.queue_snapshot is not None
+
     # ── Summary ───────────────────────────────────────────────────────
 
     def summary(self) -> str:
@@ -566,7 +580,119 @@ class EngineeringResult:
             parts.append("repaired=True")
         if self.has_session:
             parts.append(f"session={self.session_id[:8]}…")
+        if self.has_queue_position:
+            parts.append(f"queue_pos={self.queue_position}")
         return f"EngineeringResult({', '.join(parts)})"
 
     def __repr__(self) -> str:
         return self.summary()
+
+
+# ---------------------------------------------------------------------------
+# QueueStatus  (Sprint 003 — new)
+# ---------------------------------------------------------------------------
+
+class QueueStatus(Enum):
+    """
+    Represents the operational state of the EngineeringQueue.
+
+    EMPTY      — no requests present, nothing active
+    WAITING    — one or more requests pending, nothing currently active
+    PROCESSING — one request is active; others may be waiting
+    COMPLETE   — all submitted requests have been processed
+    """
+
+    EMPTY      = "EMPTY"
+    WAITING    = "WAITING"
+    PROCESSING = "PROCESSING"
+    COMPLETE   = "COMPLETE"
+
+    def is_idle(self) -> bool:
+        """Return True if the queue is not actively processing."""
+        return self in (QueueStatus.EMPTY, QueueStatus.COMPLETE)
+
+    def is_busy(self) -> bool:
+        """Return True if the queue is actively processing or has work pending."""
+        return self in (QueueStatus.WAITING, QueueStatus.PROCESSING)
+
+    def has_pending(self) -> bool:
+        """Return True if there are requests waiting to be processed."""
+        return self in (QueueStatus.WAITING, QueueStatus.PROCESSING)
+
+
+# ---------------------------------------------------------------------------
+# QueueSnapshot  (Sprint 003 — new)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class QueueSnapshot:
+    """
+    Immutable point-in-time representation of the EngineeringQueue state.
+
+    Snapshots are safe to pass around, store, and compare without fear
+    of the underlying queue changing underneath them.
+    """
+
+    queue_size:          int
+    status:              QueueStatus
+    timestamp_ms:        int
+    active_session_id:   Optional[str]            = None
+    pending_session_ids: Tuple[str, ...]           = field(default_factory=tuple)
+    completed_count:     int                       = 0
+    total_submitted:     int                       = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.queue_size, int) or self.queue_size < 0:
+            raise ValueError(
+                f"QueueSnapshot.queue_size must be a non-negative int, "
+                f"got {self.queue_size!r}"
+            )
+        if not isinstance(self.status, QueueStatus):
+            raise TypeError(
+                f"QueueSnapshot.status must be QueueStatus, "
+                f"got {type(self.status).__name__}"
+            )
+        if not isinstance(self.timestamp_ms, int):
+            raise TypeError(
+                f"QueueSnapshot.timestamp_ms must be int, "
+                f"got {type(self.timestamp_ms).__name__}"
+            )
+        if not isinstance(self.completed_count, int) or self.completed_count < 0:
+            raise ValueError(
+                f"QueueSnapshot.completed_count must be a non-negative int, "
+                f"got {self.completed_count!r}"
+            )
+        if not isinstance(self.total_submitted, int) or self.total_submitted < 0:
+            raise ValueError(
+                f"QueueSnapshot.total_submitted must be a non-negative int, "
+                f"got {self.total_submitted!r}"
+            )
+
+    @property
+    def is_empty(self) -> bool:
+        return self.queue_size == 0
+
+    @property
+    def has_active(self) -> bool:
+        return self.active_session_id is not None
+
+    @property
+    def pending_count(self) -> int:
+        return len(self.pending_session_ids)
+
+    @property
+    def remaining(self) -> int:
+        """Requests not yet completed (active + pending)."""
+        active = 1 if self.has_active else 0
+        return active + self.pending_count
+
+    def __repr__(self) -> str:
+        return (
+            f"QueueSnapshot("
+            f"status={self.status.value}, "
+            f"size={self.queue_size}, "
+            f"active={self.active_session_id is not None}, "
+            f"pending={self.pending_count}, "
+            f"completed={self.completed_count}"
+            f")"
+        )
