@@ -1,14 +1,14 @@
 """
 Engineering Academy Models.
 
-Immutable data models representing engineering principles.
+Immutable data models representing engineering principles and design patterns.
 No behaviour. No mutation. Pure data.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 
 # Required fields every principle record must supply.
@@ -20,6 +20,21 @@ REQUIRED_FIELDS: tuple[str, ...] = (
     "rationale",
     "guidance",
     "violations",
+    "tags",
+)
+
+# Required fields every pattern record must supply.
+REQUIRED_PATTERN_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "category",
+    "intent",
+    "problem",
+    "solution",
+    "when_to_use",
+    "when_not_to_use",
+    "advantages",
+    "disadvantages",
     "tags",
 )
 
@@ -62,7 +77,6 @@ class EngineeringPrinciple:
     extra: dict = field(default_factory=dict, compare=False, hash=False)
 
     def __post_init__(self) -> None:
-        # Enforce that list fields are actual lists (not None slipping through).
         for list_field in ("violations", "tags", "examples", "references"):
             value = getattr(self, list_field)
             if not isinstance(value, list):
@@ -70,11 +84,7 @@ class EngineeringPrinciple:
 
     @classmethod
     def from_dict(cls, data: dict) -> "EngineeringPrinciple":
-        """
-        Construct an EngineeringPrinciple from a raw dictionary.
-
-        Unknown keys are preserved in ``extra`` for forward compatibility.
-        """
+        """Construct an EngineeringPrinciple from a raw dictionary."""
         known = {
             "id", "name", "category", "summary", "rationale",
             "guidance", "violations", "examples", "references", "tags",
@@ -89,6 +99,87 @@ class EngineeringPrinciple:
             guidance=data["guidance"],
             violations=list(data.get("violations", [])),
             tags=list(data.get("tags", [])),
+            examples=list(data.get("examples", [])),
+            references=list(data.get("references", [])),
+            extra=extra,
+        )
+
+
+@dataclass(frozen=True)
+class DesignPattern:
+    """
+    An immutable record describing a single software design pattern.
+
+    frozen=True enforces the read-only contract of the Academy.
+
+    Fields
+    ------
+    id                  : Unique kebab-case identifier (e.g. ``"repository"``, ``"factory"``).
+    name                : Human-readable name.
+    category            : Pattern category (e.g. ``"creational"``, ``"structural"``, ``"behavioural"``, ``"architectural"``).
+    intent              : One-sentence statement of what the pattern does.
+    problem             : The problem the pattern solves.
+    solution            : How the pattern solves it.
+    when_to_use         : Conditions under which the pattern is appropriate.
+    when_not_to_use     : Conditions under which the pattern should be avoided.
+    advantages          : Benefits of applying the pattern.
+    disadvantages       : Trade-offs and costs.
+    related_principles  : IDs of principles this pattern embodies.
+    examples            : Concrete examples, including Jarvis-specific ones.
+    references          : Book or article citations.
+    tags                : Keywords for filtering and search.
+    """
+
+    id: str
+    name: str
+    category: str
+    intent: str
+    problem: str
+    solution: str
+    when_to_use: List[str]
+    when_not_to_use: List[str]
+    advantages: List[str]
+    disadvantages: List[str]
+    tags: List[str]
+    related_principles: List[str] = field(default_factory=list)
+    examples: List[str] = field(default_factory=list)
+    references: List[str] = field(default_factory=list)
+
+    extra: dict = field(default_factory=dict, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        list_fields = (
+            "when_to_use", "when_not_to_use", "advantages",
+            "disadvantages", "tags", "related_principles",
+            "examples", "references",
+        )
+        for lf in list_fields:
+            value = getattr(self, lf)
+            if not isinstance(value, list):
+                object.__setattr__(self, lf, list(value))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DesignPattern":
+        """Construct a DesignPattern from a raw dictionary."""
+        known = {
+            "id", "name", "category", "intent", "problem", "solution",
+            "when_to_use", "when_not_to_use", "advantages", "disadvantages",
+            "related_principles", "examples", "references", "tags",
+        }
+        extra = {k: v for k, v in data.items() if k not in known}
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            category=data["category"],
+            intent=data["intent"],
+            problem=data["problem"],
+            solution=data["solution"],
+            when_to_use=list(data.get("when_to_use", [])),
+            when_not_to_use=list(data.get("when_not_to_use", [])),
+            advantages=list(data.get("advantages", [])),
+            disadvantages=list(data.get("disadvantages", [])),
+            tags=list(data.get("tags", [])),
+            related_principles=list(data.get("related_principles", [])),
             examples=list(data.get("examples", [])),
             references=list(data.get("references", [])),
             extra=extra,
