@@ -47,6 +47,9 @@ collect_ignore = [
     # Genesis-017 Sprint 001 — Engineering Debugging
     "tests/test_engineering_debugging.py",
 
+        # Genesis-019 Sprint 001 — Engineering Academy
+    "tests/test_engineering_academy.py",
+
     # Future sprints: add new standalone suites here.
 
 ]
