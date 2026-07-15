@@ -26,9 +26,12 @@ from .models import (
     SessionEvent,
     WorkerRecord,
     WorkerStatus,
+    RegistrySnapshot,
+    RegistryStatus,
 )
 from .dispatcher import DispatchPolicy, EngineeringDispatcher
 from .queue import EngineeringQueue
+from .registry import EngineeringWorkerRegistry
 from .worker import DefaultEngineeringWorker, EngineeringWorker, LocalEngineeringWorker
 
 
@@ -124,7 +127,7 @@ class EngineeringCoordinator:
         - Delegates all work to injected subsystem adapters.
     """
 
-    VERSION = "018.005"
+    VERSION = "018.006"
 
     def __init__(
         self,
@@ -144,6 +147,8 @@ class EngineeringCoordinator:
         self._queue       = EngineeringQueue()       # Sprint 003: coordinator owns one queue
         self._dispatcher  = EngineeringDispatcher()  # Sprint 004: coordinator owns one dispatcher
         self._worker      = LocalEngineeringWorker()    # Sprint 005: coordinator owns one worker
+        self._registry    = EngineeringWorkerRegistry() # Sprint 006: coordinator owns one registry
+        self._registry.register(self._worker)           # register default worker on init
 
     # ------------------------------------------------------------------
     # Observer / event system  (Sprint 001 — unchanged)
@@ -210,6 +215,8 @@ class EngineeringCoordinator:
             # Sprint 005
             "worker":          repr(self._worker),
             "worker_id":       self._worker.worker_id(),
+            # Sprint 006
+            "registry":        repr(self._registry),
         }
 
     # ------------------------------------------------------------------
@@ -366,6 +373,44 @@ class EngineeringCoordinator:
             "is_busy":            1 if rec.is_busy else 0,
             "can_accept":         1 if rec.can_accept else 0,
         }
+
+    # ------------------------------------------------------------------
+    # Registry API  (Sprint 006)
+    # ------------------------------------------------------------------
+
+    @property
+    def registry(self) -> EngineeringWorkerRegistry:
+        """Direct access to the coordinator's worker registry (read-intended)."""
+        return self._registry
+
+    def registry_snapshot(self) -> RegistrySnapshot:
+        """Return an immutable snapshot of the registry's current state."""
+        return self._registry.snapshot()
+
+    def registry_statistics(self) -> Dict[str, int]:
+        """Return registry statistics dict."""
+        return self._registry.statistics()
+
+    def register_worker(self, worker: EngineeringWorker) -> str:
+        """
+        Register an additional worker with the coordinator's registry.
+
+        Args:
+            worker: Any EngineeringWorker implementation.
+
+        Returns:
+            The worker's stable worker_id.
+        """
+        return self._registry.register(worker)
+
+    def unregister_worker(self, worker_id: str) -> bool:
+        """
+        Remove a worker from the registry by ID.
+
+        Returns:
+            True if the worker was found and removed.
+        """
+        return self._registry.unregister(worker_id)
 
     # ------------------------------------------------------------------
     # Core pipeline  (Sprint 002 — session-aware)

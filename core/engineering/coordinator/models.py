@@ -966,3 +966,118 @@ class WorkerRecord:
             f"{session_part}"
             f")"
         )
+
+
+# ---------------------------------------------------------------------------
+# RegistryStatus  (Sprint 006 — new)
+# ---------------------------------------------------------------------------
+
+class RegistryStatus(Enum):
+    """
+    Operational state of the EngineeringWorkerRegistry.
+
+    EMPTY    — no workers registered
+    ACTIVE   — one or more workers registered and available
+    FULL     — all registered workers are busy (none available)
+    DEGRADED — workers registered but none are operational (all UNAVAILABLE)
+    """
+
+    EMPTY    = "EMPTY"
+    ACTIVE   = "ACTIVE"
+    FULL     = "FULL"
+    DEGRADED = "DEGRADED"
+
+    def has_workers(self) -> bool:
+        """Return True if at least one worker is registered."""
+        return self != RegistryStatus.EMPTY
+
+    def is_available(self) -> bool:
+        """Return True if at least one worker can accept work."""
+        return self == RegistryStatus.ACTIVE
+
+    def is_healthy(self) -> bool:
+        """Return True if the registry is in a normal operational state."""
+        return self in (RegistryStatus.EMPTY, RegistryStatus.ACTIVE)
+
+
+# ---------------------------------------------------------------------------
+# RegistrySnapshot  (Sprint 006 — new)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class RegistrySnapshot:
+    """
+    Immutable point-in-time representation of the EngineeringWorkerRegistry.
+
+    Provides a safe, decoupled view of registry state for logging,
+    telemetry, and passing into EngineeringResult without coupling the
+    caller to the live registry object.
+    """
+
+    status:            RegistryStatus
+    timestamp_ms:      int
+    total_registered:  int                      = 0
+    available_count:   int                      = 0
+    busy_count:        int                      = 0
+    unavailable_count: int                      = 0
+    worker_ids:        Tuple[str, ...]          = field(default_factory=tuple)
+    capabilities:      Tuple[str, ...]          = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, RegistryStatus):
+            raise TypeError(
+                f"RegistrySnapshot.status must be RegistryStatus, "
+                f"got {type(self.status).__name__}"
+            )
+        if not isinstance(self.timestamp_ms, int):
+            raise TypeError(
+                f"RegistrySnapshot.timestamp_ms must be int, "
+                f"got {type(self.timestamp_ms).__name__}"
+            )
+        for field_name, value in [
+            ("total_registered",  self.total_registered),
+            ("available_count",   self.available_count),
+            ("busy_count",        self.busy_count),
+            ("unavailable_count", self.unavailable_count),
+        ]:
+            if not isinstance(value, int) or value < 0:
+                raise ValueError(
+                    f"RegistrySnapshot.{field_name} must be a non-negative int, "
+                    f"got {value!r}"
+                )
+        if not isinstance(self.worker_ids, tuple):
+            raise TypeError(
+                f"RegistrySnapshot.worker_ids must be tuple, "
+                f"got {type(self.worker_ids).__name__}"
+            )
+        if not isinstance(self.capabilities, tuple):
+            raise TypeError(
+                f"RegistrySnapshot.capabilities must be tuple, "
+                f"got {type(self.capabilities).__name__}"
+            )
+
+    @property
+    def is_empty(self) -> bool:
+        return self.total_registered == 0
+
+    @property
+    def has_available(self) -> bool:
+        return self.available_count > 0
+
+    @property
+    def all_busy(self) -> bool:
+        return self.total_registered > 0 and self.available_count == 0 and self.busy_count > 0
+
+    @property
+    def unique_capability_count(self) -> int:
+        return len(self.capabilities)
+
+    def __repr__(self) -> str:
+        return (
+            f"RegistrySnapshot("
+            f"status={self.status.value}, "
+            f"total={self.total_registered}, "
+            f"available={self.available_count}, "
+            f"busy={self.busy_count}"
+            f")"
+        )

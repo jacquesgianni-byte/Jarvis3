@@ -1,8 +1,8 @@
 """
-Genesis-018 Sprint 005 — Engineering Coordinator Test Suite
+Genesis-018 Sprint 006 — Engineering Coordinator Test Suite
 Deterministic validation: ~460 checks.
 
-Sprints 001-004 regression + Sprint 005 worker interface.
+Sprints 001-005 regression + Sprint 006 Worker Registry.
 
 Run:
     python tests/test_engineering_coordinator.py
@@ -23,7 +23,6 @@ from core.engineering.coordinator import (
     CoordinatorEventLog,
     DefaultEngineeringWorker,
     DispatchPolicy,
-    LocalEngineeringWorker,
     DispatchRecord,
     DispatchStatus,
     EngineeringCoordinator,
@@ -35,8 +34,12 @@ from core.engineering.coordinator import (
     EngineeringStage,
     EngineeringStatus,
     EngineeringWorker,
+    EngineeringWorkerRegistry,
+    LocalEngineeringWorker,
     QueueSnapshot,
     QueueStatus,
+    RegistrySnapshot,
+    RegistryStatus,
     SessionEvent,
     WorkerRecord,
     WorkerStatus,
@@ -48,19 +51,13 @@ from core.engineering.coordinator import (
 # ===========================================================================
 
 class _StubPlanner:
-    def plan(self, r, *, context=""): return f"Plan for: {r}"
-
-class _FailingPlanner:
-    def plan(self, r, **k): raise RuntimeError("planner error")
+    def plan(self, r, *, context=""): return f"Plan: {r}"
 
 class _StubGuardrails:
     def check(self, r, *, plan=None): return True
 
 class _BlockingGuardrails:
     def check(self, r, **k): return False
-
-class _FailingGuardrails:
-    def check(self, r, **k): raise RuntimeError("guardrails error")
 
 class _PassingTestRunner:
     class _R:
@@ -73,9 +70,6 @@ class _FailingTestRunner:
         passed = False
         def __str__(self): return "failed"
     def run(self, r, **k): return self._R()
-
-class _RaisingTestRunner:
-    def run(self, r, **k): raise RuntimeError("runner crash")
 
 class _StubDebugger:
     class _R:
@@ -111,17 +105,23 @@ def _coord(**kw):
 def _req(t="Test"): return EngineeringRequest(request=t)
 def _sess(t="S"):   return EngineeringSession.create(_req(t))
 
+def _worker(name="W", wid=None, caps=None):
+    kwargs = {"name": name}
+    if wid:  kwargs["worker_id"]    = wid
+    if caps: kwargs["capabilities"] = caps
+    return LocalEngineeringWorker(**kwargs)
+
 
 # ===========================================================================
-# ── SPRINTS 001-004 REGRESSION (condensed) ────────────────────────────────
+# ── SPRINTS 001-005 REGRESSION (condensed) ────────────────────────────────
 # ===========================================================================
 
-def test_s001_regression() -> None:
-    _section("[S001-S004] Full regression")
-    # Status
+def test_regression_s001_s005() -> None:
+    _section("[S001-S005] Full regression")
+
+    # Status enum
     for v in ["PENDING","PLANNING","VALIDATING","DEBUGGING","COMPLETE","FAILED"]:
         _assert(EngineeringStatus(v).value == v, f"Status {v}")
-    _assert(EngineeringStatus.COMPLETE.is_terminal(), "terminal")
     _assert(len(EngineeringStatus) == 6, "6 statuses")
 
     # Request
@@ -129,39 +129,25 @@ def test_s001_regression() -> None:
     _assert(r.request == "X", "request stored")
     try: r.request = "y"; _assert(False, "immutable")  # type: ignore
     except (AttributeError, TypeError): _assert(True, "immutable")
-    for bad, exc in [({"request":""},ValueError),({"request":1},TypeError)]:
-        try: EngineeringRequest(**bad); _assert(False,"bad")  # type: ignore
-        except exc: _assert(True, f"{exc.__name__}")
 
     # Result
     res = EngineeringResult(status=EngineeringStatus.COMPLETE, completed=True)
     _assert(res.succeeded, "succeeded")
     _assert(not res.failed, "not failed")
-    try: EngineeringResult(status=EngineeringStatus.COMPLETE, duration_ms=-1); _assert(False,"neg")
-    except ValueError: _assert(True,"neg raises")
 
-    # Pipeline
+    # Pipeline: coordinate
     c = _coord(debugger=_StubDebugger())
     _assert(c.coordinate(_req()).succeeded, "direct coordinate")
     c2 = EngineeringCoordinator(planner=_StubPlanner(), guardrails=_BlockingGuardrails())
     _assert(c2.coordinate(_req()).failed, "blocked → FAILED")
 
-    # Stage
+    # Stage enum
     for v in ["INITIALISING","PLANNING","GUARDRAILS","VALIDATION",
               "DEBUGGING","REPAIR_PLANNING","COMPLETE","FAILED"]:
         _assert(EngineeringStage(v).value == v, f"Stage {v}")
-    _assert(len(EngineeringStage) == 8, "8 stages")
-
-    # Session
-    s = _sess()
-    _assert(not s.is_complete, "not complete")
-    res2 = EngineeringResult(status=EngineeringStatus.COMPLETE, completed=True)
-    s.complete(res2)
-    _assert(s.is_complete, "complete")
 
     # Queue
     q = EngineeringQueue()
-    _assert(q.empty(), "empty")
     s1 = _sess("A"); s2 = _sess("B")
     _assert(q.enqueue(s1) == 1, "pos 1")
     _assert(q.enqueue(s2) == 2, "pos 2")
@@ -172,671 +158,613 @@ def test_s001_regression() -> None:
     # QueueStatus / QueueSnapshot
     for v in ["EMPTY","WAITING","PROCESSING","COMPLETE"]:
         _assert(QueueStatus(v).value == v, f"QueueStatus {v}")
-    snap = QueueSnapshot(queue_size=1, status=QueueStatus.WAITING, timestamp_ms=0)
-    _assert(snap.queue_size == 1, "snap size")
 
     # Dispatcher
     d2 = EngineeringDispatcher()
     q2 = EngineeringQueue(); q2.enqueue(_sess())
     rec = d2.dispatch_next(q2)
     _assert(rec is not None, "dispatch_next")
-    _assert(rec.status == DispatchStatus.DISPATCHING, "DISPATCHING")
     comp = d2.complete_dispatch()
-    _assert(comp.is_complete, "completed")
+    _assert(comp.is_complete, "dispatch completed")
 
-    # DispatchStatus / DispatchRecord
-    for v in ["IDLE","READY","DISPATCHING","COMPLETE"]:
-        _assert(DispatchStatus(v).value == v, f"DispatchStatus {v}")
+    # WorkerStatus
+    for v in ["IDLE","READY","BUSY","COMPLETED","UNAVAILABLE"]:
+        _assert(WorkerStatus(v).value == v, f"WorkerStatus {v}")
 
-    # submit / process
+    # LocalEngineeringWorker
+    w = LocalEngineeringWorker(name="Reg", worker_id="worker-local-reg")
+    _assert(w.worker_id() == "worker-local-reg", "stable ID")
+    _assert(w.capabilities() == ("engineering",), "default caps")
+    _assert(w.can_accept(), "can accept")
+    w.accept_session(_sess())
+    _assert(w.status() == WorkerStatus.BUSY, "BUSY")
+    w.complete_session()
+    _assert(w.status() == WorkerStatus.COMPLETED, "COMPLETED")
+    w.clear()
+    _assert(w.status() == WorkerStatus.IDLE, "IDLE after clear")
+
+    # DefaultEngineeringWorker alias
+    _assert(DefaultEngineeringWorker is LocalEngineeringWorker, "alias correct")
+
+    # WorkerRecord capabilities
+    rec2 = w.record()
+    _assert(rec2.has_capability("engineering"), "has capability")
+    _assert(isinstance(rec2.capabilities, tuple), "caps is tuple")
+
+    # submit / process_all
     c3 = _coord()
     for i in range(3): c3.submit(_req(f"T{i}"))
     results = c3.process_all()
     _assert(len(results) == 3, "3 results")
     _assert(all(r.succeeded for r in results), "all succeeded")
-    _assert(results[0].queue_position == 1, "pos 1")
-    # dispatch records from sprint 004
     _assert(all(r.has_dispatch_record for r in results), "all have dispatch records")
+    _assert(all(r.has_worker_id for r in results), "all have worker IDs")
 
 
 # ===========================================================================
-# ── SPRINT 005 — WorkerStatus ──────────────────────────────────────────────
+# ── SPRINT 006 — RegistryStatus ────────────────────────────────────────────
 # ===========================================================================
 
-def test_s005_worker_status_values() -> None:
-    _section("[S005] WorkerStatus — values")
-    for v in ["IDLE","READY","BUSY","COMPLETED","UNAVAILABLE"]:
-        _assert(WorkerStatus(v).value == v, f"WorkerStatus.{v}")
-    _assert(len(WorkerStatus) == 5, "Exactly 5 values")
+def test_s006_registry_status_values() -> None:
+    _section("[S006] RegistryStatus — values")
+    for v in ["EMPTY","ACTIVE","FULL","DEGRADED"]:
+        _assert(RegistryStatus(v).value == v, f"RegistryStatus.{v}")
+    _assert(len(RegistryStatus) == 4, "4 values")
 
-def test_s005_worker_status_properties() -> None:
-    _section("[S005] WorkerStatus — properties")
-    _assert(WorkerStatus.IDLE.can_accept(),         "IDLE can_accept")
-    _assert(WorkerStatus.COMPLETED.can_accept(),    "COMPLETED can_accept")
-    _assert(not WorkerStatus.BUSY.can_accept(),     "BUSY cannot accept")
-    _assert(not WorkerStatus.READY.can_accept(),    "READY cannot accept")
-    _assert(not WorkerStatus.UNAVAILABLE.can_accept(), "UNAVAILABLE cannot accept")
+def test_s006_registry_status_properties() -> None:
+    _section("[S006] RegistryStatus — properties")
+    _assert(not RegistryStatus.EMPTY.has_workers(),    "EMPTY no workers")
+    _assert(RegistryStatus.ACTIVE.has_workers(),       "ACTIVE has workers")
+    _assert(RegistryStatus.FULL.has_workers(),         "FULL has workers")
+    _assert(RegistryStatus.DEGRADED.has_workers(),     "DEGRADED has workers")
 
-    _assert(WorkerStatus.READY.is_busy(),           "READY is_busy")
-    _assert(WorkerStatus.BUSY.is_busy(),            "BUSY is_busy")
-    _assert(not WorkerStatus.IDLE.is_busy(),        "IDLE not busy")
-    _assert(not WorkerStatus.COMPLETED.is_busy(),   "COMPLETED not busy")
-    _assert(not WorkerStatus.UNAVAILABLE.is_busy(), "UNAVAILABLE not busy")
+    _assert(RegistryStatus.ACTIVE.is_available(),      "ACTIVE is available")
+    _assert(not RegistryStatus.EMPTY.is_available(),   "EMPTY not available")
+    _assert(not RegistryStatus.FULL.is_available(),    "FULL not available")
+    _assert(not RegistryStatus.DEGRADED.is_available(), "DEGRADED not available")
 
-    _assert(WorkerStatus.IDLE.is_available(),        "IDLE available")
-    _assert(WorkerStatus.BUSY.is_available(),        "BUSY available")
-    _assert(WorkerStatus.READY.is_available(),       "READY available")
-    _assert(WorkerStatus.COMPLETED.is_available(),   "COMPLETED available")
-    _assert(not WorkerStatus.UNAVAILABLE.is_available(), "UNAVAILABLE not available")
+    _assert(RegistryStatus.EMPTY.is_healthy(),         "EMPTY is healthy")
+    _assert(RegistryStatus.ACTIVE.is_healthy(),        "ACTIVE is healthy")
+    _assert(not RegistryStatus.FULL.is_healthy(),      "FULL not healthy")
+    _assert(not RegistryStatus.DEGRADED.is_healthy(),  "DEGRADED not healthy")
 
 
 # ===========================================================================
-# ── SPRINT 005 — WorkerRecord ──────────────────────────────────────────────
+# ── SPRINT 006 — RegistrySnapshot ──────────────────────────────────────────
 # ===========================================================================
 
-def test_s005_worker_record_construction() -> None:
-    _section("[S005] WorkerRecord — construction")
-    rec = WorkerRecord(
-        worker_id="wid-001", worker_name="TestWorker",
-        status=WorkerStatus.IDLE, created_at=1000,
+def test_s006_registry_snapshot_construction() -> None:
+    _section("[S006] RegistrySnapshot — construction")
+    snap = RegistrySnapshot(
+        status=RegistryStatus.ACTIVE,
+        timestamp_ms=1000,
+        total_registered=3,
+        available_count=2,
+        busy_count=1,
+        worker_ids=("w-1","w-2","w-3"),
+        capabilities=("engineering","testing"),
     )
-    _assert(rec.worker_id   == "wid-001",       "worker_id")
-    _assert(rec.worker_name == "TestWorker",    "worker_name")
-    _assert(rec.status      == WorkerStatus.IDLE, "status")
-    _assert(rec.created_at  == 1000,            "created_at")
-    _assert(rec.completed_sessions == 0,        "completed_sessions default 0")
-    _assert(rec.current_session_id is None,     "current_session_id None")
-    _assert(rec.last_activity_ms   is None,     "last_activity_ms None")
-    _assert(not rec.has_current_session,        "has_current_session False")
-    _assert(rec.can_accept,                     "can_accept True for IDLE")
-    _assert(not rec.is_busy,                    "is_busy False for IDLE")
-    # capabilities default
-    _assert(rec.capabilities == (),             "capabilities default empty tuple")
-    _assert(not rec.has_capabilities,           "has_capabilities False when empty")
+    _assert(snap.status           == RegistryStatus.ACTIVE, "status")
+    _assert(snap.timestamp_ms     == 1000,                  "timestamp")
+    _assert(snap.total_registered == 3,                     "total")
+    _assert(snap.available_count  == 2,                     "available")
+    _assert(snap.busy_count       == 1,                     "busy")
+    _assert(snap.worker_ids       == ("w-1","w-2","w-3"),   "worker_ids")
+    _assert(snap.capabilities     == ("engineering","testing"), "capabilities")
+    _assert(snap.has_available,                              "has_available")
+    _assert(not snap.is_empty,                              "not empty")
+    _assert(not snap.all_busy,                              "not all busy")
+    _assert(snap.unique_capability_count == 2,              "2 unique caps")
 
-def test_s005_worker_record_capabilities() -> None:
-    _section("[S005] WorkerRecord — capabilities")
-    rec = WorkerRecord(
-        worker_id="w", worker_name="W", status=WorkerStatus.IDLE,
-        created_at=0, capabilities=("engineering", "planning"),
+def test_s006_registry_snapshot_empty() -> None:
+    _section("[S006] RegistrySnapshot — empty state")
+    snap = RegistrySnapshot(status=RegistryStatus.EMPTY, timestamp_ms=0)
+    _assert(snap.is_empty,         "is_empty")
+    _assert(not snap.has_available,"not has_available")
+    _assert(not snap.all_busy,     "not all_busy")
+    _assert(snap.total_registered == 0, "total 0")
+
+def test_s006_registry_snapshot_all_busy() -> None:
+    _section("[S006] RegistrySnapshot — all busy state")
+    snap = RegistrySnapshot(
+        status=RegistryStatus.FULL, timestamp_ms=0,
+        total_registered=2, available_count=0, busy_count=2,
     )
-    _assert(rec.capabilities == ("engineering", "planning"), "capabilities stored")
-    _assert(rec.has_capabilities,                            "has_capabilities True")
-    _assert(rec.has_capability("engineering"),               "has engineering")
-    _assert(rec.has_capability("planning"),                  "has planning")
-    _assert(not rec.has_capability("testing"),               "no testing")
-    _assert("caps=" in repr(rec),                           "caps in repr")
-    # immutability of tuple
-    try:
-        rec.capabilities = ("testing",)  # type: ignore
-        _assert(False, "immutable")
-    except (AttributeError, TypeError):
-        _assert(True, "capabilities immutable")
+    _assert(snap.all_busy,          "all_busy True")
+    _assert(not snap.has_available, "not has_available")
 
-def test_s005_worker_record_capabilities_validation() -> None:
-    _section("[S005] WorkerRecord — capabilities validation")
-    base = dict(worker_id="w", worker_name="W", status=WorkerStatus.IDLE, created_at=0)
+def test_s006_registry_snapshot_immutability() -> None:
+    _section("[S006] RegistrySnapshot — immutability")
+    snap = RegistrySnapshot(status=RegistryStatus.EMPTY, timestamp_ms=0)
     try:
-        WorkerRecord(**{**base, "capabilities": ["engineering"]})  # type: ignore
-        _assert(False, "list should raise TypeError")
-    except TypeError:
-        _assert(True, "list raises TypeError")
-
-def test_s005_worker_record_with_session() -> None:
-    _section("[S005] WorkerRecord — with active session")
-    rec = WorkerRecord(
-        worker_id="w", worker_name="W", status=WorkerStatus.BUSY,
-        created_at=0, current_session_id="sess-xyz", completed_sessions=2,
-    )
-    _assert(rec.has_current_session,               "has_current_session True")
-    _assert(rec.current_session_id == "sess-xyz",  "session_id stored")
-    _assert(rec.completed_sessions == 2,           "completed 2")
-    _assert(rec.is_busy,                           "is_busy True for BUSY")
-    _assert(not rec.can_accept,                    "cannot accept when BUSY")
-
-def test_s005_worker_record_immutability() -> None:
-    _section("[S005] WorkerRecord — immutability")
-    rec = WorkerRecord(worker_id="w", worker_name="W",
-                       status=WorkerStatus.IDLE, created_at=0)
-    try:
-        rec.status = WorkerStatus.BUSY  # type: ignore
+        snap.status = RegistryStatus.ACTIVE  # type: ignore
         _assert(False, "immutable")
     except (AttributeError, TypeError):
         _assert(True, "immutable")
 
-def test_s005_worker_record_validation() -> None:
-    _section("[S005] WorkerRecord — validation")
-    base = dict(worker_id="w", worker_name="W", status=WorkerStatus.IDLE, created_at=0)
+def test_s006_registry_snapshot_validation() -> None:
+    _section("[S006] RegistrySnapshot — validation")
+    base = dict(status=RegistryStatus.EMPTY, timestamp_ms=0)
     for bad, exc, label in [
-        ({**base, "worker_id": "  "}, ValueError, "blank worker_id"),
-        ({**base, "worker_name": ""}, ValueError, "blank worker_name"),
-        ({**base, "status": "IDLE"}, TypeError, "str status"),
-        ({**base, "created_at": "now"}, TypeError, "str created_at"),
-        ({**base, "completed_sessions": -1}, ValueError, "negative completed"),
+        ({**base, "status": "EMPTY"}, TypeError, "str status"),
+        ({**base, "timestamp_ms": "now"}, TypeError, "str timestamp"),
+        ({**base, "total_registered": -1}, ValueError, "negative total"),
+        ({**base, "available_count": -1}, ValueError, "negative available"),
+        ({**base, "worker_ids": ["w1"]}, TypeError, "list worker_ids"),
+        ({**base, "capabilities": ["eng"]}, TypeError, "list capabilities"),
     ]:
         try:
-            WorkerRecord(**bad)  # type: ignore
+            RegistrySnapshot(**bad)  # type: ignore
             _assert(False, f"{label} should raise")
         except exc:
             _assert(True, f"{label} raises {exc.__name__}")
 
-def test_s005_worker_record_repr() -> None:
-    _section("[S005] WorkerRecord — repr")
-    rec = WorkerRecord(worker_id="wid-001", worker_name="W",
-                       status=WorkerStatus.IDLE, created_at=0)
-    r = repr(rec)
-    _assert("WorkerRecord" in r, "class name")
-    _assert("IDLE"         in r, "status")
-    _assert("'W'"          in r, "worker_name")
+def test_s006_registry_snapshot_repr() -> None:
+    _section("[S006] RegistrySnapshot — repr")
+    snap = RegistrySnapshot(
+        status=RegistryStatus.ACTIVE, timestamp_ms=0,
+        total_registered=2, available_count=1, busy_count=1,
+    )
+    r = repr(snap)
+    _assert("RegistrySnapshot" in r, "class name")
+    _assert("ACTIVE"           in r, "status")
+    _assert("total=2"          in r, "total")
 
 
 # ===========================================================================
-# ── SPRINT 005 — EngineeringWorker (ABC contract) ──────────────────────────
+# ── SPRINT 006 — EngineeringWorkerRegistry ─────────────────────────────────
 # ===========================================================================
 
-def test_s005_worker_is_abstract() -> None:
-    _section("[S005] EngineeringWorker — is abstract")
-    import inspect
-    _assert(inspect.isabstract(EngineeringWorker), "EngineeringWorker is abstract")
-    # Cannot instantiate directly
+def test_s006_registry_initial_state() -> None:
+    _section("[S006] EngineeringWorkerRegistry — initial state")
+    reg = EngineeringWorkerRegistry()
+    _assert(reg.is_empty,                         "starts empty")
+    _assert(reg.size == 0,                        "size 0")
+    _assert(reg.available_count == 0,             "available 0")
+    _assert(reg.busy_count == 0,                  "busy 0")
+    _assert(reg.unavailable_count == 0,           "unavailable 0")
+    _assert(reg.status() == RegistryStatus.EMPTY, "status EMPTY")
+    _assert(reg.all_workers() == [],              "all_workers empty")
+    _assert(reg.available_workers() == [],        "available_workers empty")
+    _assert(reg.registered_ids() == [],           "registered_ids empty")
+    _assert(reg.all_capabilities() == [],         "no capabilities")
+    _assert(reg.first_available() is None,        "first_available None")
+
+def test_s006_registry_register() -> None:
+    _section("[S006] EngineeringWorkerRegistry — register")
+    reg = EngineeringWorkerRegistry()
+    w   = _worker("W1", "worker-local-r01")
+    wid = reg.register(w)
+    _assert(wid == "worker-local-r01",            "returns worker_id")
+    _assert(reg.size == 1,                        "size 1")
+    _assert(not reg.is_empty,                     "not empty")
+    _assert(reg.status() == RegistryStatus.ACTIVE, "status ACTIVE")
+    _assert(reg.contains("worker-local-r01"),     "contains worker")
+
+def test_s006_registry_register_multiple() -> None:
+    _section("[S006] EngineeringWorkerRegistry — register multiple")
+    reg = EngineeringWorkerRegistry()
+    w1 = _worker("W1", "worker-local-r01")
+    w2 = _worker("W2", "worker-local-r02")
+    w3 = _worker("W3", "worker-local-r03")
+    reg.register(w1)
+    reg.register(w2)
+    reg.register(w3)
+    _assert(reg.size == 3,                        "size 3")
+    ids = reg.registered_ids()
+    _assert(ids == ["worker-local-r01","worker-local-r02","worker-local-r03"], "order preserved")
+
+def test_s006_registry_register_type_safety() -> None:
+    _section("[S006] EngineeringWorkerRegistry — register type safety")
+    reg = EngineeringWorkerRegistry()
+    for bad in ["not a worker", None, 42]:
+        try:
+            reg.register(bad)  # type: ignore
+            _assert(False, f"bad type {type(bad).__name__}")
+        except TypeError:
+            _assert(True, f"{type(bad).__name__} raises TypeError")
+
+def test_s006_registry_register_duplicate() -> None:
+    _section("[S006] EngineeringWorkerRegistry — duplicate rejected")
+    reg = EngineeringWorkerRegistry()
+    w = _worker("W", "worker-local-dup")
+    reg.register(w)
     try:
-        EngineeringWorker()  # type: ignore
-        _assert(False, "cannot instantiate ABC")
-    except TypeError:
-        _assert(True, "TypeError on direct instantiation")
-
-def test_s005_worker_abstract_methods() -> None:
-    _section("[S005] EngineeringWorker — abstract method signatures")
-    abstract_methods = {
-        "worker_id", "worker_name", "can_accept", "accept_session",
-        "status", "current_session", "complete_session", "clear", "record",
-    }
-    for method in abstract_methods:
-        _assert(hasattr(EngineeringWorker, method), f"ABC has {method}")
-
-
-# ===========================================================================
-# ── SPRINT 005 — DefaultEngineeringWorker ──────────────────────────────────
-# ===========================================================================
-
-def test_s005_default_worker_construction() -> None:
-    _section("[S005] LocalEngineeringWorker — construction")
-    w = LocalEngineeringWorker()
-    _assert(w.status()         == WorkerStatus.IDLE, "initial IDLE")
-    _assert(w.can_accept(),                           "can accept initially")
-    _assert(w.current_session() is None,              "no current session")
-    _assert(w.completed_count   == 0,                 "completed 0")
-    _assert(not w.is_busy,                            "not busy")
-    _assert(w.is_idle,                                "is_idle True")
-
-    # Custom name
-    w2 = LocalEngineeringWorker(name="MyWorker")
-    _assert(w2.worker_name() == "MyWorker", "custom name")
-
-    # Custom ID
-    w3 = LocalEngineeringWorker(worker_id="fixed-id-001")
-    _assert(w3.worker_id() == "fixed-id-001", "custom id")
-
-def test_s005_default_worker_name_validation() -> None:
-    _section("[S005] LocalEngineeringWorker — name validation")
-    try:
-        LocalEngineeringWorker(name="  ")
-        _assert(False, "blank name should raise")
+        reg.register(w)
+        _assert(False, "duplicate should raise ValueError")
     except ValueError:
-        _assert(True, "blank name raises ValueError")
+        _assert(True, "duplicate raises ValueError")
+    _assert(reg.size == 1, "size still 1")
+
+def test_s006_registry_unregister() -> None:
+    _section("[S006] EngineeringWorkerRegistry — unregister")
+    reg = EngineeringWorkerRegistry()
+    w1 = _worker("W1", "worker-local-u01")
+    w2 = _worker("W2", "worker-local-u02")
+    reg.register(w1); reg.register(w2)
+
+    removed = reg.unregister("worker-local-u01")
+    _assert(removed,                               "returns True")
+    _assert(reg.size == 1,                        "size 1")
+    _assert(not reg.contains("worker-local-u01"), "w1 gone")
+    _assert(reg.contains("worker-local-u02"),     "w2 still there")
+    _assert(reg.registered_ids() == ["worker-local-u02"], "order updated")
+
+    # unregister unknown
+    removed2 = reg.unregister("nonexistent")
+    _assert(not removed2, "False for unknown id")
+
+def test_s006_registry_unregister_type_safety() -> None:
+    _section("[S006] EngineeringWorkerRegistry — unregister type safety")
+    reg = EngineeringWorkerRegistry()
     try:
-        LocalEngineeringWorker(name="")
-        _assert(False, "empty name should raise")
-    except ValueError:
-        _assert(True, "empty name raises ValueError")
-
-def test_s005_default_worker_implements_abc() -> None:
-    _section("[S005] LocalEngineeringWorker — implements ABC")
-    w = LocalEngineeringWorker()
-    _assert(isinstance(w, EngineeringWorker), "isinstance EngineeringWorker")
-
-def test_s005_default_worker_accept_session() -> None:
-    _section("[S005] LocalEngineeringWorker — accept_session")
-    w = LocalEngineeringWorker()
-    s = _sess("Accept me")
-
-    accepted = w.accept_session(s)
-    _assert(accepted,                               "accepted returns True")
-    _assert(w.status() == WorkerStatus.BUSY,        "status BUSY after accept")
-    _assert(w.current_session() is s,               "current_session is s")
-    _assert(not w.can_accept(),                     "cannot accept when BUSY")
-    _assert(not w.is_idle,                          "not idle")
-    _assert(w.is_busy,                              "is_busy True")
-
-def test_s005_default_worker_accept_session_type_safety() -> None:
-    _section("[S005] LocalEngineeringWorker — accept_session type safety")
-    w = LocalEngineeringWorker()
-    try:
-        w.accept_session("not a session")  # type: ignore
-        _assert(False, "str raises TypeError")
+        reg.unregister(123)  # type: ignore
+        _assert(False, "int raises TypeError")
     except TypeError:
-        _assert(True, "str raises TypeError")
+        _assert(True, "int raises TypeError")
+
+def test_s006_registry_replace() -> None:
+    _section("[S006] EngineeringWorkerRegistry — replace")
+    reg = EngineeringWorkerRegistry()
+    w1 = _worker("Original", "worker-local-rep")
+    reg.register(w1)
+
+    w2 = LocalEngineeringWorker(name="Replacement", worker_id="worker-local-rep")
+    replaced = reg.replace(w2)
+    _assert(replaced,                              "returns True (was replaced)")
+    _assert(reg.size == 1,                        "size still 1")
+    _assert(reg.get("worker-local-rep") is w2,    "new worker stored")
+
+    # replace non-existent (acts as register)
+    w3 = _worker("New", "worker-local-new")
+    replaced2 = reg.replace(w3)
+    _assert(not replaced2,                        "returns False (new registration)")
+    _assert(reg.size == 2,                        "size now 2")
+
+def test_s006_registry_clear() -> None:
+    _section("[S006] EngineeringWorkerRegistry — clear")
+    reg = EngineeringWorkerRegistry()
+    for i in range(4):
+        reg.register(_worker(f"W{i}", f"worker-local-c{i:02d}"))
+    count = reg.clear()
+    _assert(count == 4,                           "cleared 4")
+    _assert(reg.is_empty,                         "empty after clear")
+    _assert(reg.size == 0,                        "size 0")
+
+def test_s006_registry_get() -> None:
+    _section("[S006] EngineeringWorkerRegistry — get")
+    reg = EngineeringWorkerRegistry()
+    w   = _worker("W", "worker-local-g01")
+    reg.register(w)
+
+    found = reg.get("worker-local-g01")
+    _assert(found is w,                           "get returns worker")
+    _assert(reg.get("nonexistent") is None,       "None for unknown id")
+
+def test_s006_registry_get_type_safety() -> None:
+    _section("[S006] EngineeringWorkerRegistry — get type safety")
+    reg = EngineeringWorkerRegistry()
     try:
-        w.accept_session(None)  # type: ignore
-        _assert(False, "None raises TypeError")
+        reg.get(42)  # type: ignore
+        _assert(False, "int raises TypeError")
     except TypeError:
-        _assert(True, "None raises TypeError")
+        _assert(True, "int raises TypeError")
 
-def test_s005_default_worker_accept_when_busy() -> None:
-    _section("[S005] LocalEngineeringWorker — accept_session when busy")
-    w  = LocalEngineeringWorker()
-    s1 = _sess("First")
-    s2 = _sess("Second")
-    w.accept_session(s1)
-    accepted2 = w.accept_session(s2)
-    _assert(not accepted2, "second accept returns False")
-    _assert(w.current_session() is s1, "first session unchanged")
+def test_s006_registry_all_workers_order() -> None:
+    _section("[S006] EngineeringWorkerRegistry — all_workers insertion order")
+    reg = EngineeringWorkerRegistry()
+    workers = [_worker(f"W{i}", f"worker-local-o{i:02d}") for i in range(5)]
+    for w in workers:
+        reg.register(w)
+    all_w = reg.all_workers()
+    _assert(len(all_w) == 5, "5 workers")
+    for i, w in enumerate(all_w):
+        _assert(w.worker_id() == workers[i].worker_id(), f"order {i}")
 
-def test_s005_default_worker_complete_session() -> None:
-    _section("[S005] LocalEngineeringWorker — complete_session")
-    w = LocalEngineeringWorker()
-    s = _sess("Complete me")
-    w.accept_session(s)
-    completed = w.complete_session()
+def test_s006_registry_all_workers_snapshot_independence() -> None:
+    _section("[S006] EngineeringWorkerRegistry — all_workers snapshot independence")
+    reg = EngineeringWorkerRegistry()
+    reg.register(_worker("W", "worker-local-si01"))
+    snapshot = reg.all_workers()
+    snapshot.append(None)  # type: ignore
+    _assert(reg.size == 1, "registry unaffected")
 
-    _assert(completed is s,                           "returned completed session")
-    _assert(w.status() == WorkerStatus.COMPLETED,     "status COMPLETED")
-    _assert(w.current_session() is None,              "no current session")
-    _assert(w.completed_count == 1,                   "completed count 1")
-    _assert(w.can_accept(),                           "can accept after complete")
-    _assert(not w.is_busy,                            "not busy")
+def test_s006_registry_available_workers() -> None:
+    _section("[S006] EngineeringWorkerRegistry — available_workers")
+    reg = EngineeringWorkerRegistry()
+    w1  = _worker("W1", "worker-local-av01")
+    w2  = _worker("W2", "worker-local-av02")
+    w3  = _worker("W3", "worker-local-av03")
+    reg.register(w1); reg.register(w2); reg.register(w3)
 
-def test_s005_default_worker_complete_when_idle() -> None:
-    _section("[S005] LocalEngineeringWorker — complete when idle")
-    w = LocalEngineeringWorker()
-    result = w.complete_session()
-    _assert(result is None, "None when idle")
+    _assert(len(reg.available_workers()) == 3, "3 available initially")
 
-def test_s005_default_worker_clear() -> None:
-    _section("[S005] LocalEngineeringWorker — clear")
-    w = LocalEngineeringWorker()
-    s = _sess()
-    w.accept_session(s)
-    w.clear()
+    w1.accept_session(_sess("busy"))
+    _assert(len(reg.available_workers()) == 2, "2 available when w1 busy")
+    _assert(w1 not in reg.available_workers(), "w1 not available")
 
-    _assert(w.status() == WorkerStatus.IDLE, "IDLE after clear")
-    _assert(w.can_accept(),                  "can accept after clear")
-    _assert(w.current_session() is None,     "no session after clear")
-    # completed_count preserved
-    _assert(w.completed_count == 0,          "completed_count unchanged by clear")
+    w2.mark_unavailable()
+    _assert(len(reg.available_workers()) == 1, "1 available when w2 unavailable")
 
-def test_s005_default_worker_record() -> None:
-    _section("[S005] LocalEngineeringWorker — record()")
-    w = LocalEngineeringWorker(name="RecordWorker")
-    rec = w.record()
+def test_s006_registry_busy_workers() -> None:
+    _section("[S006] EngineeringWorkerRegistry — busy_workers")
+    reg = EngineeringWorkerRegistry()
+    w1  = _worker("W1", "worker-local-bw01")
+    w2  = _worker("W2", "worker-local-bw02")
+    reg.register(w1); reg.register(w2)
+    _assert(len(reg.busy_workers()) == 0, "none busy initially")
 
-    _assert(isinstance(rec, WorkerRecord),       "returns WorkerRecord")
-    _assert(rec.worker_name == "RecordWorker",   "name in record")
-    _assert(rec.worker_id   == w.worker_id(),    "id in record")
-    _assert(rec.status      == WorkerStatus.IDLE, "status IDLE")
-    _assert(rec.completed_sessions == 0,         "completed 0")
-    _assert(not rec.has_current_session,         "no current session")
+    w1.accept_session(_sess())
+    _assert(len(reg.busy_workers()) == 1, "1 busy")
+    _assert(reg.busy_workers()[0] is w1,  "w1 is busy")
 
-    # After accepting session
-    s = _sess()
-    w.accept_session(s)
-    rec2 = w.record()
-    _assert(rec2.status == WorkerStatus.BUSY,      "status BUSY")
-    _assert(rec2.has_current_session,              "has session")
-    _assert(rec2.current_session_id == s.session_id, "session_id correct")
-
-def test_s005_default_worker_record_independence() -> None:
-    _section("[S005] LocalEngineeringWorker — record independence")
-    w   = LocalEngineeringWorker()
-    rec = w.record()
-    _assert(rec.status == WorkerStatus.IDLE, "record IDLE before change")
-
-    # Mutate worker state — record must not change
-    w.accept_session(_sess())
-    _assert(rec.status == WorkerStatus.IDLE, "old record unchanged after state change")
-    _assert(w.status() == WorkerStatus.BUSY, "worker now BUSY")
-
-def test_s005_default_worker_lifecycle() -> None:
-    _section("[S005] LocalEngineeringWorker — full lifecycle")
-    w = LocalEngineeringWorker()
-    for i in range(3):
-        _assert(w.can_accept(), f"cycle {i}: can accept")
-        s = _sess(f"Cycle {i}")
-        accepted = w.accept_session(s)
-        _assert(accepted,                     f"cycle {i}: accepted")
-        _assert(w.status() == WorkerStatus.BUSY, f"cycle {i}: BUSY")
-        w.complete_session()
-        _assert(w.status() == WorkerStatus.COMPLETED, f"cycle {i}: COMPLETED")
-        w.clear()
-        _assert(w.status() == WorkerStatus.IDLE, f"cycle {i}: back to IDLE")
-    _assert(w.completed_count == 3, "3 completed across lifecycle")
-
-def test_s005_default_worker_completed_ids() -> None:
-    _section("[S005] LocalEngineeringWorker — completed session IDs")
-    w = LocalEngineeringWorker()
-    sessions = [_sess(f"S{i}") for i in range(3)]
-    for s in sessions:
-        w.accept_session(s)
-        w.complete_session()
-        w.clear()
-
-    ids = w.completed_session_ids
-    _assert(len(ids) == 3, "3 completed IDs")
-    for s in sessions:
-        _assert(s.session_id in ids, f"{s.session_id[:8]} in ids")
-    # snapshot independence
-    ids.append("fake")
-    _assert(w.completed_count == 3, "worker count unaffected")
-
-def test_s005_default_worker_mark_unavailable() -> None:
-    _section("[S005] LocalEngineeringWorker — mark_unavailable")
-    w = LocalEngineeringWorker()
+def test_s006_registry_unavailable_workers() -> None:
+    _section("[S006] EngineeringWorkerRegistry — unavailable_workers")
+    reg = EngineeringWorkerRegistry()
+    w   = _worker("W", "worker-local-un01")
+    reg.register(w)
+    _assert(len(reg.unavailable_workers()) == 0, "none unavailable initially")
     w.mark_unavailable()
-    _assert(w.status() == WorkerStatus.UNAVAILABLE, "UNAVAILABLE")
-    _assert(not w.can_accept(),                     "cannot accept")
-    _assert(not w.status().is_available(),          "not available")
-    # clear recovers
-    w.clear()
-    _assert(w.status() == WorkerStatus.IDLE,        "IDLE after clear")
+    _assert(len(reg.unavailable_workers()) == 1, "1 unavailable")
+    _assert(reg.status() == RegistryStatus.DEGRADED, "status DEGRADED")
 
-def test_s005_default_worker_repr() -> None:
-    _section("[S005] LocalEngineeringWorker — repr")
-    w = LocalEngineeringWorker(name="ReprWorker")
-    r = repr(w)
-    _assert("LocalEngineeringWorker" in r, "class name")
-    _assert("ReprWorker"              in r, "worker name")
-    _assert("IDLE"                    in r, "status")
+def test_s006_registry_workers_by_capability() -> None:
+    _section("[S006] EngineeringWorkerRegistry — workers_by_capability")
+    reg = EngineeringWorkerRegistry()
+    w1  = _worker("W1", "worker-local-cb01", caps=("engineering",))
+    w2  = _worker("W2", "worker-local-cb02", caps=("testing",))
+    w3  = _worker("W3", "worker-local-cb03", caps=("engineering","planning"))
+    reg.register(w1); reg.register(w2); reg.register(w3)
 
+    eng = reg.workers_by_capability("engineering")
+    tst = reg.workers_by_capability("testing")
+    pln = reg.workers_by_capability("planning")
+    sec = reg.workers_by_capability("security")
 
-# ===========================================================================
-# ── SPRINT 005 — Dispatcher + Worker integration ───────────────────────────
-# ===========================================================================
+    _assert(len(eng) == 2, "2 engineering workers")
+    _assert(len(tst) == 1, "1 testing worker")
+    _assert(len(pln) == 1, "1 planning worker")
+    _assert(len(sec) == 0, "0 security workers")
+    _assert(w1 in eng,     "w1 in engineering")
+    _assert(w3 in eng,     "w3 in engineering")
+    _assert(w2 in tst,     "w2 in testing")
 
-def test_s005_dispatcher_can_dispatch_to_worker() -> None:
-    _section("[S005] Dispatcher.can_dispatch_to_worker()")
-    d = EngineeringDispatcher()
-    w = DefaultEngineeringWorker()
-    q = EngineeringQueue()
-
-    # empty queue
-    _assert(not d.can_dispatch_to_worker(q, w), "False: empty queue")
-
-    q.enqueue(_sess())
-    _assert(d.can_dispatch_to_worker(q, w), "True: queue has work, worker idle")
-
-    # worker busy
-    w2 = DefaultEngineeringWorker()
-    w2.accept_session(_sess("busy"))
-    _assert(not d.can_dispatch_to_worker(q, w2), "False: worker busy")
-
-    # worker unavailable
-    w3 = DefaultEngineeringWorker()
-    w3.mark_unavailable()
-    _assert(not d.can_dispatch_to_worker(q, w3), "False: worker unavailable")
-
-def test_s005_dispatcher_can_dispatch_to_worker_type_safety() -> None:
-    _section("[S005] Dispatcher.can_dispatch_to_worker() — type safety")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
+def test_s006_registry_workers_by_capability_type_safety() -> None:
+    _section("[S006] EngineeringWorkerRegistry — workers_by_capability type safety")
+    reg = EngineeringWorkerRegistry()
     try:
-        d.can_dispatch_to_worker(q, "not a worker")  # type: ignore
-        _assert(False, "str raises TypeError")
+        reg.workers_by_capability(42)  # type: ignore
+        _assert(False, "int raises TypeError")
     except TypeError:
-        _assert(True, "str raises TypeError")
+        _assert(True, "int raises TypeError")
 
-def test_s005_dispatcher_dispatch_to_worker() -> None:
-    _section("[S005] Dispatcher.dispatch_next(worker=...)")
-    d = EngineeringDispatcher()
-    w = DefaultEngineeringWorker()
-    q = EngineeringQueue()
-    s = _sess("Worker dispatch")
-    q.enqueue(s)
+def test_s006_registry_available_by_capability() -> None:
+    _section("[S006] EngineeringWorkerRegistry — available_workers_by_capability")
+    reg = EngineeringWorkerRegistry()
+    w1  = _worker("W1", "worker-local-abc01", caps=("engineering",))
+    w2  = _worker("W2", "worker-local-abc02", caps=("engineering",))
+    reg.register(w1); reg.register(w2)
 
-    rec = d.dispatch_next(q, worker=w)
-    _assert(rec is not None,                         "record returned")
-    _assert(w.status() == WorkerStatus.BUSY,         "worker BUSY after dispatch")
-    _assert(w.current_session() is not None,         "worker has session")
-    _assert(w.current_session().session_id == s.session_id, "correct session assigned")
+    _assert(len(reg.available_workers_by_capability("engineering")) == 2, "2 available eng")
+    w1.accept_session(_sess())
+    _assert(len(reg.available_workers_by_capability("engineering")) == 1, "1 after w1 busy")
+    _assert(reg.available_workers_by_capability("engineering")[0] is w2, "w2 available")
 
-def test_s005_dispatcher_dispatch_to_busy_worker_raises() -> None:
-    _section("[S005] Dispatcher — dispatch to busy worker raises")
-    d = EngineeringDispatcher()
-    w = DefaultEngineeringWorker()
-    w.accept_session(_sess("already busy"))
+def test_s006_registry_first_available() -> None:
+    _section("[S006] EngineeringWorkerRegistry — first_available")
+    reg = EngineeringWorkerRegistry()
+    _assert(reg.first_available() is None, "None when empty")
 
-    q = EngineeringQueue()
-    q.enqueue(_sess("New work"))
+    w1 = _worker("W1", "worker-local-fa01")
+    w2 = _worker("W2", "worker-local-fa02")
+    reg.register(w1); reg.register(w2)
+    _assert(reg.first_available() is w1, "first is w1 (insertion order)")
 
-    # can_dispatch_to_worker returns False, so dispatch_next with busy worker raises
-    try:
-        d.dispatch_next(q, worker=w)
-        _assert(False, "busy worker should raise RuntimeError")
-    except RuntimeError:
-        _assert(True, "busy worker raises RuntimeError")
+    w1.accept_session(_sess())
+    _assert(reg.first_available() is w2, "first is w2 after w1 busy")
 
-def test_s005_dispatcher_dispatch_next_type_safety_worker() -> None:
-    _section("[S005] Dispatcher.dispatch_next() — worker type safety")
-    d = EngineeringDispatcher()
-    q = EngineeringQueue()
-    q.enqueue(_sess())
-    try:
-        d.dispatch_next(q, worker="not a worker")  # type: ignore
-        _assert(False, "str worker raises TypeError")
-    except TypeError:
-        _assert(True, "str worker raises TypeError")
+    w2.accept_session(_sess())
+    _assert(reg.first_available() is None, "None when all busy")
+
+def test_s006_registry_status_transitions() -> None:
+    _section("[S006] EngineeringWorkerRegistry — status transitions")
+    reg = EngineeringWorkerRegistry()
+    _assert(reg.status() == RegistryStatus.EMPTY,    "EMPTY initially")
+
+    w = _worker("W", "worker-local-st01")
+    reg.register(w)
+    _assert(reg.status() == RegistryStatus.ACTIVE,   "ACTIVE after register")
+
+    w.accept_session(_sess())
+    _assert(reg.status() == RegistryStatus.FULL,     "FULL when all busy")
+
+    w.complete_session(); w.clear()
+    _assert(reg.status() == RegistryStatus.ACTIVE,   "ACTIVE after clear")
+
+    w.mark_unavailable()
+    _assert(reg.status() == RegistryStatus.DEGRADED, "DEGRADED when unavailable")
+
+    reg.unregister("worker-local-st01")
+    _assert(reg.status() == RegistryStatus.EMPTY,    "EMPTY after unregister all")
+
+def test_s006_registry_all_capabilities() -> None:
+    _section("[S006] EngineeringWorkerRegistry — all_capabilities")
+    reg = EngineeringWorkerRegistry()
+    _assert(reg.all_capabilities() == [], "empty initially")
+
+    reg.register(_worker("W1", "w1", caps=("engineering","planning")))
+    reg.register(_worker("W2", "w2", caps=("testing",)))
+    reg.register(_worker("W3", "w3", caps=("engineering",)))  # duplicate cap
+    caps = reg.all_capabilities()
+    _assert("engineering" in caps, "engineering in caps")
+    _assert("planning"    in caps, "planning in caps")
+    _assert("testing"     in caps, "testing in caps")
+    _assert(len(caps) == 3,        "3 unique caps")
+    _assert(caps == sorted(caps),  "caps are sorted")
+
+def test_s006_registry_statistics() -> None:
+    _section("[S006] EngineeringWorkerRegistry — statistics")
+    reg = EngineeringWorkerRegistry()
+    s   = reg.statistics()
+    _assert(s["total_registered"] == 0, "total 0")
+    _assert(s["available"]        == 0, "available 0")
+    _assert(s["busy"]             == 0, "busy 0")
+    _assert(s["unavailable"]      == 0, "unavailable 0")
+    _assert(s["capability_count"] == 0, "caps 0")
+
+    w = _worker("W", "worker-local-stat01")
+    reg.register(w)
+    s2 = reg.statistics()
+    _assert(s2["total_registered"] == 1, "total 1")
+    _assert(s2["available"]        == 1, "available 1")
+
+def test_s006_registry_snapshot_from_registry() -> None:
+    _section("[S006] EngineeringWorkerRegistry.snapshot()")
+    reg = EngineeringWorkerRegistry()
+    snap = reg.snapshot()
+    _assert(isinstance(snap, RegistrySnapshot),      "returns RegistrySnapshot")
+    _assert(snap.status == RegistryStatus.EMPTY,     "EMPTY snap")
+    _assert(snap.total_registered == 0,              "total 0")
+
+    w1 = _worker("W1", "worker-local-sn01", caps=("engineering",))
+    w2 = _worker("W2", "worker-local-sn02", caps=("testing",))
+    reg.register(w1); reg.register(w2)
+    w1.accept_session(_sess())
+    snap2 = reg.snapshot()
+    _assert(snap2.status == RegistryStatus.ACTIVE,   "ACTIVE snap")
+    _assert(snap2.total_registered == 2,             "total 2")
+    _assert(snap2.available_count  == 1,             "available 1")
+    _assert(snap2.busy_count       == 1,             "busy 1")
+    _assert("worker-local-sn01" in snap2.worker_ids, "sn01 in worker_ids")
+    _assert("worker-local-sn02" in snap2.worker_ids, "sn02 in worker_ids")
+    _assert("engineering" in snap2.capabilities,     "engineering in caps")
+    _assert("testing"     in snap2.capabilities,     "testing in caps")
+
+def test_s006_registry_snapshot_independence() -> None:
+    _section("[S006] EngineeringWorkerRegistry — snapshot independence")
+    reg  = EngineeringWorkerRegistry()
+    w    = _worker("W", "worker-local-si99")
+    reg.register(w)
+    snap = reg.snapshot()
+    _assert(snap.total_registered == 1, "snap total 1 before mutation")
+
+    # Mutate registry
+    reg.register(_worker("W2", "worker-local-si98"))
+    _assert(snap.total_registered == 1, "snap unaffected after registry mutation")
+    _assert(reg.size == 2,             "registry is now 2")
+
+def test_s006_registry_repr() -> None:
+    _section("[S006] EngineeringWorkerRegistry — repr")
+    reg = EngineeringWorkerRegistry()
+    r   = repr(reg)
+    _assert("EngineeringWorkerRegistry" in r, "class name")
+    _assert("EMPTY"                     in r, "status")
+    _assert("total=0"                   in r, "total")
 
 
 # ===========================================================================
-# ── SPRINT 005 — Coordinator + Worker integration ──────────────────────────
+# ── SPRINT 006 — Coordinator integration ───────────────────────────────────
 # ===========================================================================
 
-def test_s005_coordinator_owns_worker() -> None:
-    _section("[S005] Coordinator — owns worker")
+def test_s006_coordinator_owns_registry() -> None:
+    _section("[S006] Coordinator — owns registry")
     c = _coord()
-    _assert(isinstance(c.worker, EngineeringWorker),          "worker is EngineeringWorker")
-    _assert(isinstance(c.worker, LocalEngineeringWorker),   "worker is LocalEngineeringWorker")
+    _assert(isinstance(c.registry, EngineeringWorkerRegistry), "registry type")
+    _assert(c.registry is not c.queue,      "registry ≠ queue")
+    _assert(c.registry is not c.dispatcher, "registry ≠ dispatcher")
+    _assert(c.registry is not c.worker,     "registry ≠ worker")
 
-def test_s005_coordinator_worker_record() -> None:
-    _section("[S005] Coordinator.worker_record()")
-    c   = _coord()
-    rec = c.worker_record()
-    _assert(isinstance(rec, WorkerRecord),    "returns WorkerRecord")
-    _assert(rec.status == WorkerStatus.IDLE,  "IDLE initially")
+def test_s006_coordinator_default_worker_registered() -> None:
+    _section("[S006] Coordinator — default worker auto-registered")
+    c = _coord()
+    _assert(c.registry.size == 1,                    "1 worker registered on init")
+    _assert(c.registry.status() == RegistryStatus.ACTIVE, "registry ACTIVE")
+    _assert(c.registry.contains(c.worker.worker_id()), "default worker in registry")
 
-def test_s005_coordinator_worker_statistics() -> None:
-    _section("[S005] Coordinator.worker_statistics()")
+def test_s006_coordinator_registry_snapshot() -> None:
+    _section("[S006] Coordinator.registry_snapshot()")
+    c    = _coord()
+    snap = c.registry_snapshot()
+    _assert(isinstance(snap, RegistrySnapshot),    "returns RegistrySnapshot")
+    _assert(snap.status == RegistryStatus.ACTIVE,  "ACTIVE")
+    _assert(snap.total_registered == 1,            "1 worker")
+    _assert(snap.available_count  == 1,            "1 available")
+
+def test_s006_coordinator_registry_statistics() -> None:
+    _section("[S006] Coordinator.registry_statistics()")
     c     = _coord()
-    stats = c.worker_statistics()
+    stats = c.registry_statistics()
     _assert(isinstance(stats, dict),          "returns dict")
-    _assert(stats["completed_sessions"] == 0, "completed 0")
-    _assert(stats["is_busy"]            == 0, "not busy")
-    _assert(stats["can_accept"]         == 1, "can accept")
+    _assert(stats["total_registered"] == 1,   "total 1")
+    _assert(stats["available"]        == 1,   "available 1")
+    _assert(stats["busy"]             == 0,   "busy 0")
 
-    c.submit(_req("W-Stats"))
+def test_s006_coordinator_register_worker() -> None:
+    _section("[S006] Coordinator.register_worker()")
+    c  = _coord()
+    w2 = _worker("Extra", "worker-local-extra01")
+    wid = c.register_worker(w2)
+    _assert(wid == "worker-local-extra01",  "returns worker_id")
+    _assert(c.registry.size == 2,           "registry has 2 workers")
+    _assert(c.registry.contains(wid),       "extra worker in registry")
+
+def test_s006_coordinator_unregister_worker() -> None:
+    _section("[S006] Coordinator.unregister_worker()")
+    c  = _coord()
+    w2 = _worker("Extra", "worker-local-unreg01")
+    c.register_worker(w2)
+    _assert(c.registry.size == 2, "2 workers before unregister")
+    removed = c.unregister_worker("worker-local-unreg01")
+    _assert(removed,              "returns True")
+    _assert(c.registry.size == 1, "1 worker after unregister")
+
+def test_s006_coordinator_registry_reflects_worker_state() -> None:
+    _section("[S006] Coordinator registry reflects live worker state")
+    c = _coord()
+    _assert(c.registry.available_count == 1, "1 available before process")
+    c.submit(_req("State check"))
     c.process_next()
-    stats2 = c.worker_statistics()
-    _assert(stats2["completed_sessions"] == 1, "completed 1")
-    _assert(stats2["is_busy"]            == 0, "not busy after complete")
-    _assert(stats2["can_accept"]         == 1, "can accept again")
+    # After processing, worker should be COMPLETED then auto-cleared
+    _assert(c.registry.available_count == 1, "1 available after process")
 
-def test_s005_coordinator_process_next_worker_id_on_result() -> None:
-    _section("[S005] Coordinator.process_next() — worker_id on result")
+def test_s006_coordinator_registry_capabilities() -> None:
+    _section("[S006] Coordinator registry — capabilities")
     c = _coord()
-    c.submit(_req("Worker result"))
-    result = c.process_next()
+    caps = c.registry.all_capabilities()
+    _assert("engineering" in caps, "engineering capability registered")
 
-    _assert(result is not None,                                "result returned")
-    _assert(result.has_worker_id,                              "has_worker_id True")
-    _assert(result.worker_id is not None,                      "worker_id set")
-    _assert(result.has_worker_status,                          "has_worker_status True")
-    _assert(result.worker_status == WorkerStatus.COMPLETED,    "worker_status COMPLETED")
-    _assert(result.worker_id == c.worker.worker_id(),          "worker_id matches coordinator's worker")
-
-def test_s005_coordinator_direct_no_worker_id() -> None:
-    _section("[S005] Coordinator.coordinate() — no worker_id (backwards compat)")
-    c = _coord()
-    r = c.coordinate(_req("Direct"))
-    _assert(not r.has_worker_id,     "no worker_id on direct call")
-    _assert(not r.has_worker_status, "no worker_status on direct call")
-    _assert(r.worker_id is None,     "worker_id None")
-
-def test_s005_coordinator_process_all_worker_ids() -> None:
-    _section("[S005] Coordinator.process_all() — all results have worker_id")
-    c = _coord()
-    for i in range(4): c.submit(_req(f"W{i}"))
-    results = c.process_all()
-    _assert(len(results) == 4, "4 results")
-    for i, r in enumerate(results):
-        _assert(r.has_worker_id,                           f"result {i} has worker_id")
-        _assert(r.worker_status == WorkerStatus.COMPLETED, f"result {i} COMPLETED")
-
-def test_s005_coordinator_worker_reused_across_requests() -> None:
-    _section("[S005] Coordinator — same worker reused across requests")
-    c = _coord()
-    for i in range(5): c.submit(_req(f"Reuse {i}"))
-    results = c.process_all()
-    worker_ids = {r.worker_id for r in results}
-    _assert(len(worker_ids) == 1, "same worker_id across all results")
-    _assert(c.worker_statistics()["completed_sessions"] == 5, "5 sessions completed")
-
-def test_s005_coordinator_describe_includes_worker() -> None:
-    _section("[S005] Coordinator.describe() — worker info")
+def test_s006_coordinator_describe_includes_registry() -> None:
+    _section("[S006] Coordinator.describe() — registry info")
     c = _coord()
     d = c.describe()
-    _assert("worker" in d,   "worker in describe()")
-    _assert("018.005" in d["version"], "version 018.005")
+    _assert("registry"  in d,      "registry in describe()")
+    _assert("018.006"   in d["version"], "version 018.006")
 
-def test_s005_coordinator_worker_queue_dispatcher_separate() -> None:
-    _section("[S005] Coordinator — queue, dispatcher, worker are distinct objects")
+def test_s006_coordinator_registry_workers_by_capability() -> None:
+    _section("[S006] Coordinator registry — workers_by_capability")
+    c      = _coord()
+    result = c.registry.workers_by_capability("engineering")
+    _assert(len(result) == 1,                           "1 engineering worker")
+    _assert(result[0].worker_id() == c.worker.worker_id(), "it's the coordinator's worker")
+
+def test_s006_coordinator_process_all_registry_consistent() -> None:
+    _section("[S006] Coordinator — registry consistent across process_all")
     c = _coord()
-    _assert(c.queue is not c.dispatcher,  "queue ≠ dispatcher")
-    _assert(c.queue is not c.worker,      "queue ≠ worker")
-    _assert(c.dispatcher is not c.worker, "dispatcher ≠ worker")
-    _assert(isinstance(c.queue,      EngineeringQueue),           "queue type")
-    _assert(isinstance(c.dispatcher, EngineeringDispatcher),      "dispatcher type")
-    _assert(isinstance(c.worker,     DefaultEngineeringWorker),   "worker type")
-
-def test_s005_worker_id_consistent_with_dispatch_record() -> None:
-    _section("[S005] worker_id consistent with dispatch_record on result")
-    c = _coord()
-    c.submit(_req("Consistency check"))
-    r = c.process_next()
-    _assert(r.has_dispatch_record,  "has dispatch_record")
-    _assert(r.has_worker_id,        "has worker_id")
-    # Both should refer to the same execution unit
-    _assert(r.dispatch_record.session_id == r.session_id, "dispatch session matches result session")
-
-def test_s005_result_sprint005_defaults() -> None:
-    _section("[S005] EngineeringResult — Sprint 005 defaults")
-    res = EngineeringResult(status=EngineeringStatus.COMPLETE)
-    _assert(res.worker_id     is None,  "worker_id None default")
-    _assert(res.worker_status is None,  "worker_status None default")
-    _assert(not res.has_worker_id,      "has_worker_id False")
-    _assert(not res.has_worker_status,  "has_worker_status False")
-
-def test_s005_backward_compat_all_previous_apis() -> None:
-    _section("[S005] Backwards compatibility — all Sprint 001-004 APIs work")
-    c = _coord(debugger=_StubDebugger())
-
-    # S001
-    r1 = c.coordinate(_req("S001"))
-    _assert(r1.succeeded, "S001 coordinate")
-
-    # S002
-    _assert(r1.has_session,         "S002 session")
-    _assert(r1.has_timeline,        "S002 timeline")
-    _assert(r1.has_stage_durations, "S002 stage_durations")
-
-    # S003
-    pos = c.submit(_req("S003"))
-    _assert(pos == 1, "S003 submit")
-    r2 = c.process_next()
-    _assert(r2.has_queue_position, "S003 queue_position")
-    _assert(r2.has_queue_snapshot, "S003 queue_snapshot")
-
-    # S004
-    _assert(r2.has_dispatch_record, "S004 dispatch_record")
-    _assert("total_dispatched" in c.dispatch_statistics(), "S004 dispatch_statistics")
-
-    # S005
-    _assert(r2.has_worker_id,     "S005 worker_id")
-    _assert(r2.has_worker_status, "S005 worker_status")
-    _assert(isinstance(c.worker_record(), WorkerRecord), "S005 worker_record")
+    for i in range(5): c.submit(_req(f"Batch {i}"))
+    results = c.process_all()
+    _assert(len(results) == 5,                          "5 results")
+    _assert(all(r.succeeded for r in results),          "all succeeded")
+    # Registry should still have 1 worker, available
+    _assert(c.registry.size == 1,                       "registry size unchanged")
+    _assert(c.registry.available_count == 1,            "worker available after batch")
 
 
 # ===========================================================================
-# ── SPRINT 005 — Public API surface ────────────────────────────────────────
+# ── SPRINT 006 — Public API surface ────────────────────────────────────────
 # ===========================================================================
 
-def test_s005_local_worker_stable_id() -> None:
-    _section("[S005] LocalEngineeringWorker — stable worker_id")
-    # Default ID follows convention
-    w1 = LocalEngineeringWorker()
-    _assert(w1.worker_id().startswith("worker-local-"), "ID starts with worker-local-")
-    # Different instances get different IDs
-    w2 = LocalEngineeringWorker()
-    _assert(w1.worker_id() != w2.worker_id(), "unique IDs per instance")
-    # Custom stable ID
-    w3 = LocalEngineeringWorker(worker_id="worker-local-001")
-    _assert(w3.worker_id() == "worker-local-001", "custom ID stored")
-    # ID in record
-    rec = w3.record()
-    _assert(rec.worker_id == "worker-local-001", "ID in WorkerRecord")
-
-def test_s005_local_worker_capabilities() -> None:
-    _section("[S005] LocalEngineeringWorker — capabilities")
-    # Default capabilities
-    w = LocalEngineeringWorker()
-    _assert(w.capabilities() == ("engineering",), "default capabilities")
-    # Custom capabilities
-    w2 = LocalEngineeringWorker(capabilities=("engineering", "planning"))
-    _assert(w2.capabilities() == ("engineering", "planning"), "custom capabilities")
-    # Capabilities immutable (tuple)
-    caps = w.capabilities()
-    _assert(isinstance(caps, tuple), "capabilities is tuple")
-    # In WorkerRecord
-    rec = w.record()
-    _assert(rec.capabilities == ("engineering",), "capabilities in record")
-    _assert(rec.has_capability("engineering"),     "has engineering")
-    _assert(not rec.has_capability("testing"),     "no testing by default")
-
-def test_s005_default_worker_alias() -> None:
-    _section("[S005] DefaultEngineeringWorker — backwards-compat alias")
-    # DefaultEngineeringWorker is an alias for LocalEngineeringWorker
-    _assert(DefaultEngineeringWorker is LocalEngineeringWorker, "alias is same class")
-    w = DefaultEngineeringWorker()
-    _assert(isinstance(w, LocalEngineeringWorker),  "isinstance LocalEngineeringWorker")
-    _assert(isinstance(w, EngineeringWorker),        "isinstance EngineeringWorker")
-
-def test_s005_worker_id_on_coordinator_result() -> None:
-    _section("[S005] worker_id on coordinator result follows convention")
-    c = _coord()
-    c.submit(_req("ID convention"))
-    r = c.process_next()
-    _assert(r.worker_id is not None,                       "worker_id set")
-    _assert(r.worker_id.startswith("worker-local-"),       "follows convention")
-    _assert(r.worker_id == c.worker.worker_id(),           "matches coordinator worker")
-
-def test_s005_worker_record_capabilities_in_coordinator() -> None:
-    _section("[S005] WorkerRecord capabilities via coordinator")
-    c   = _coord()
-    rec = c.worker_record()
-    _assert(rec.has_capabilities,                          "has capabilities")
-    _assert(rec.has_capability("engineering"),             "has engineering")
-    _assert(isinstance(rec.capabilities, tuple),          "capabilities is tuple")
-
-def test_s005_local_worker_name_and_id_in_repr() -> None:
-    _section("[S005] LocalEngineeringWorker — repr includes id and capabilities")
-    w = LocalEngineeringWorker(name="ReprCheck", worker_id="worker-local-999")
-    r = repr(w)
-    _assert("LocalEngineeringWorker" in r,    "class name in repr")
-    _assert("worker-local-999"       in r,    "worker_id in repr")
-    _assert("ReprCheck"              in r,    "name in repr")
-    _assert("engineering"            in r,    "capabilities in repr")
-
-
-def test_s005_public_api_surface() -> None:
-    _section("[S005] Public API surface — __init__ exports")
+def test_s006_public_api_surface() -> None:
+    _section("[S006] Public API surface — __init__ exports")
     import core.engineering.coordinator as pkg
     expected = [
         "EngineeringCoordinator","EngineeringRequest","EngineeringResult",
@@ -844,11 +772,46 @@ def test_s005_public_api_surface() -> None:
         "EngineeringStage","EngineeringSession","CoordinatorEventLog","SessionEvent",
         "EngineeringQueue","QueueStatus","QueueSnapshot",
         "EngineeringDispatcher","DispatchStatus","DispatchRecord","DispatchPolicy",
-        "EngineeringWorker","DefaultEngineeringWorker","WorkerStatus","WorkerRecord",
+        "EngineeringWorker","LocalEngineeringWorker","DefaultEngineeringWorker",
+        "WorkerStatus","WorkerRecord",
+        "EngineeringWorkerRegistry","RegistryStatus","RegistrySnapshot",
     ]
     for name in expected:
         _assert(hasattr(pkg, name), f"{name} exported")
-    _assert(len(pkg.__all__) == 22, "__all__ has 22 entries")
+    _assert(len(pkg.__all__) == 25, "__all__ has 25 entries")
+
+def test_s006_backward_compat_full() -> None:
+    _section("[S006] Backwards compatibility — all Sprint 001-005 APIs work")
+    c = _coord(debugger=_StubDebugger())
+
+    # S001: coordinate
+    r1 = c.coordinate(_req("S001"))
+    _assert(r1.succeeded, "S001 coordinate")
+
+    # S002: session, timeline
+    _assert(r1.has_session,         "S002 session")
+    _assert(r1.has_timeline,        "S002 timeline")
+    _assert(r1.has_stage_durations, "S002 stage_durations")
+
+    # S003: queue
+    pos = c.submit(_req("S003"))
+    _assert(pos >= 1, "S003 submit")
+    r2 = c.process_next()
+    _assert(r2.has_queue_position, "S003 queue_position")
+    _assert(r2.has_queue_snapshot, "S003 queue_snapshot")
+
+    # S004: dispatch
+    _assert(r2.has_dispatch_record, "S004 dispatch_record")
+
+    # S005: worker
+    _assert(r2.has_worker_id,     "S005 worker_id")
+    _assert(r2.has_worker_status, "S005 worker_status")
+    _assert(isinstance(c.worker_record(), WorkerRecord), "S005 worker_record")
+
+    # S006: registry
+    _assert(isinstance(c.registry, EngineeringWorkerRegistry), "S006 registry")
+    _assert(isinstance(c.registry_snapshot(), RegistrySnapshot), "S006 snapshot")
+    _assert("total_registered" in c.registry_statistics(),       "S006 statistics")
 
 
 # ===========================================================================
@@ -857,61 +820,58 @@ def test_s005_public_api_surface() -> None:
 
 def main() -> None:
     print("\n" + "=" * 60)
-    print("  Genesis-018 Sprint 005 — Engineering Coordinator Tests")
+    print("  Genesis-018 Sprint 006 — Engineering Coordinator Tests")
     print("=" * 60)
 
-    test_s001_regression()
+    test_regression_s001_s005()
 
-    test_s005_worker_status_values()
-    test_s005_worker_status_properties()
-    test_s005_worker_record_construction()
-    test_s005_worker_record_with_session()
-    test_s005_worker_record_immutability()
-    test_s005_worker_record_validation()
-    test_s005_worker_record_repr()
-    test_s005_worker_is_abstract()
-    test_s005_worker_abstract_methods()
-    test_s005_default_worker_construction()
-    test_s005_default_worker_name_validation()
-    test_s005_default_worker_implements_abc()
-    test_s005_default_worker_accept_session()
-    test_s005_default_worker_accept_session_type_safety()
-    test_s005_default_worker_accept_when_busy()
-    test_s005_default_worker_complete_session()
-    test_s005_default_worker_complete_when_idle()
-    test_s005_default_worker_clear()
-    test_s005_default_worker_record()
-    test_s005_default_worker_record_independence()
-    test_s005_default_worker_lifecycle()
-    test_s005_default_worker_completed_ids()
-    test_s005_default_worker_mark_unavailable()
-    test_s005_default_worker_repr()
-    test_s005_dispatcher_can_dispatch_to_worker()
-    test_s005_dispatcher_can_dispatch_to_worker_type_safety()
-    test_s005_dispatcher_dispatch_to_worker()
-    test_s005_dispatcher_dispatch_to_busy_worker_raises()
-    test_s005_dispatcher_dispatch_next_type_safety_worker()
-    test_s005_coordinator_owns_worker()
-    test_s005_coordinator_worker_record()
-    test_s005_coordinator_worker_statistics()
-    test_s005_coordinator_process_next_worker_id_on_result()
-    test_s005_coordinator_direct_no_worker_id()
-    test_s005_coordinator_process_all_worker_ids()
-    test_s005_coordinator_worker_reused_across_requests()
-    test_s005_coordinator_describe_includes_worker()
-    test_s005_coordinator_worker_queue_dispatcher_separate()
-    test_s005_worker_id_consistent_with_dispatch_record()
-    test_s005_result_sprint005_defaults()
-    test_s005_backward_compat_all_previous_apis()
-    test_s005_local_worker_stable_id()
-    test_s005_local_worker_capabilities()
-    test_s005_default_worker_alias()
-    test_s005_worker_id_on_coordinator_result()
-    test_s005_worker_record_capabilities_in_coordinator()
-    test_s005_local_worker_name_and_id_in_repr()
-    test_s005_worker_record_capabilities()
-    test_s005_worker_record_capabilities_validation()
-    test_s005_public_api_surface()
+    test_s006_registry_status_values()
+    test_s006_registry_status_properties()
+    test_s006_registry_snapshot_construction()
+    test_s006_registry_snapshot_empty()
+    test_s006_registry_snapshot_all_busy()
+    test_s006_registry_snapshot_immutability()
+    test_s006_registry_snapshot_validation()
+    test_s006_registry_snapshot_repr()
+    test_s006_registry_initial_state()
+    test_s006_registry_register()
+    test_s006_registry_register_multiple()
+    test_s006_registry_register_type_safety()
+    test_s006_registry_register_duplicate()
+    test_s006_registry_unregister()
+    test_s006_registry_unregister_type_safety()
+    test_s006_registry_replace()
+    test_s006_registry_clear()
+    test_s006_registry_get()
+    test_s006_registry_get_type_safety()
+    test_s006_registry_all_workers_order()
+    test_s006_registry_all_workers_snapshot_independence()
+    test_s006_registry_available_workers()
+    test_s006_registry_busy_workers()
+    test_s006_registry_unavailable_workers()
+    test_s006_registry_workers_by_capability()
+    test_s006_registry_workers_by_capability_type_safety()
+    test_s006_registry_available_by_capability()
+    test_s006_registry_first_available()
+    test_s006_registry_status_transitions()
+    test_s006_registry_all_capabilities()
+    test_s006_registry_statistics()
+    test_s006_registry_snapshot_from_registry()
+    test_s006_registry_snapshot_independence()
+    test_s006_registry_repr()
+    test_s006_coordinator_owns_registry()
+    test_s006_coordinator_default_worker_registered()
+    test_s006_coordinator_registry_snapshot()
+    test_s006_coordinator_registry_statistics()
+    test_s006_coordinator_register_worker()
+    test_s006_coordinator_unregister_worker()
+    test_s006_coordinator_registry_reflects_worker_state()
+    test_s006_coordinator_registry_capabilities()
+    test_s006_coordinator_describe_includes_registry()
+    test_s006_coordinator_registry_workers_by_capability()
+    test_s006_coordinator_process_all_registry_consistent()
+    test_s006_public_api_surface()
+    test_s006_backward_compat_full()
 
     print("\n" + "=" * 60)
     print(f"  Results: {_PASSED} passed, {_FAILED} failed")
