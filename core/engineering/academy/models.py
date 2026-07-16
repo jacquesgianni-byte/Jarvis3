@@ -241,3 +241,115 @@ class AntiPattern:
             references=list(data.get("references", [])),
             extra=extra,
         )
+
+
+# Required fields every architecture pattern record must supply.
+REQUIRED_ARCHITECTURE_PATTERN_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "category",
+    "description",
+    "intent",
+    "structure",
+    "components",
+    "advantages",
+    "disadvantages",
+    "when_to_use",
+    "when_not_to_use",
+    "tags",
+)
+
+
+@dataclass(frozen=True)
+class ArchitecturePattern:
+    """
+    An immutable record describing a software architecture pattern.
+    (Genesis-019 Sprint 004)
+
+    frozen=True enforces the read-only contract of the Academy.
+
+    Fields
+    ------
+    id                    : Unique kebab-case identifier.
+    name                  : Human-readable name.
+    category              : Architecture category (e.g. "structural",
+                            "distributed", "presentation", "data-flow",
+                            "extensibility").
+    description           : What the pattern is and how it manifests.
+    intent                : The goal the pattern achieves.
+    structure             : How the pattern is organised.
+    components            : The named parts of the pattern and their roles.
+    advantages            : Benefits of the pattern.
+    disadvantages         : Trade-offs and costs.
+    when_to_use           : Conditions under which the pattern is appropriate.
+    when_not_to_use       : Conditions under which the pattern should be avoided.
+    related_principles    : IDs of principles this pattern embodies.
+    related_patterns      : IDs of design patterns used within this architecture.
+    related_anti_patterns : IDs of anti-patterns this architecture guards against.
+    examples              : Concrete examples, including Jarvis-specific ones.
+    references            : Book or article citations.
+    tags                  : Keywords for filtering and search.
+    """
+
+    id: str
+    name: str
+    category: str
+    description: str
+    intent: str
+    structure: str
+    components: List[str]
+    advantages: List[str]
+    disadvantages: List[str]
+    when_to_use: List[str]
+    when_not_to_use: List[str]
+    tags: List[str]
+    related_principles: List[str] = field(default_factory=list)
+    related_patterns: List[str] = field(default_factory=list)
+    related_anti_patterns: List[str] = field(default_factory=list)
+    examples: List[str] = field(default_factory=list)
+    references: List[str] = field(default_factory=list)
+    extra: dict = field(default_factory=dict, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        list_fields = (
+            "components", "advantages", "disadvantages",
+            "when_to_use", "when_not_to_use", "tags",
+            "related_principles", "related_patterns",
+            "related_anti_patterns", "examples", "references",
+        )
+        for lf in list_fields:
+            value = getattr(self, lf)
+            if not isinstance(value, list):
+                object.__setattr__(self, lf, list(value))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ArchitecturePattern":
+        """Construct an ArchitecturePattern from a raw dictionary."""
+        known = {
+            "id", "name", "category", "description", "intent",
+            "structure", "components", "advantages", "disadvantages",
+            "when_to_use", "when_not_to_use", "related_principles",
+            "related_patterns", "related_anti_patterns",
+            "examples", "references", "tags",
+        }
+        extra = {k: v for k, v in data.items() if k not in known}
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            category=data["category"],
+            description=data["description"],
+            intent=data["intent"],
+            structure=data["structure"],
+            components=list(data.get("components", [])),
+            advantages=list(data.get("advantages", [])),
+            disadvantages=list(data.get("disadvantages", [])),
+            when_to_use=list(data.get("when_to_use", [])),
+            when_not_to_use=list(data.get("when_not_to_use", [])),
+            tags=list(data.get("tags", [])),
+            related_principles=list(data.get("related_principles", [])),
+            related_patterns=list(data.get("related_patterns", [])),
+            related_anti_patterns=list(data.get("related_anti_patterns", [])),
+            examples=list(data.get("examples", [])),
+            references=list(data.get("references", [])),
+            extra=extra,
+        )

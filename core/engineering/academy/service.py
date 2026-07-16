@@ -11,10 +11,11 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .exceptions import PrincipleNotFoundError
-from .models import AntiPattern, DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, ArchitecturePattern, DesignPattern, EngineeringPrinciple
 from .repository import (
     AcademyRepository,
     AntiPatternRepository,
+    ArchitecturePatternRepository,
     PatternRepository,
 )
 
@@ -202,5 +203,69 @@ class AntiPatternService:
             ap.recommended_solution,
             *ap.tags, *ap.symptoms, *ap.consequences,
             *ap.detection, *ap.examples,
+        ]
+        return any(needle in s.lower() for s in searchable)
+
+
+class ArchitecturePatternService:
+    """
+    Business-logic layer for engineering architecture patterns.
+    (Genesis-019 Sprint 004)
+
+    Provides deterministic access to architecture patterns.
+    All search is keyword/substring-based — no AI, no fuzzy matching.
+    """
+
+    def __init__(self, repository: ArchitecturePatternRepository) -> None:
+        self._repository = repository
+
+    def get_architecture_pattern(self, architecture_pattern_id: str) -> ArchitecturePattern:
+        """
+        Return the architecture pattern with *architecture_pattern_id*.
+
+        Raises
+        ------
+        PrincipleNotFoundError
+            If no architecture pattern with that ID exists.
+        """
+        result = self._repository.get_by_id(architecture_pattern_id)
+        if result is None:
+            raise PrincipleNotFoundError(architecture_pattern_id)
+        return result
+
+    def list_architecture_patterns(self) -> list:
+        """Return all architecture patterns in stable, deterministic order (sorted by id)."""
+        return self._repository.list_all()
+
+    def find_by_category(self, category: str) -> list:
+        """Return architecture patterns in *category* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_category(category)
+
+    def find_by_tag(self, tag: str) -> list:
+        """Return architecture patterns tagged with *tag* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_tag(tag)
+
+    def search(self, query: str) -> list:
+        """
+        Return architecture patterns whose text fields contain *query* as a substring.
+
+        Case-insensitive. Deterministic. Results sorted by id.
+        No AI. No semantic matching. No fuzzy matching.
+        """
+        needle = query.strip().lower()
+        if not needle:
+            return []
+        return [
+            ap for ap in self._repository.list_all()
+            if self._architecture_pattern_matches(ap, needle)
+        ]
+
+    def _architecture_pattern_matches(self, ap: ArchitecturePattern, needle: str) -> bool:
+        searchable = [
+            ap.id, ap.name, ap.category, ap.description,
+            ap.intent, ap.structure,
+            *ap.tags, *ap.components, *ap.advantages,
+            *ap.disadvantages, *ap.when_to_use,
+            *ap.when_not_to_use, *ap.examples,
         ]
         return any(needle in s.lower() for s in searchable)

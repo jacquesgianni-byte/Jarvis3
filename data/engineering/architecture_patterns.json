@@ -1,0 +1,613 @@
+{
+  "architecture_patterns": [
+    {
+      "id": "layered-architecture",
+      "name": "Layered Architecture",
+      "category": "structural",
+      "description": "Organises a system into horizontal layers where each layer has a specific responsibility and may only communicate with adjacent layers. The most common form separates Presentation, Business Logic, and Data Access into distinct tiers.",
+      "intent": "Separate concerns across horizontal layers so each layer can evolve, be tested, and be replaced independently of the others.",
+      "structure": "Layers are stacked vertically. Each layer exposes an interface to the layer above it and depends on the layer below. Requests flow downward; responses flow upward. No layer may skip another layer or communicate laterally with a peer.",
+      "components": [
+        "Presentation Layer — handles user interface or API surface; delegates all business logic downward",
+        "Business Logic Layer — owns domain rules and orchestrates use cases; depends on the data layer",
+        "Data Access Layer — abstracts persistence; exposes a repository-like interface to the business layer",
+        "Database or External Service — the actual persistence store, reached only through the data access layer"
+      ],
+      "advantages": [
+        "Clear separation of concerns — each layer has one reason to change",
+        "Layers can be tested independently using mocks for adjacent layers",
+        "New persistence backends can be swapped by replacing the data access layer without touching business logic",
+        "Well understood by most engineers — low onboarding cost",
+        "Suits most CRUD-heavy business applications"
+      ],
+      "disadvantages": [
+        "Can degenerate into a God Object at each layer if responsibilities are not carefully bounded",
+        "All requests must pass through every layer even when only one layer is involved, adding latency",
+        "Strict layer coupling can make cross-cutting concerns such as logging and security awkward",
+        "Business logic can leak into the presentation or data layer when discipline slips"
+      ],
+      "when_to_use": [
+        "Enterprise applications with clear domain boundaries and CRUD-heavy workloads",
+        "Teams that need a simple, well-understood structure with low architectural overhead",
+        "Applications where the UI, business rules, and database are maintained by different teams",
+        "When starting a new project and deferring architectural complexity until the domain is understood"
+      ],
+      "when_not_to_use": [
+        "When performance is critical and the overhead of passing through all layers on every request is unacceptable",
+        "When the domain is complex enough to warrant a richer architecture such as Clean or Hexagonal",
+        "When the system must support multiple delivery mechanisms (REST API, CLI, event consumer) simultaneously"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "solid-dip"],
+      "related_patterns": ["repository", "facade"],
+      "related_anti_patterns": ["god-object", "tight-coupling", "spaghetti-code"],
+      "examples": [
+        "Jarvis OS Genesis-011: the desktop UI layer (apps/desktop/) calls JarvisCore, which delegates to the Agent, which calls Skills — a three-layer structure",
+        "A typical Django web application: views (presentation) call services (business logic) which call models (data access)",
+        "A Spring Boot REST API with Controller, Service, and Repository layers"
+      ],
+      "references": [
+        "Martin Fowler — Patterns of Enterprise Application Architecture (Chapter 1: Layering)",
+        "Robert C. Martin — Clean Architecture (Chapter 3)"
+      ],
+      "tags": ["layered", "structural", "tiers", "separation-of-concerns", "enterprise", "crud"]
+    },
+    {
+      "id": "clean-architecture",
+      "name": "Clean Architecture",
+      "category": "structural",
+      "description": "Organises a system around the business domain, placing domain entities and use cases at the centre and infrastructure (databases, frameworks, UI) at the outer ring. Dependencies point inward — the domain never depends on infrastructure.",
+      "intent": "Make the business rules the most stable, independently testable part of the system by ensuring all dependencies point toward the domain, never outward toward infrastructure.",
+      "structure": "Four concentric rings: Entities (innermost — enterprise business rules), Use Cases (application business rules), Interface Adapters (controllers, presenters, gateways), and Frameworks and Drivers (outermost — databases, UI, external APIs). The Dependency Rule states that source code dependencies may only point inward.",
+      "components": [
+        "Entities — pure business objects with no framework dependencies; the most stable ring",
+        "Use Cases (Interactors) — application-specific business rules; orchestrate entities to fulfil a single task",
+        "Interface Adapters — convert data between use case format and external format; include controllers, presenters, and repository implementations",
+        "Frameworks and Drivers — all external concerns: web frameworks, databases, UI toolkits, message queues"
+      ],
+      "advantages": [
+        "Business rules can be tested without any framework, database, or UI present",
+        "The entire infrastructure can be swapped without touching a single use case or entity",
+        "The architecture explicitly prevents business logic from leaking into infrastructure code",
+        "Changes to external frameworks or databases have zero impact on the domain"
+      ],
+      "disadvantages": [
+        "Higher upfront complexity than layered architecture — more classes, more interfaces, more wiring",
+        "Can feel like over-engineering for simple CRUD applications",
+        "Requires discipline to maintain the Dependency Rule as the team grows",
+        "Data mapping between rings adds boilerplate"
+      ],
+      "when_to_use": [
+        "Complex domains with rich business rules that must be independently testable",
+        "Long-lived applications where infrastructure will change but the domain must remain stable",
+        "Applications that must support multiple delivery mechanisms (REST, CLI, event consumer) sharing the same use cases",
+        "Teams with the discipline to maintain architectural boundaries over time"
+      ],
+      "when_not_to_use": [
+        "Simple CRUD applications where the domain has no independent rules worth protecting",
+        "Short-lived scripts or prototypes where architectural overhead slows delivery",
+        "Small teams where the ceremony of multiple rings adds cognitive load without proportional benefit"
+      ],
+      "related_principles": ["solid-dip", "solid-srp", "separation-of-concerns", "solid-ocp"],
+      "related_patterns": ["repository", "adapter", "factory"],
+      "related_anti_patterns": ["tight-coupling", "circular-dependency", "god-object"],
+      "examples": [
+        "Jarvis OS: the Knowledge Engine, Reasoning Engine, and Skills are domain use cases independent of the desktop UI and AI providers — the UI and AI providers are outer-ring infrastructure",
+        "A payment processing system where PaymentEntity and ProcessPaymentUseCase have no dependency on Stripe or the database",
+        "A healthcare records system where patient domain logic is independent of the EHR vendor's API"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Architecture: A Craftsman's Guide to Software Structure and Design (2017)",
+        "Robert C. Martin — The Clean Architecture (blog.cleancoder.com, 2012)"
+      ],
+      "tags": ["clean-architecture", "structural", "domain", "dependency-rule", "testability", "use-cases"]
+    },
+    {
+      "id": "hexagonal-architecture",
+      "name": "Hexagonal Architecture (Ports and Adapters)",
+      "category": "structural",
+      "description": "Places the application core at the centre, surrounded by ports (abstract interfaces) through which the application communicates with the outside world. Adapters implement the ports for specific technologies. The application core has no dependency on any specific technology.",
+      "intent": "Allow an application to be driven equally by users, programs, automated tests, or batch scripts, and to be developed and tested in isolation from its eventual run-time devices and databases.",
+      "structure": "The application core defines Ports — interfaces for both driving (left side, primary) and driven (right side, secondary) interactions. Primary adapters drive the application (REST controller, CLI, test harness). Secondary adapters are driven by the application (SQL repository, SMTP mailer, third-party API client). The application core knows only the port interface, never the adapter.",
+      "components": [
+        "Application Core — pure business logic with no framework or technology dependency",
+        "Primary Ports — interfaces the application exposes to be driven (e.g. use case interfaces)",
+        "Secondary Ports — interfaces the application uses to drive external systems (e.g. repository interfaces)",
+        "Primary Adapters — technology-specific implementations that call into primary ports (REST controllers, CLI commands, test harnesses)",
+        "Secondary Adapters — technology-specific implementations of secondary ports (SQL repositories, email senders, API clients)"
+      ],
+      "advantages": [
+        "The application core can be tested completely without any infrastructure using test adapters",
+        "Any delivery mechanism (REST, CLI, message queue) can drive the same application core",
+        "Infrastructure can be replaced adapter by adapter without touching the core",
+        "Technology decisions can be deferred until the domain is understood"
+      ],
+      "disadvantages": [
+        "More interfaces and adapter classes than layered architecture",
+        "The port/adapter distinction requires team discipline to maintain correctly",
+        "Data mapping between adapters and the core adds boilerplate",
+        "Can feel abstract to developers unfamiliar with the pattern"
+      ],
+      "when_to_use": [
+        "Applications that must support multiple delivery mechanisms sharing the same business logic",
+        "Systems where the infrastructure choices are uncertain and must remain deferrable",
+        "When thorough automated testing of business logic is a primary requirement",
+        "Applications with complex integrations that must be mockable at the boundary"
+      ],
+      "when_not_to_use": [
+        "Simple applications with a single delivery mechanism and stable infrastructure choices",
+        "When the team is unfamiliar with the pattern and the benefit does not justify the learning cost",
+        "CRUD-heavy applications where the application core contains no independent domain logic"
+      ],
+      "related_principles": ["solid-dip", "solid-ocp", "separation-of-concerns"],
+      "related_patterns": ["adapter", "repository", "factory"],
+      "related_anti_patterns": ["tight-coupling", "circular-dependency"],
+      "examples": [
+        "Jarvis OS AIManager is a port; OpenAIProvider and AnthropicProvider are secondary adapters — the core never depends on the concrete provider",
+        "Jarvis OS VoiceManager is a port; SystemTTSProvider is a secondary adapter — the core speaks through the port",
+        "A payments application where the PaymentGatewayPort is implemented by a StripeAdapter and a PayPalAdapter interchangeably"
+      ],
+      "references": [
+        "Alistair Cockburn — Hexagonal Architecture (alistair.cockburn.us, 2005)",
+        "Robert C. Martin — Clean Architecture (Chapter 22)"
+      ],
+      "tags": ["hexagonal", "ports-and-adapters", "structural", "testability", "decoupling", "adapters"]
+    },
+    {
+      "id": "microservices",
+      "name": "Microservices",
+      "category": "distributed",
+      "description": "Structures an application as a collection of small, independently deployable services. Each service owns a single business capability, runs in its own process, and communicates with other services over a network (typically HTTP or messaging).",
+      "intent": "Enable independent deployment, scaling, and evolution of business capabilities by assigning each capability to a dedicated service with its own data store and deployment pipeline.",
+      "structure": "Each microservice is an autonomous unit: its own codebase, its own database, its own deployment. An API gateway provides a single entry point for clients. Services communicate synchronously (REST, gRPC) or asynchronously (message queues). A service registry or discovery mechanism routes requests between services.",
+      "components": [
+        "Individual Services — each owns one business capability and its data",
+        "API Gateway — single entry point; routes, authenticates, and aggregates",
+        "Service Registry / Discovery — tracks which service instances are available and where",
+        "Message Broker — enables asynchronous communication and event-driven integration between services",
+        "Distributed Tracing — observability infrastructure to correlate requests across service boundaries"
+      ],
+      "advantages": [
+        "Services can be deployed independently — a change to one service does not require redeploying others",
+        "Each service can be scaled independently based on its own load profile",
+        "Different services can use different technology stacks optimised for their workload",
+        "A failure in one service can be isolated from others with circuit breakers"
+      ],
+      "disadvantages": [
+        "Distributed systems are significantly more complex than monoliths — network failures, latency, and partial failures must be handled explicitly",
+        "Data consistency across service boundaries requires eventual consistency patterns rather than ACID transactions",
+        "Operational overhead is high — each service needs its own deployment pipeline, monitoring, and logging",
+        "Getting service boundaries wrong creates a distributed monolith with all the complexity and none of the benefit"
+      ],
+      "when_to_use": [
+        "Large systems with distinct business capabilities that need to scale and evolve independently",
+        "Organisations structured around autonomous product teams where each team owns its service end-to-end",
+        "Systems where different components have radically different scaling requirements",
+        "When independent deployment cadences between capabilities are a genuine operational requirement"
+      ],
+      "when_not_to_use": [
+        "Small teams — the operational overhead of microservices requires significant platform investment",
+        "Early-stage products where the domain is not yet understood — premature service decomposition is expensive to reverse",
+        "When a Modular Monolith would meet the deployment and scaling requirements at lower complexity",
+        "When the team lacks the DevOps maturity to manage distributed systems"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "solid-ocp"],
+      "related_patterns": ["adapter", "observer", "command"],
+      "related_anti_patterns": ["tight-coupling", "god-object", "shotgun-surgery"],
+      "examples": [
+        "A future Jarvis Platform where JarvisCore, the Reasoning Engine, the Knowledge Engine, and the Voice Engine are independent services — each deployable and scalable independently",
+        "Netflix: each product capability (catalogue, recommendations, streaming, billing) is a separate service",
+        "Amazon: the 'two-pizza team' model where each team owns and operates its own service"
+      ],
+      "references": [
+        "Sam Newman — Building Microservices: Designing Fine-Grained Systems (2nd ed., 2021)",
+        "Martin Fowler — Microservices (martinfowler.com, 2014)"
+      ],
+      "tags": ["microservices", "distributed", "independent-deployment", "scalability", "autonomous", "services"]
+    },
+    {
+      "id": "modular-monolith",
+      "name": "Modular Monolith",
+      "category": "structural",
+      "description": "A single deployable unit structured internally into well-defined, loosely coupled modules, each owning a distinct business capability. Modules communicate through explicit interfaces, not direct imports of each other's internals.",
+      "intent": "Achieve the business capability separation of microservices within a single deployable unit, eliminating distributed systems complexity while preserving the ability to extract services later if required.",
+      "structure": "The application is deployed as one process. Internally, it is divided into modules — each module has its own domain models, business logic, and data access code. Modules expose a public API and treat each other's internals as private. A shared kernel provides only the most stable cross-cutting types.",
+      "components": [
+        "Modules — self-contained business capability units with their own models, logic, and data access",
+        "Module Public API — the only permitted entry point for other modules to interact with a given module",
+        "Shared Kernel — minimal shared types (IDs, events, common value objects) that all modules depend on",
+        "Module Boundary Enforcer — tooling (import-linter, ArchUnit) that prevents cross-module internal imports"
+      ],
+      "advantages": [
+        "Single deployment unit — no distributed systems complexity, network calls, or eventual consistency",
+        "Business capabilities are separated and independently evolvable within the monolith",
+        "Much lower operational overhead than microservices",
+        "Modules can be extracted into microservices later when genuine need arises",
+        "Refactoring within a module is easy; the module boundary prevents accidental coupling"
+      ],
+      "disadvantages": [
+        "Requires discipline to maintain module boundaries — nothing prevents a developer from importing across module internals without tooling enforcement",
+        "A single deployment unit means all modules must be deployed together even when only one changes",
+        "Scaling individual capabilities requires scaling the entire application",
+        "Technical debt in one module can slow down the whole codebase"
+      ],
+      "when_to_use": [
+        "Applications that would benefit from business capability separation but do not yet need independent deployment",
+        "Teams that want the organisational benefits of microservices without the operational cost",
+        "When the domain boundaries are not yet stable enough to commit to service extraction",
+        "As the target architecture for a legacy monolith being incrementally refactored"
+      ],
+      "when_not_to_use": [
+        "When different capabilities have radically different scaling requirements that require independent infrastructure",
+        "When organisational autonomy demands that different teams can deploy without coordinating with each other",
+        "When the team lacks the discipline to maintain module boundaries without enforcement tooling"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "dry"],
+      "related_patterns": ["facade", "repository"],
+      "related_anti_patterns": ["god-object", "tight-coupling", "circular-dependency"],
+      "examples": [
+        "Jarvis OS as currently structured: a single deployable Python application whose internals are divided into modules — core/knowledge_engine, core/reasoning, core/skills, core/voice, core/engineering — each with a defined public interface",
+        "Shopify: a Rails monolith deliberately structured into bounded contexts with enforced module boundaries",
+        "Stack Overflow: a modular monolith serving massive scale before microservices were needed"
+      ],
+      "references": [
+        "Sam Newman — Monolith to Microservices (Chapter 2: Planning a Migration)",
+        "Martin Fowler — Modular Monolith (martinfowler.com, 2019)"
+      ],
+      "tags": ["modular-monolith", "structural", "modules", "single-deployment", "boundaries", "capability"]
+    },
+    {
+      "id": "event-driven-architecture",
+      "name": "Event-Driven Architecture",
+      "category": "distributed",
+      "description": "A system where components communicate exclusively through events — immutable records of something that happened. Producers emit events without knowing who will consume them. Consumers react to events without knowing who produced them.",
+      "intent": "Decouple producers and consumers of information so the system can evolve, scale, and react to change without tight temporal or logical coupling between components.",
+      "structure": "An event broker (message queue or event stream) sits between producers and consumers. Producers publish events to topics or queues. Consumers subscribe to topics and process events asynchronously. Events are immutable and represent facts about the past.",
+      "components": [
+        "Event Producers — emit events when something significant happens in their domain",
+        "Event Broker — routes and durably stores events (e.g. Kafka, RabbitMQ, AWS SQS)",
+        "Event Consumers — subscribe to events and react to them; multiple consumers can react to the same event",
+        "Event Schema — the contract defining what each event contains; must be versioned carefully",
+        "Dead Letter Queue — stores events that could not be processed for later inspection and replay"
+      ],
+      "advantages": [
+        "Producers and consumers are fully decoupled — neither knows the other exists",
+        "New consumers can be added to react to existing events without modifying producers",
+        "Events can be replayed to rebuild state or onboard new consumers with historical data",
+        "The system handles bursts gracefully — the broker absorbs load spikes"
+      ],
+      "disadvantages": [
+        "Eventual consistency — the system does not provide strong consistency guarantees across event boundaries",
+        "Debugging is harder — a request no longer follows a synchronous call chain",
+        "Event schema evolution requires careful versioning to avoid breaking existing consumers",
+        "Ordering guarantees are non-trivial in distributed brokers"
+      ],
+      "when_to_use": [
+        "Systems where business processes span multiple services that must react to changes in each other",
+        "High-throughput workloads where producers should not wait for consumers to complete",
+        "When audit trails and event replay are required",
+        "When decoupling between producers and consumers is more important than synchronous consistency"
+      ],
+      "when_not_to_use": [
+        "Simple request-response interactions where synchronous communication is clearer and sufficient",
+        "When strong consistency is required and eventual consistency is not acceptable",
+        "Small applications where the broker infrastructure cost exceeds the architectural benefit"
+      ],
+      "related_principles": ["solid-ocp", "solid-dip", "separation-of-concerns"],
+      "related_patterns": ["observer", "command", "adapter"],
+      "related_anti_patterns": ["tight-coupling", "god-object"],
+      "examples": [
+        "A future Jarvis Platform where a SessionStartedEvent triggers the Knowledge Engine to load context, the Reasoning Engine to initialise rules, and the Voice Engine to prepare the TTS pipeline — all independently",
+        "An e-commerce system where an OrderPlaced event triggers inventory reservation, payment processing, and email notification independently",
+        "GitHub Actions: a push event triggers CI pipelines, deployment workflows, and notification systems independently"
+      ],
+      "references": [
+        "Martin Fowler — Event-Driven Architecture (martinfowler.com)",
+        "Sam Newman — Building Microservices (Chapter 4: Communication Styles)"
+      ],
+      "tags": ["event-driven", "distributed", "decoupling", "asynchronous", "events", "messaging", "reactive"]
+    },
+    {
+      "id": "client-server",
+      "name": "Client-Server",
+      "category": "distributed",
+      "description": "Separates the system into two roles: clients that request services, and servers that provide them. Clients initiate requests; servers respond. The server operates independently of the client's internal state.",
+      "intent": "Centralise resources, logic, or data on a server so multiple clients can access them without duplicating the resource, and so the server can be updated without changing every client.",
+      "structure": "Clients and servers are separate processes, typically on separate machines, communicating over a network protocol. The server exposes a well-defined interface. The client knows the server's interface but not its implementation. Multiple clients can connect to a single server simultaneously.",
+      "components": [
+        "Client — initiates requests, presents results to the user or calling system; stateless or maintains local session state",
+        "Server — processes requests, manages authoritative data, enforces business rules",
+        "Network Protocol — the communication contract between client and server (HTTP, gRPC, WebSocket)",
+        "Load Balancer — distributes client requests across multiple server instances for scale"
+      ],
+      "advantages": [
+        "Resources are centralised — only the server needs to store data, reducing duplication",
+        "The server can be updated without touching clients",
+        "Multiple client types (web, mobile, CLI) can share a single server",
+        "Security can be centralised on the server rather than enforced on every client"
+      ],
+      "disadvantages": [
+        "The server is a single point of failure unless redundancy is built in",
+        "Network latency adds to every interaction",
+        "The server must be designed to handle concurrent clients correctly",
+        "Client-server coupling through the protocol means breaking API changes require coordinating client updates"
+      ],
+      "when_to_use": [
+        "When multiple clients need to share data or resources managed by a central authority",
+        "When the client device lacks the resources to process or store data locally",
+        "When centralised security, logging, and monitoring are required",
+        "Web applications, mobile apps with a backend, and any API-driven system"
+      ],
+      "when_not_to_use": [
+        "Peer-to-peer applications where no central authority is required or desired",
+        "Offline-first applications where the client must function without server connectivity",
+        "When network latency makes the round-trip cost unacceptable for the use case"
+      ],
+      "related_principles": ["separation-of-concerns", "solid-srp"],
+      "related_patterns": ["facade", "adapter"],
+      "related_anti_patterns": ["tight-coupling", "god-object"],
+      "examples": [
+        "Jarvis Android (JarvisApp2) calling the Anthropic and OpenAI APIs — the app is the client, the AI service is the server",
+        "A future Jarvis Platform where a central Flask server acts as the brain for both the desktop app and the Android app",
+        "Every web browser and web server: the browser is the client, the web server serves HTML, CSS, and data"
+      ],
+      "references": [
+        "Roy Fielding — Architectural Styles and the Design of Network-based Software Architectures (Chapter 3)",
+        "Martin Fowler — Patterns of Enterprise Application Architecture (Distribution Patterns)"
+      ],
+      "tags": ["client-server", "distributed", "network", "centralised", "request-response", "api"]
+    },
+    {
+      "id": "mvc",
+      "name": "MVC (Model-View-Controller)",
+      "category": "presentation",
+      "description": "Separates a user interface application into three interconnected components: the Model (data and business logic), the View (presentation), and the Controller (input handling). Each component has a single responsibility and communicates with the others through defined interfaces.",
+      "intent": "Separate data management, user interface presentation, and user input handling so each can evolve independently and be tested in isolation.",
+      "structure": "The Model holds application data and business logic. The View renders the Model's state to the user. The Controller receives user input, updates the Model, and selects the appropriate View. In many implementations the Controller is the entry point; it orchestrates interaction between Model and View.",
+      "components": [
+        "Model — owns business data and rules; notifies observers when its state changes; has no knowledge of the View",
+        "View — renders Model state to the user; has no business logic; observes the Model for changes",
+        "Controller — receives user input; updates the Model; selects the View to render; thin orchestration only"
+      ],
+      "advantages": [
+        "Presentation and business logic are decoupled — the same Model can be rendered by multiple Views",
+        "Models can be tested without a UI",
+        "Views can be redesigned without touching business logic",
+        "Well understood pattern with strong framework support (Django, Rails, Spring MVC)"
+      ],
+      "disadvantages": [
+        "Controllers can become bloated with orchestration logic (Massive View Controller in iOS development)",
+        "The Model-View coupling through notifications can be difficult to trace in large applications",
+        "Not all UI paradigms map cleanly to MVC — it was designed for desktop GUIs and fits web applications imperfectly",
+        "State management complexity grows with application size"
+      ],
+      "when_to_use": [
+        "Web applications with clear separation between data and presentation",
+        "When using a framework that enforces MVC (Django, Rails, Spring MVC, ASP.NET MVC)",
+        "Applications where the same data must be rendered in multiple presentation formats",
+        "Desktop GUI applications with complex user interaction"
+      ],
+      "when_not_to_use": [
+        "Simple scripts or tools with no meaningful user interface",
+        "Highly reactive UIs where the Observer coupling between Model and View creates performance issues",
+        "When MVVM or MVP would provide a cleaner separation for the specific UI framework in use"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "solid-ocp"],
+      "related_patterns": ["observer", "facade", "strategy"],
+      "related_anti_patterns": ["god-object", "spaghetti-code", "tight-coupling"],
+      "examples": [
+        "The Jarvis Desktop (apps/desktop/): window.py is the View, coordinator.py is the Controller, and JarvisCore with its subsystems is the Model",
+        "Django: models.py defines the Model, templates are Views, views.py functions are Controllers",
+        "Ruby on Rails: ActiveRecord is the Model, ERB templates are Views, ApplicationController subclasses are Controllers"
+      ],
+      "references": [
+        "Gang of Four — Design Patterns: Elements of Reusable Object-Oriented Software (MVC discussion)",
+        "Martin Fowler — GUI Architectures (martinfowler.com, 2006)"
+      ],
+      "tags": ["mvc", "presentation", "model", "view", "controller", "ui", "separation-of-concerns"]
+    },
+    {
+      "id": "mvvm",
+      "name": "MVVM (Model-View-ViewModel)",
+      "category": "presentation",
+      "description": "Separates a user interface into the Model (data and business logic), the View (UI rendering), and the ViewModel (a presentation-layer abstraction that exposes the Model's data in a form the View can bind to directly). The View never references the Model directly.",
+      "intent": "Remove all UI logic from the View by introducing a ViewModel that the View binds to declaratively, enabling Views to be purely declarative markup with no code and ViewModels to be tested without a UI.",
+      "structure": "The View binds to properties on the ViewModel using data binding. The ViewModel exposes observable properties and commands. When the Model changes, the ViewModel updates its properties and the View updates automatically through the binding. The ViewModel has no reference to the View.",
+      "components": [
+        "Model — business data and rules; completely unaware of the ViewModel or View",
+        "ViewModel — presents Model data in View-friendly form; exposes observable properties and commands; contains all UI logic; no reference to the View",
+        "View — declarative UI markup bound to ViewModel properties; ideally contains no code-behind",
+        "Data Binding Framework — the mechanism that synchronises View and ViewModel properties automatically"
+      ],
+      "advantages": [
+        "ViewModels can be unit tested without instantiating any UI component",
+        "Views become pure markup — designers can work on the View while developers work on the ViewModel",
+        "The ViewModel's observable properties make UI state explicit and traceable",
+        "Multiple Views can bind to the same ViewModel"
+      ],
+      "disadvantages": [
+        "Data binding frameworks add complexity and can be difficult to debug",
+        "ViewModels can become large if not carefully bounded",
+        "The pattern requires a data binding mechanism — it does not work well without framework support",
+        "Overkill for simple forms or static UIs"
+      ],
+      "when_to_use": [
+        "Rich client applications with complex, reactive UI state (WPF, Xamarin, SwiftUI, Jetpack Compose)",
+        "When thorough ViewModel unit testing is a priority",
+        "Applications where the UI is driven by complex state machines rather than simple data display",
+        "Teams where UI designers and developers work in parallel on the same screens"
+      ],
+      "when_not_to_use": [
+        "Simple web applications where Django or Rails MVC is sufficient",
+        "When no data binding framework is available or the framework cost is not justified",
+        "Static or near-static UIs where the binding overhead is unnecessary"
+      ],
+      "related_principles": ["solid-srp", "solid-dip", "separation-of-concerns"],
+      "related_patterns": ["observer", "command", "strategy"],
+      "related_anti_patterns": ["god-object", "tight-coupling"],
+      "examples": [
+        "The Jarvis Android app (JarvisApp2): each screen's state could be managed by a ViewModel that the Jetpack Compose UI binds to, keeping all UI logic testable",
+        "A WPF desktop application where MainWindowViewModel exposes Commands and ObservableProperties that the MainWindow.xaml binds to declaratively",
+        "SwiftUI applications where @ObservableObject ViewModels drive declarative View updates"
+      ],
+      "references": [
+        "John Gossman — Introduction to Model-View-ViewModel (Microsoft blog, 2005)",
+        "Martin Fowler — Presentation Model (martinfowler.com, 2004)"
+      ],
+      "tags": ["mvvm", "presentation", "data-binding", "viewmodel", "reactive", "ui", "testability"]
+    },
+    {
+      "id": "repository-centric-architecture",
+      "name": "Repository-Centric Architecture",
+      "category": "structural",
+      "description": "Centralises all shared state in a single authoritative repository that all components read from and write to. Components do not communicate directly — they express intent by updating the repository and react to changes in it.",
+      "intent": "Eliminate direct component-to-component communication by making the repository the single source of truth, so every component always has a consistent view of the current state.",
+      "structure": "A central repository holds all shared state. Components subscribe to changes in the repository or query it on demand. When a component needs to affect another, it writes to the repository rather than calling the other component directly. The repository raises events or notifications when its state changes.",
+      "components": [
+        "Central Repository — the single authoritative store for all shared state",
+        "Readers — components that query the repository to make decisions",
+        "Writers — components that update the repository in response to events or user actions",
+        "Change Notifications — the mechanism by which the repository informs subscribers of state changes"
+      ],
+      "advantages": [
+        "A single source of truth eliminates inconsistent views of state across components",
+        "Components are decoupled from each other — they only depend on the repository interface",
+        "State changes are centralised and auditable",
+        "Testing is straightforward — put the system in a known state, trigger an action, assert the repository's new state"
+      ],
+      "disadvantages": [
+        "The repository can become a bottleneck if all components contend for it",
+        "The repository can become a God Object if too many unrelated concerns are stored together",
+        "Eventual consistency is difficult to reason about when multiple writers update the repository concurrently",
+        "Poor fit for distributed systems where state cannot be centralised"
+      ],
+      "when_to_use": [
+        "Applications with complex shared state that multiple components must observe consistently",
+        "IDEs, design tools, game engines, and other stateful desktop applications",
+        "When an audit trail of state changes is required",
+        "Single-process applications where a centralised store is practical"
+      ],
+      "when_not_to_use": [
+        "Distributed systems where the central repository becomes a network bottleneck or single point of failure",
+        "Simple applications where direct component communication is clearer than repository indirection",
+        "When different components have private state that should not be centralised"
+      ],
+      "related_principles": ["solid-srp", "dry", "separation-of-concerns"],
+      "related_patterns": ["repository", "observer", "command"],
+      "related_anti_patterns": ["god-object", "shotgun-surgery"],
+      "examples": [
+        "Jarvis Knowledge Engine: all facts about the user are stored in a central KnowledgeRepository; the Agent, Skills, and Reasoning Engine all read from and write to it rather than passing state between themselves",
+        "Redux in React applications: all UI state lives in a central store; components dispatch actions and subscribe to store changes",
+        "Git itself: the .git directory is the central repository of all project history; all git commands read from and write to it"
+      ],
+      "references": [
+        "Martin Fowler — Patterns of Enterprise Application Architecture (Repository pattern)",
+        "Eric Evans — Domain-Driven Design (Repositories chapter)"
+      ],
+      "tags": ["repository-centric", "structural", "single-source-of-truth", "state", "centralised", "audit"]
+    },
+    {
+      "id": "plugin-architecture",
+      "name": "Plugin Architecture",
+      "category": "extensibility",
+      "description": "Defines a stable core application and an extension mechanism that allows third-party or community-developed plugins to add capability without modifying the core. The core defines extension points; plugins implement them.",
+      "intent": "Allow the application's capabilities to be extended indefinitely by independent developers without modifying or redeploying the core, while keeping the core stable and the extension points well-defined.",
+      "structure": "The core defines Plugin Interfaces (extension points) and a Plugin Registry that discovers and loads plugins at startup or runtime. Each plugin implements the Plugin Interface and registers itself. The core calls plugins through the interface without knowing their concrete types.",
+      "components": [
+        "Core Application — stable; defines extension points; never modified to add new capability",
+        "Plugin Interface — the contract that all plugins must implement",
+        "Plugin Registry — discovers, loads, and manages the lifecycle of plugins",
+        "Plugin — a self-contained capability module that implements the Plugin Interface",
+        "Plugin Loader — discovers plugins from a directory, configuration file, or package registry"
+      ],
+      "advantages": [
+        "The core remains stable and well-tested while capabilities grow indefinitely",
+        "Third-party developers can extend the application without access to core source code",
+        "Plugins can be developed, deployed, and updated independently of the core",
+        "The community marketplace model — users can share and rate plugins",
+        "Unused capabilities carry no runtime cost if plugins are loaded on demand"
+      ],
+      "disadvantages": [
+        "Plugin interfaces must be designed carefully — breaking changes affect all plugins",
+        "Plugin quality control is difficult — a poorly written plugin can destabilise the core",
+        "Security boundaries between the core and plugins require explicit design",
+        "Plugin discovery and loading adds startup complexity"
+      ],
+      "when_to_use": [
+        "Applications where the exact set of required capabilities cannot be known in advance",
+        "Platforms intended to support a developer ecosystem or community marketplace",
+        "Applications where different deployments need different capability sets",
+        "IDEs, editors, build tools, CMS platforms, and any extensible application"
+      ],
+      "when_not_to_use": [
+        "Applications with a fixed, well-known capability set where extensibility adds no value",
+        "When plugin quality control and security are too difficult to manage for the team's maturity",
+        "Simple applications where the plugin loading infrastructure exceeds the application's own complexity"
+      ],
+      "related_principles": ["solid-ocp", "solid-dip", "solid-srp"],
+      "related_patterns": ["strategy", "factory", "adapter", "observer"],
+      "related_anti_patterns": ["god-object", "tight-coupling"],
+      "examples": [
+        "The Jarvis Community Marketplace vision: users build tools for Jarvis by implementing a JarvisToolPlugin interface; the core loads and executes them without modification",
+        "The Jarvis Engineering Academy itself: new knowledge bases (patterns, anti-patterns, architecture patterns) are plugins that extend the Academy without modifying the loader or service",
+        "VS Code: the editor is a stable core; thousands of extensions implement the Extension API to add language support, themes, and tools"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Architecture (Chapter 15: What is Architecture? — Plugin Architecture)",
+        "Martin Fowler — Plugin (martinfowler.com, P of EAA)"
+      ],
+      "tags": ["plugin", "extensibility", "open-closed", "marketplace", "ecosystem", "extension-points"]
+    },
+    {
+      "id": "pipeline-architecture",
+      "name": "Pipeline Architecture",
+      "category": "data-flow",
+      "description": "Structures processing as a sequence of independent stages where the output of each stage is the input of the next. Each stage performs a single transformation. Stages can be composed, reordered, and replaced without affecting other stages.",
+      "intent": "Make complex data processing clear, composable, and independently testable by decomposing it into a linear sequence of single-responsibility transformation stages.",
+      "structure": "A Source produces data. A series of Filters (stages) transform the data in sequence. A Sink consumes the final output. Each stage reads from its input, transforms, and writes to its output. Stages are connected by Pipes (queues, streams, or function calls). Stages share no state with each other.",
+      "components": [
+        "Source — produces the initial data entering the pipeline",
+        "Filters (Stages) — independent transformation steps; each has one responsibility",
+        "Pipes — the connections between stages that carry data (function return values, queues, streams)",
+        "Sink — consumes the pipeline's final output",
+        "Pipeline Coordinator — assembles stages into the correct sequence and manages execution"
+      ],
+      "advantages": [
+        "Each stage is independently testable with its own unit tests",
+        "Stages can be reordered, added, or removed without affecting others",
+        "New processing requirements are met by adding a stage, not modifying existing ones",
+        "Pipeline execution is easy to trace and instrument — each stage produces observable output",
+        "Stages can be parallelised if they are independent"
+      ],
+      "disadvantages": [
+        "All data must pass through every stage even when only some stages are relevant — inefficient for sparse data",
+        "Complex branching logic does not map naturally to a linear pipeline",
+        "Error handling across multiple stages requires careful design",
+        "Pipelines with many stages can be difficult to understand at a glance"
+      ],
+      "when_to_use": [
+        "Data transformation, ETL, and batch processing systems",
+        "Compiler and language processing toolchains (lex, parse, analyse, optimise, emit)",
+        "Request processing middleware stacks (authentication, authorisation, logging, routing)",
+        "When a complex process can be cleanly decomposed into sequential single-responsibility stages"
+      ],
+      "when_not_to_use": [
+        "Interactive request-response applications where latency matters and pipeline overhead is significant",
+        "Processes with complex branching that cannot be expressed as a linear sequence of stages",
+        "When stages need to share state — stateful stages couple the pipeline and break composability"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "dry"],
+      "related_patterns": ["command", "strategy", "observer"],
+      "related_anti_patterns": ["god-object", "long-method", "spaghetti-code"],
+      "examples": [
+        "The Jarvis Engineering Pipeline (Genesis-016): Repository Catalogue → Git Awareness → Planning Engine → EngineeringPlan → Guardrails → Chief Approval → Testing — each stage is independent and testable",
+        "The Jarvis Agent request pipeline: classification → behaviour detection → memory detection → intent routing → skill execution → response delivery — each is a discrete stage",
+        "Unix shell pipelines: cat file.txt | grep error | sort | uniq -c — each command is a stage"
+      ],
+      "references": [
+        "Martin Fowler — Pipes and Filters (martinfowler.com, Enterprise Integration Patterns)",
+        "Gregor Hohpe, Bobby Woolf — Enterprise Integration Patterns (Chapter 2: Messaging Channels)"
+      ],
+      "tags": ["pipeline", "data-flow", "stages", "composable", "transformation", "etl", "middleware"]
+    }
+  ]
+}

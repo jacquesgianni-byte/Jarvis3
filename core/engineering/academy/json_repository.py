@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .loader import AcademyLoader
-from .models import AntiPattern, DesignPattern, EngineeringPrinciple
-from .repository import AcademyRepository, AntiPatternRepository, PatternRepository
+from .models import AntiPattern, ArchitecturePattern, DesignPattern, EngineeringPrinciple
+from .repository import AcademyRepository, AntiPatternRepository, ArchitecturePatternRepository, PatternRepository
 
 
 class JsonAcademyRepository(AcademyRepository):
@@ -132,6 +132,54 @@ class JsonAntiPatternRepository(AntiPatternRepository):
         ]
 
     def filter_by_tag(self, tag: str) -> List[AntiPattern]:
+        target = tag.strip().lower()
+        return [
+            ap for ap in self._index.values()
+            if target in [t.lower() for t in ap.tags]
+        ]
+
+
+class JsonArchitecturePatternRepository(ArchitecturePatternRepository):
+    """
+    Read-only repository that loads architecture patterns from a JSON file.
+    (Genesis-019 Sprint 004)
+
+    All data is loaded once at construction time.
+    No runtime writes. No mutations. No network access.
+
+    Parameters
+    ----------
+    architecture_patterns_path:
+        Path to the ``architecture_patterns.json`` data file.
+    loader:
+        Optional ``AcademyLoader`` instance (injected for testability).
+    """
+
+    def __init__(
+        self,
+        architecture_patterns_path: Path,
+        loader=None,
+    ) -> None:
+        _loader = loader or AcademyLoader()
+        raw = _loader.load_architecture_patterns(architecture_patterns_path)
+        self._index: Dict[str, ArchitecturePattern] = {
+            ap.id: ap for ap in sorted(raw, key=lambda ap: ap.id)
+        }
+
+    def get_by_id(self, architecture_pattern_id: str):
+        return self._index.get(architecture_pattern_id)
+
+    def list_all(self) -> list:
+        return list(self._index.values())
+
+    def filter_by_category(self, category: str) -> list:
+        target = category.strip().lower()
+        return [
+            ap for ap in self._index.values()
+            if ap.category.lower() == target
+        ]
+
+    def filter_by_tag(self, tag: str) -> list:
         target = tag.strip().lower()
         return [
             ap for ap in self._index.values()

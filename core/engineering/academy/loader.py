@@ -19,7 +19,9 @@ from .models import (
     REQUIRED_FIELDS,
     REQUIRED_PATTERN_FIELDS,
     REQUIRED_ANTI_PATTERN_FIELDS,
+    REQUIRED_ARCHITECTURE_PATTERN_FIELDS,
     AntiPattern,
+    ArchitecturePattern,
     DesignPattern,
     EngineeringPrinciple,
 )
@@ -111,6 +113,30 @@ class AcademyLoader:
             [ap.id for ap in anti_patterns], label="anti-pattern"
         )
         return anti_patterns
+
+    # ------------------------------------------------------------------
+    # Architecture Patterns (Sprint 004)
+    # ------------------------------------------------------------------
+
+    def load_architecture_patterns(self, path: Path) -> list:
+        """
+        Load architecture patterns from *path* and return a validated list.
+
+        Raises
+        ------
+        AcademySchemaError
+            If the file is missing, unreadable, malformed JSON, or fails
+            top-level structure validation.
+        InvalidPrincipleError
+            If any individual architecture pattern record fails validation.
+        """
+        raw = self._read_file(path)
+        records = self._validate_top_level(raw, key="architecture_patterns")
+        patterns = [self._validate_architecture_pattern(r) for r in records]
+        self._detect_duplicates(
+            [p.id for p in patterns], label="architecture-pattern"
+        )
+        return patterns
 
     # ------------------------------------------------------------------
     # Private — shared I/O
@@ -264,3 +290,42 @@ class AcademyLoader:
                 )
 
         return AntiPattern.from_dict(record)
+
+    # ------------------------------------------------------------------
+    # Private — architecture pattern validation (Sprint 004)
+    # ------------------------------------------------------------------
+
+    def _validate_architecture_pattern(self, record: object) -> "ArchitecturePattern":
+        """Validate a single architecture pattern record and construct the model."""
+        if not isinstance(record, dict):
+            raise AcademySchemaError(
+                f"Each architecture pattern must be a JSON object; "
+                f"got {type(record).__name__}."
+            )
+
+        ap_id = record.get("id", "<unknown>")
+
+        for field in REQUIRED_ARCHITECTURE_PATTERN_FIELDS:
+            if field not in record:
+                raise InvalidPrincipleError(
+                    ap_id, f"missing required field '{field}'"
+                )
+
+        str_fields = ("id", "name", "category", "description", "intent", "structure")
+        for f in str_fields:
+            if not isinstance(record[f], str) or not record[f].strip():
+                raise InvalidPrincipleError(
+                    ap_id, f"field '{f}' must be a non-empty string"
+                )
+
+        list_fields = (
+            "components", "advantages", "disadvantages",
+            "when_to_use", "when_not_to_use", "tags"
+        )
+        for f in list_fields:
+            if not isinstance(record[f], list):
+                raise InvalidPrincipleError(
+                    ap_id, f"field '{f}' must be a list"
+                )
+
+        return ArchitecturePattern.from_dict(record)

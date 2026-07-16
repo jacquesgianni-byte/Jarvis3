@@ -1,16 +1,14 @@
 """
 Engineering Academy Repository.
 
-Abstract read-only interfaces for principle, pattern, and anti-pattern storage.
+Abstract read-only interfaces for principle, pattern, anti-pattern,
+and architecture pattern storage.
 No write operations. No mutation. No caching requirements.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import List, Optional
-
-from .models import AntiPattern, DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, ArchitecturePattern, DesignPattern, EngineeringPrinciple
 
 
 class AcademyRepository(ABC):
@@ -112,5 +110,40 @@ class AntiPatternRepository(ABC):
     def filter_by_tag(self, tag: str) -> List[AntiPattern]:
         """
         Return all anti-patterns whose tags list contains *tag*
+        (case-insensitive). Returns an empty list if no match — never raises.
+        """
+
+
+class ArchitecturePatternRepository(ABC):
+    """
+    Abstract base class for the Engineering Academy architecture pattern data layer.
+    (Genesis-019 Sprint 004)
+
+    Contract
+    --------
+    * All operations are read-only.
+    * Implementations must never mutate stored architecture patterns.
+    * Result ordering must be stable and deterministic (sorted by id).
+    """
+
+    @abstractmethod
+    def get_by_id(self, architecture_pattern_id: str) -> Optional[ArchitecturePattern]:
+        """Return the architecture pattern with *architecture_pattern_id*, or None."""
+
+    @abstractmethod
+    def list_all(self) -> List[ArchitecturePattern]:
+        """Return all architecture patterns sorted by id (stable, deterministic)."""
+
+    @abstractmethod
+    def filter_by_category(self, category: str) -> List[ArchitecturePattern]:
+        """
+        Return all architecture patterns whose category matches *category*
+        (case-insensitive). Returns an empty list if no match — never raises.
+        """
+
+    @abstractmethod
+    def filter_by_tag(self, tag: str) -> List[ArchitecturePattern]:
+        """
+        Return all architecture patterns whose tags list contains *tag*
         (case-insensitive). Returns an empty list if no match — never raises.
         """
