@@ -1,0 +1,446 @@
+{
+  "anti_patterns": [
+    {
+      "id": "god-object",
+      "name": "God Object",
+      "category": "object-oriented",
+      "description": "A single class that knows too much or does too much. It accumulates responsibilities over time until it becomes the central hub of the entire system, with most other classes depending on it.",
+      "symptoms": [
+        "A single class with hundreds or thousands of lines of code",
+        "A class that imports from almost every other module in the system",
+        "Methods on the class that belong to unrelated concerns",
+        "Other classes that cannot function without referencing this class",
+        "The class name ends in 'Manager', 'Controller', 'Handler', or 'Utils' and covers unrelated domains"
+      ],
+      "consequences": [
+        "Changes to any part of the system risk breaking the God Object",
+        "The class becomes impossible to unit test in isolation",
+        "Parallel development is blocked because all work converges on one file",
+        "The system cannot be understood without understanding the entire God Object first",
+        "Reuse of any single responsibility is impossible because it is entangled with others"
+      ],
+      "detection": [
+        "Count the number of public methods — more than 20 on a single class is a warning sign",
+        "Count the number of imports — a class importing from more than 10 modules likely has too many concerns",
+        "Ask: can each method on this class be described by the same single responsibility? If not, the class is doing too much",
+        "Check for method groups that operate on entirely different data — each group belongs in its own class"
+      ],
+      "recommended_solution": "Apply the Single Responsibility Principle. Identify distinct clusters of behaviour and extract each into its own class. Use dependency injection to wire the resulting collaborators together. Introduce a Facade if callers need a simplified entry point, but keep the Facade thin.",
+      "related_principles": ["solid-srp", "solid-ocp", "separation-of-concerns"],
+      "related_patterns": ["facade", "strategy", "repository"],
+      "examples": [
+        "A JarvisCore class that directly handles AI calls, memory writes, voice synthesis, conversation state, and telemetry — each responsibility should be its own subsystem",
+        "A 'Utils.py' module containing date formatting, API calls, file I/O, and string parsing — each group belongs in a dedicated module"
+      ],
+      "references": [
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Bloated Classes)",
+        "Robert C. Martin — Clean Code (Chapter 10: Classes)"
+      ],
+      "tags": ["god-object", "object-oriented", "srp", "bloat", "cohesion", "refactoring"]
+    },
+    {
+      "id": "spaghetti-code",
+      "name": "Spaghetti Code",
+      "category": "structural",
+      "description": "Code whose control flow is so tangled and unstructured that it resembles a plate of spaghetti. Execution paths jump unpredictably through nested conditionals, deeply nested loops, and scattered state mutations, making the code nearly impossible to follow or modify safely.",
+      "symptoms": [
+        "Functions or methods with deeply nested conditionals (more than 3 levels deep)",
+        "Long functions with no clear single purpose",
+        "Control flow that can only be understood by tracing execution manually",
+        "State mutated in multiple unrelated locations throughout the function",
+        "Heavy use of flags and boolean variables to track intermediate states",
+        "No separation between business logic, data access, and presentation concerns"
+      ],
+      "consequences": [
+        "Any change risks introducing bugs in unrelated parts of the function",
+        "Testing requires setting up complex state to reach specific code paths",
+        "New developers cannot understand the code without extensive time investment",
+        "Bugs are extremely difficult to locate because cause and effect are far apart",
+        "The code is practically impossible to refactor incrementally"
+      ],
+      "detection": [
+        "Measure cyclomatic complexity — a value above 10 indicates spaghetti risk",
+        "Count nesting depth — more than 3 levels of indentation is a strong signal",
+        "Ask: can you describe what this function does in one sentence? If not, it is doing too much",
+        "Look for functions longer than 30 lines — they are likely candidates for decomposition"
+      ],
+      "recommended_solution": "Extract well-named private methods for each logical step. Reduce nesting by using guard clauses (early returns) instead of deeply nested conditionals. Separate concerns into distinct functions or classes. Apply the Single Responsibility Principle at the function level. Introduce the Strategy pattern where algorithm variants are entangled.",
+      "related_principles": ["solid-srp", "kiss", "separation-of-concerns"],
+      "related_patterns": ["strategy", "command"],
+      "examples": [
+        "A single process_request() function that handles routing, memory lookup, AI calling, response formatting, and voice synthesis in 300 lines with 6 levels of nesting",
+        "A data migration script that reads, transforms, validates, writes, and logs all within one deeply nested loop"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 3: Functions)",
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Long Method smell)"
+      ],
+      "tags": ["spaghetti-code", "structural", "complexity", "nesting", "readability", "refactoring"]
+    },
+    {
+      "id": "copy-paste-programming",
+      "name": "Copy and Paste Programming",
+      "category": "maintenance",
+      "description": "The practice of duplicating code by copying and pasting it rather than extracting shared logic into a reusable abstraction. Each copy is an independent maintenance liability that will diverge from the others over time.",
+      "symptoms": [
+        "Identical or near-identical blocks of code appearing in more than one location",
+        "Bug fixes that must be applied to multiple files because the same logic is duplicated",
+        "Functions that differ only in a variable name or a constant value",
+        "Tests that share identical setup code that has never been extracted into a fixture",
+        "Multiple classes implementing the same algorithm independently"
+      ],
+      "consequences": [
+        "A bug discovered in one copy is silently present in all other copies",
+        "Fixing a bug requires locating every duplicate, which is error-prone",
+        "Behaviour diverges between copies over time as each evolves independently",
+        "The codebase grows in size without growing in capability",
+        "Refactoring becomes exponentially harder as more copies accumulate"
+      ],
+      "detection": [
+        "Use static analysis tools to detect duplicate code blocks (e.g. flake8-bugbear, pylint)",
+        "During code review, ask: have I seen this logic before?",
+        "Search for identical function signatures or block structures across files",
+        "Look for constants or threshold values appearing in multiple locations with the same value"
+      ],
+      "recommended_solution": "Apply the DRY principle. Extract the duplicated logic into a shared function, method, base class, or utility module. Parameterise the parts that vary. Replace all call sites with calls to the single authoritative implementation. In tests, extract shared setup into fixtures or factory functions.",
+      "related_principles": ["dry", "solid-srp", "solid-ocp"],
+      "related_patterns": ["factory", "strategy", "builder"],
+      "examples": [
+        "The same JSON-reading and validation logic appearing in three different loader classes — extract a shared BaseLoader with the common implementation",
+        "Integration test setup code duplicated across five test files — extract into a shared pytest fixture or factory function"
+      ],
+      "references": [
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer (DRY: Don't Repeat Yourself)",
+        "Robert C. Martin — Clean Code (Chapter 17: Smells and Heuristics — Duplication)"
+      ],
+      "tags": ["copy-paste", "duplication", "dry", "maintenance", "refactoring", "technical-debt"]
+    },
+    {
+      "id": "magic-numbers",
+      "name": "Magic Numbers",
+      "category": "readability",
+      "description": "Numeric (or string) literals embedded directly in code with no explanation of what they represent or why they have that specific value. The value appears to work but its meaning and origin are opaque to anyone reading the code later.",
+      "symptoms": [
+        "Numeric literals appearing in conditions, calculations, or array indices with no named constant",
+        "The same numeric value appearing in multiple places with no single authoritative source",
+        "Code that can only be understood by knowing why a particular number was chosen",
+        "String literals used as keys, status codes, or identifiers without a named constant"
+      ],
+      "consequences": [
+        "The meaning of the value is lost — future developers must guess or investigate its origin",
+        "Changing the value requires finding every occurrence, which is error-prone",
+        "The same logical value can become inconsistent if copies are updated independently",
+        "Code review and debugging are slowed by the need to interpret raw literals"
+      ],
+      "detection": [
+        "Audit any numeric literal other than 0 and 1 — ask: does this have a name that explains its purpose?",
+        "Search for the same literal value appearing more than once in the codebase",
+        "Look for numbers in conditions — if timeout > 45 is meaningless without a constant named READ_TIMEOUT_SECONDS"
+      ],
+      "recommended_solution": "Replace all magic literals with named constants defined at the top of the module or in a dedicated constants file. The constant name should communicate intent, not just restate the value. For configuration values that vary between environments, move them to Settings driven by environment variables.",
+      "related_principles": ["dry", "kiss", "jarvis-evidence-before-assumption"],
+      "related_patterns": [],
+      "examples": [
+        "if timeout > 45 — replace with if timeout > READ_TIMEOUT_SECONDS where READ_TIMEOUT_SECONDS = 45",
+        "_MAX_RESPONSE_TOKENS = 2000 in Jarvis OpenAIProvider — a named constant with a docstring explaining the reasoning is far better than the bare literal 2000 in the API call"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 17: Replace Magic Numbers with Named Constants)",
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer"
+      ],
+      "tags": ["magic-numbers", "readability", "constants", "maintainability", "clarity"]
+    },
+    {
+      "id": "long-method",
+      "name": "Long Method",
+      "category": "readability",
+      "description": "A function or method that has grown to the point where it is doing too much. Long methods accumulate logic over time as features are added without refactoring, until the method becomes impossible to understand at a glance.",
+      "symptoms": [
+        "Functions exceeding 30 lines of executable code",
+        "Functions that require a comment to explain each section",
+        "Functions that are difficult to name precisely because they do several things",
+        "Functions that are impossible to test without extensive setup",
+        "Functions where the end is reached before the purpose of the beginning is still in working memory"
+      ],
+      "consequences": [
+        "The function is effectively untestable as a unit — only integration testing is practical",
+        "Bugs in one part of the function are hard to isolate from the rest",
+        "Reuse of any single piece of logic requires duplicating the entire function or extracting it under pressure",
+        "Onboarding new developers is slowed by the need to comprehend large blocks of dense logic"
+      ],
+      "detection": [
+        "Apply the one-screen rule: if a function requires scrolling to read in full, it is a candidate for decomposition",
+        "Look for comment blocks that describe sections within the function — each section is a candidate for extraction",
+        "Measure cyclomatic complexity — values above 10 indicate a function that is doing too much",
+        "Ask: can this function be described in one sentence without using 'and'?"
+      ],
+      "recommended_solution": "Extract well-named private methods for each logical step or concern within the long method. The public method becomes an orchestrator that calls the extracted methods in sequence. Each extracted method should be independently testable and describable in a single sentence.",
+      "related_principles": ["solid-srp", "kiss", "dry"],
+      "related_patterns": ["command", "strategy"],
+      "examples": [
+        "A process() method on Jarvis Agent that handles classification, behaviour detection, memory detection, routing, skill execution, and response formatting in a single 150-line function — each stage should be a private method",
+        "A data import script that reads, validates, transforms, deduplicates, writes, and notifies all within a single function"
+      ],
+      "references": [
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Long Method smell)",
+        "Robert C. Martin — Clean Code (Chapter 3: Functions)"
+      ],
+      "tags": ["long-method", "readability", "srp", "refactoring", "complexity", "decomposition"]
+    },
+    {
+      "id": "long-parameter-list",
+      "name": "Long Parameter List",
+      "category": "readability",
+      "description": "A function or method that accepts so many parameters that call sites become unreadable and the function's behaviour is difficult to predict from its signature alone. Parameter lists grow when a function takes on more responsibilities or when data is passed through multiple layers rather than encapsulated.",
+      "symptoms": [
+        "Functions accepting more than four or five parameters",
+        "Call sites where the meaning of positional arguments cannot be determined without reading the function signature",
+        "Multiple boolean flags passed to a single function to control its behaviour",
+        "Parameters that always appear together across all call sites — a sign they belong in a single object",
+        "Functions that pass most of their parameters directly to another function they call"
+      ],
+      "consequences": [
+        "Call sites are unreadable — the meaning of each argument must be looked up every time",
+        "Adding a new parameter requires updating every call site throughout the codebase",
+        "Boolean flag parameters create hidden branching paths that violate the Single Responsibility Principle",
+        "Accidental parameter reordering causes silent bugs that are difficult to detect"
+      ],
+      "detection": [
+        "Count parameters — more than four is a signal to consider encapsulation",
+        "Look for parameters that are always passed together — they are candidates for a data object",
+        "Look for boolean parameters — each one represents a hidden branch and typically warrants a separate function or Strategy"
+      ],
+      "recommended_solution": "Introduce a Parameter Object — a dataclass or named tuple that groups related parameters into a single named entity. Use keyword arguments with defaults for optional parameters. Split functions with boolean control flags into separate functions, each doing one thing. Apply the Builder pattern for objects with complex optional construction.",
+      "related_principles": ["solid-srp", "kiss", "dry"],
+      "related_patterns": ["builder", "strategy"],
+      "examples": [
+        "def send_message(host, port, user, password, subject, body, html, cc, bcc, retry_count) — introduce a MessageConfig dataclass",
+        "def evaluate(task, files, max_files, protected_paths, dry_run, verbose) — the first four parameters belong in an EvaluationConfig object"
+      ],
+      "references": [
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Long Parameter List smell)",
+        "Robert C. Martin — Clean Code (Chapter 3: Function Arguments)"
+      ],
+      "tags": ["long-parameter-list", "readability", "parameters", "refactoring", "encapsulation"]
+    },
+    {
+      "id": "circular-dependency",
+      "name": "Circular Dependency",
+      "category": "structural",
+      "description": "Two or more modules, packages, or classes that depend on each other, directly or transitively, forming a cycle. Module A imports from Module B, which imports from Module A. The cycle makes the modules inseparable, impossible to load independently, and impossible to test in isolation.",
+      "symptoms": [
+        "ImportError or partially initialised module errors at runtime caused by import cycles",
+        "Two modules that cannot be imported independently without triggering each other's imports",
+        "Modules that must use lazy imports or import-inside-function workarounds to avoid import errors",
+        "Test files that require importing most of the application just to test a single class"
+      ],
+      "consequences": [
+        "The system cannot be partially loaded — the entire cycle must be resolved at once",
+        "Unit testing is impossible without breaking the cycle artificially",
+        "The build and deployment order becomes constrained and fragile",
+        "Refactoring either module forces changes to the other, violating the Open/Closed Principle",
+        "The cycle is a symptom of a missing abstraction — an interface that both modules should depend on"
+      ],
+      "detection": [
+        "Run a dependency analysis tool (e.g. pydeps, import-linter) to visualise the import graph",
+        "Look for lazy imports (import inside a function) — these are often a symptom of an existing cycle being worked around",
+        "Trace the import chain of any module that is slow to load or difficult to mock"
+      ],
+      "recommended_solution": "Introduce an abstraction that both modules depend on, breaking the cycle. Move the shared concept into a third module that neither depends on the other. Apply the Dependency Inversion Principle — both modules depend on an interface, not on each other. In Python, restructure the package hierarchy so dependencies only flow in one direction.",
+      "related_principles": ["solid-dip", "solid-ocp", "separation-of-concerns"],
+      "related_patterns": ["adapter", "repository", "observer"],
+      "examples": [
+        "core.agent importing from core.skills, while core.skills imports from core.agent to call back — introduce a ResponseModel in core.models that both can import without referencing each other",
+        "core.reasoning importing core.knowledge, while core.knowledge imports core.reasoning for inference — the reasoning engine should receive the knowledge store via injection, not import it directly"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Architecture (Chapter 14: Component Coupling)",
+        "Robert C. Martin — Agile Software Development: Principles, Patterns, and Practices (ADP — Acyclic Dependencies Principle)"
+      ],
+      "tags": ["circular-dependency", "structural", "coupling", "imports", "architecture", "solid-dip"]
+    },
+    {
+      "id": "tight-coupling",
+      "name": "Tight Coupling",
+      "category": "structural",
+      "description": "Two components are tightly coupled when one depends directly on the concrete implementation details of the other, rather than on a stable abstraction. Changes in the implementation of one component propagate immediately and unpredictably into the other.",
+      "symptoms": [
+        "One class directly instantiates another concrete class rather than depending on an interface",
+        "Changing the implementation of one class forces changes in its callers",
+        "One module imports deeply from inside the internal package structure of another module",
+        "Tests for one class require setting up the real implementation of another class",
+        "The same pair of classes always appears together in every usage context"
+      ],
+      "consequences": [
+        "Components cannot be tested independently — the coupled dependency must also be present",
+        "Swapping one implementation for another requires modifying all callers",
+        "The system is resistant to change — modifying one component creates ripple effects throughout the codebase",
+        "Parallel development is difficult because changes in one module block work on the other"
+      ],
+      "detection": [
+        "Look for direct instantiation of concrete classes inside other classes — this is tight coupling",
+        "Look for imports that reach into the private internals of another package",
+        "Ask: if I change the implementation of this dependency, how many other files must I change?",
+        "Count the number of concrete classes a given module imports — high counts indicate tight coupling"
+      ],
+      "recommended_solution": "Apply the Dependency Inversion Principle. Define an abstract interface for the dependency and inject the concrete implementation from outside. Use constructor injection as the default approach. Depend on abstractions, not concretions. The Adapter pattern can be used to wrap external dependencies behind a stable internal interface.",
+      "related_principles": ["solid-dip", "solid-ocp", "separation-of-concerns"],
+      "related_patterns": ["adapter", "repository", "factory", "dependency-injection"],
+      "examples": [
+        "An Agent class that directly instantiates OpenAIProvider() in its constructor — it should accept an AIProvider interface via constructor injection",
+        "A planning module that imports JsonAntiPatternRepository directly — it should depend on the AntiPatternRepository ABC"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Architecture (Part IV: Component Principles)",
+        "Mark Seemann — Dependency Injection Principles, Practices, and Patterns"
+      ],
+      "tags": ["tight-coupling", "structural", "coupling", "solid-dip", "abstraction", "testability"]
+    },
+    {
+      "id": "shotgun-surgery",
+      "name": "Shotgun Surgery",
+      "category": "maintenance",
+      "description": "A single logical change to the system requires making small modifications to many different classes or modules. The change is scattered across the codebase because the responsibility is not cohesively located in one place.",
+      "symptoms": [
+        "Adding or changing a feature requires editing more than three or four unrelated files",
+        "A single conceptual change produces a pull request touching many small files",
+        "The same pattern of change recurs across the codebase whenever the feature evolves",
+        "Developers dread making a particular change because of how widely it spreads"
+      ],
+      "consequences": [
+        "The risk of missing one of the required change locations is high, introducing silent inconsistencies",
+        "Code review becomes difficult because the reviewer must understand many files to assess one logical change",
+        "The system is fragile — any evolution of the scattered concept risks partial updates",
+        "Onboarding is slowed because new developers must learn the full spread of a concept before modifying it"
+      ],
+      "detection": [
+        "Review recent pull requests — if many small changes to unrelated files are common, shotgun surgery is likely present",
+        "Ask: if this concept changes, how many files must I update? More than three is a warning sign",
+        "Look for constants, type definitions, or behaviour spread across multiple modules that all relate to the same concept"
+      ],
+      "recommended_solution": "Move the scattered behaviour into a single cohesive location — a dedicated class, module, or package. Apply the Single Responsibility Principle to ensure the concept has one home. This is the inverse of the God Object problem: too little cohesion, not too much. Use the Facade pattern to provide a single entry point after consolidation.",
+      "related_principles": ["solid-srp", "dry", "separation-of-concerns"],
+      "related_patterns": ["facade", "repository"],
+      "examples": [
+        "Adding a new AI provider to Jarvis requires editing: the provider directory, the AIManager registry, the Settings class, the jarvis_core wiring, and the test suite — consolidating provider registration into one registry reduces the spread",
+        "Adding a new intent type requires editing the IntentRouter, the Agent, the SkillsManager, and multiple test files — a well-designed routing registry consolidates intent registration"
+      ],
+      "references": [
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Shotgun Surgery smell)",
+        "Robert C. Martin — Clean Code (Chapter 17: Smells and Heuristics)"
+      ],
+      "tags": ["shotgun-surgery", "maintenance", "cohesion", "srp", "refactoring", "fragility"]
+    },
+    {
+      "id": "feature-envy",
+      "name": "Feature Envy",
+      "category": "object-oriented",
+      "description": "A method that is more interested in the data of another class than in its own. It reaches into another object repeatedly to access its fields or call its methods, performing work that logically belongs in the other class.",
+      "symptoms": [
+        "A method on Class A that calls methods on a Class B object more than it uses its own class's data",
+        "Logic that repeatedly accesses the internals of another object to compute a result",
+        "A method that would be simpler and more readable if it were moved to the class it envies",
+        "Chained accessor calls reaching deep into another object's structure"
+      ],
+      "consequences": [
+        "Encapsulation of the envied class is weakened — its internals are exposed to callers",
+        "Changes to the internals of the envied class break the envious method",
+        "The responsibility is in the wrong place, making the system harder to understand",
+        "Reuse of the logic requires bringing along the dependency on the envied class"
+      ],
+      "detection": [
+        "Count the number of times a method calls methods on each object it uses — if calls to another object dominate, feature envy is present",
+        "Ask: if I moved this method to the other class, would it be simpler? If yes, move it",
+        "Look for methods that accept an object as a parameter only to immediately call many methods on it"
+      ],
+      "recommended_solution": "Move the envious method to the class it is most interested in. If the method uses data from multiple classes, extract the logic into a separate class that owns the computation. Apply the Tell, Don't Ask principle — ask an object to perform an operation rather than reaching into it to compute the result yourself.",
+      "related_principles": ["solid-srp", "separation-of-concerns", "law-of-demeter"],
+      "related_patterns": ["strategy", "observer"],
+      "examples": [
+        "A ReportFormatter method that reaches into an EngineeringPlan object to access candidate_files, layers_involved, complexity.value, and validation_steps directly — the plan should expose a report() method that the formatter simply calls",
+        "A test helper that reaches into a repository to extract, sort, and filter data — the repository should expose the filtered query directly"
+      ],
+      "references": [
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Feature Envy smell)",
+        "Robert C. Martin — Clean Code (Chapter 6: Objects and Data Structures)"
+      ],
+      "tags": ["feature-envy", "object-oriented", "encapsulation", "cohesion", "law-of-demeter", "refactoring"]
+    },
+    {
+      "id": "dead-code",
+      "name": "Dead Code",
+      "category": "maintenance",
+      "description": "Code that is never executed at runtime — unreachable branches, unused functions, commented-out blocks, deprecated classes that are never instantiated, and variables that are assigned but never read. Dead code accumulates over time and creates noise that obscures the living codebase.",
+      "symptoms": [
+        "Functions or methods that are defined but never called from any active code path",
+        "Commented-out code blocks that have not been removed",
+        "Conditional branches whose condition can never be true given current system invariants",
+        "Imported modules that are never used in the importing file",
+        "Variables assigned a value that is never subsequently read"
+      ],
+      "consequences": [
+        "Dead code misleads readers into believing it is relevant to the system's behaviour",
+        "Maintenance effort is wasted keeping dead code syntactically valid",
+        "Debugging is confused when developers investigate dead code paths looking for bugs",
+        "Static analysis tools report false positives from dead code, masking real issues",
+        "The codebase grows larger without growing more capable"
+      ],
+      "detection": [
+        "Use static analysis tools to detect unreachable code and unused imports (e.g. vulture, pylint, flake8)",
+        "Search for functions that have no callers using an IDE's Find Usages feature",
+        "Look for commented-out blocks — if the code has not been restored in more than one sprint, delete it",
+        "Review imports in every file and remove any that are unused"
+      ],
+      "recommended_solution": "Delete dead code immediately and without hesitation. Version control preserves history — deleted code can always be recovered from git log. Commented-out code should be deleted, not preserved. If a feature is genuinely planned but not yet active, use a feature flag rather than commented-out code.",
+      "related_principles": ["kiss", "dry", "yagni"],
+      "related_patterns": [],
+      "examples": [
+        "The core/core/ nested directory in the Jarvis repository containing legacy memory.py, router.py, and plugins.py from an early prototype — these are dead code that should be removed",
+        "An AnthropicProvider with a commented-out streaming implementation left in place until streaming is needed — delete the comment and implement streaming as a proper sprint when the time comes"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 17: Dead Code smell)",
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code"
+      ],
+      "tags": ["dead-code", "maintenance", "cleanup", "technical-debt", "yagni", "readability"]
+    },
+    {
+      "id": "premature-optimisation",
+      "name": "Premature Optimisation",
+      "category": "process",
+      "description": "Spending engineering effort optimising the performance of code before evidence confirms that the code is actually a bottleneck. Premature optimisation sacrifices readability, simplicity, and correctness for performance gains that are often negligible or unmeasurable in the real system.",
+      "symptoms": [
+        "Performance-focused rewrites of code that has never been profiled",
+        "Complex caching strategies introduced before measuring whether uncached performance is acceptable",
+        "Low-level bit manipulation or micro-optimisations in code that is not in a hot path",
+        "Resistance to clear, readable implementations on the grounds that they 'might be slow'",
+        "Architecture decisions driven by hypothetical scale that the system will never reach"
+      ],
+      "consequences": [
+        "The optimised code is harder to read, maintain, and debug than the naive version",
+        "The actual bottleneck is elsewhere — the optimisation delivered no real benefit",
+        "Correctness is compromised by the optimisation's added complexity",
+        "Engineering time is wasted on problems that do not exist in the real system",
+        "The system is harder to profile later because the optimisation has obscured the natural structure"
+      ],
+      "detection": [
+        "Ask: has this code path been profiled and confirmed as a bottleneck? If not, optimisation is premature",
+        "Look for complexity that cannot be justified by a measured performance requirement",
+        "Review comments that justify complexity with performance rationale — verify the claim with a profiler",
+        "Apply Evidence Before Assumption — measure first, optimise second"
+      ],
+      "recommended_solution": "Write the simplest correct implementation first. Measure performance against real requirements using a profiler. Optimise only the confirmed bottlenecks, and only as much as the measurement justifies. Document the profiling evidence that motivated each optimisation. Follow the Jarvis constitutional principle: Evidence Before Assumption.",
+      "related_principles": ["kiss", "yagni", "jarvis-evidence-before-assumption"],
+      "related_patterns": [],
+      "examples": [
+        "Replacing a clear dictionary lookup with a hand-rolled binary search before profiling shows the lookup is ever called more than once per second",
+        "Introducing an in-memory cache for the Engineering Academy JSON loader before measuring whether load time is perceptible — the Academy loads in under 20ms, making the cache complexity unjustified"
+      ],
+      "references": [
+        "Donald Knuth — 'Premature optimisation is the root of all evil' (Computing Surveys, 1974)",
+        "Robert C. Martin — Clean Code (Chapter 17: Premature Optimisation)"
+      ],
+      "tags": ["premature-optimisation", "process", "performance", "evidence-before-assumption", "simplicity", "profiling"]
+    }
+  ]
+}

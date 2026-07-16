@@ -4,7 +4,8 @@ Engineering Academy Loader.
 Single responsibility: read JSON, validate schema, construct models.
 No business logic. No caching. No querying.
 
-Supports both principles.json and patterns.json via dedicated load methods.
+Supports principles.json, patterns.json, and anti_patterns.json
+via dedicated load methods.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from .exceptions import AcademySchemaError, InvalidPrincipleError
 from .models import (
     REQUIRED_FIELDS,
     REQUIRED_PATTERN_FIELDS,
+    REQUIRED_ANTI_PATTERN_FIELDS,
+    AntiPattern,
     DesignPattern,
     EngineeringPrinciple,
 )
@@ -84,6 +87,30 @@ class AcademyLoader:
             [p.id for p in patterns], label="pattern"
         )
         return patterns
+
+    # ------------------------------------------------------------------
+    # Anti-Patterns (Sprint 003)
+    # ------------------------------------------------------------------
+
+    def load_anti_patterns(self, path: Path) -> List[AntiPattern]:
+        """
+        Load anti-patterns from *path* and return a validated list.
+
+        Raises
+        ------
+        AcademySchemaError
+            If the file is missing, unreadable, malformed JSON, or fails
+            top-level structure validation.
+        InvalidPrincipleError
+            If any individual anti-pattern record fails validation.
+        """
+        raw = self._read_file(path)
+        records = self._validate_top_level(raw, key="anti_patterns")
+        anti_patterns = [self._validate_anti_pattern(r) for r in records]
+        self._detect_duplicates(
+            [ap.id for ap in anti_patterns], label="anti-pattern"
+        )
+        return anti_patterns
 
     # ------------------------------------------------------------------
     # Private — shared I/O
@@ -199,3 +226,41 @@ class AcademyLoader:
                 )
 
         return DesignPattern.from_dict(record)
+
+    # ------------------------------------------------------------------
+    # Private — anti-pattern validation (Sprint 003)
+    # ------------------------------------------------------------------
+
+    def _validate_anti_pattern(self, record: object) -> AntiPattern:
+        """Validate a single anti-pattern record and construct the model."""
+        if not isinstance(record, dict):
+            raise AcademySchemaError(
+                f"Each anti-pattern must be a JSON object; "
+                f"got {type(record).__name__}."
+            )
+
+        ap_id = record.get("id", "<unknown>")
+
+        for field in REQUIRED_ANTI_PATTERN_FIELDS:
+            if field not in record:
+                raise InvalidPrincipleError(
+                    ap_id, f"missing required field '{field}'"
+                )
+
+        str_fields = (
+            "id", "name", "category", "description", "recommended_solution"
+        )
+        for f in str_fields:
+            if not isinstance(record[f], str) or not record[f].strip():
+                raise InvalidPrincipleError(
+                    ap_id, f"field '{f}' must be a non-empty string"
+                )
+
+        list_fields = ("symptoms", "consequences", "detection", "tags")
+        for f in list_fields:
+            if not isinstance(record[f], list):
+                raise InvalidPrincipleError(
+                    ap_id, f"field '{f}' must be a list"
+                )
+
+        return AntiPattern.from_dict(record)

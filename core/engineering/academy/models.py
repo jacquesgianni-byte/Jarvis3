@@ -1,7 +1,8 @@
 """
 Engineering Academy Models.
 
-Immutable data models representing engineering principles and design patterns.
+Immutable data models representing engineering principles, design patterns,
+and anti-patterns.
 No behaviour. No mutation. Pure data.
 """
 
@@ -38,6 +39,19 @@ REQUIRED_PATTERN_FIELDS: tuple[str, ...] = (
     "tags",
 )
 
+# Required fields every anti-pattern record must supply.
+REQUIRED_ANTI_PATTERN_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "category",
+    "description",
+    "symptoms",
+    "consequences",
+    "detection",
+    "recommended_solution",
+    "tags",
+)
+
 
 @dataclass(frozen=True)
 class EngineeringPrinciple:
@@ -46,19 +60,6 @@ class EngineeringPrinciple:
 
     frozen=True ensures no code can mutate a principle after construction,
     satisfying the read-only contract of the Academy.
-
-    Fields
-    ------
-    id          : Unique kebab-case identifier (e.g. ``"dry"``, ``"solid-srp"``).
-    name        : Human-readable name.
-    category    : High-level grouping (e.g. ``"core"``, ``"jarvis"``).
-    summary     : One-sentence description.
-    rationale   : Why this principle exists.
-    guidance    : Actionable advice for applying the principle.
-    violations  : Common ways the principle is broken.
-    examples    : Optional concrete code or design examples.
-    references  : Optional links or book citations.
-    tags        : Keywords used for filtering and search.
     """
 
     id: str
@@ -71,9 +72,6 @@ class EngineeringPrinciple:
     tags: List[str]
     examples: List[str] = field(default_factory=list)
     references: List[str] = field(default_factory=list)
-
-    # Allow unknown extra fields from the JSON to be stored without
-    # breaking compatibility as the schema evolves.
     extra: dict = field(default_factory=dict, compare=False, hash=False)
 
     def __post_init__(self) -> None:
@@ -84,7 +82,6 @@ class EngineeringPrinciple:
 
     @classmethod
     def from_dict(cls, data: dict) -> "EngineeringPrinciple":
-        """Construct an EngineeringPrinciple from a raw dictionary."""
         known = {
             "id", "name", "category", "summary", "rationale",
             "guidance", "violations", "examples", "references", "tags",
@@ -111,23 +108,6 @@ class DesignPattern:
     An immutable record describing a single software design pattern.
 
     frozen=True enforces the read-only contract of the Academy.
-
-    Fields
-    ------
-    id                  : Unique kebab-case identifier (e.g. ``"repository"``, ``"factory"``).
-    name                : Human-readable name.
-    category            : Pattern category (e.g. ``"creational"``, ``"structural"``, ``"behavioural"``, ``"architectural"``).
-    intent              : One-sentence statement of what the pattern does.
-    problem             : The problem the pattern solves.
-    solution            : How the pattern solves it.
-    when_to_use         : Conditions under which the pattern is appropriate.
-    when_not_to_use     : Conditions under which the pattern should be avoided.
-    advantages          : Benefits of applying the pattern.
-    disadvantages       : Trade-offs and costs.
-    related_principles  : IDs of principles this pattern embodies.
-    examples            : Concrete examples, including Jarvis-specific ones.
-    references          : Book or article citations.
-    tags                : Keywords for filtering and search.
     """
 
     id: str
@@ -144,7 +124,6 @@ class DesignPattern:
     related_principles: List[str] = field(default_factory=list)
     examples: List[str] = field(default_factory=list)
     references: List[str] = field(default_factory=list)
-
     extra: dict = field(default_factory=dict, compare=False, hash=False)
 
     def __post_init__(self) -> None:
@@ -160,7 +139,6 @@ class DesignPattern:
 
     @classmethod
     def from_dict(cls, data: dict) -> "DesignPattern":
-        """Construct a DesignPattern from a raw dictionary."""
         known = {
             "id", "name", "category", "intent", "problem", "solution",
             "when_to_use", "when_not_to_use", "advantages", "disadvantages",
@@ -180,6 +158,85 @@ class DesignPattern:
             disadvantages=list(data.get("disadvantages", [])),
             tags=list(data.get("tags", [])),
             related_principles=list(data.get("related_principles", [])),
+            examples=list(data.get("examples", [])),
+            references=list(data.get("references", [])),
+            extra=extra,
+        )
+
+
+@dataclass(frozen=True)
+class AntiPattern:
+    """
+    An immutable record describing a single software anti-pattern.
+
+    frozen=True enforces the read-only contract of the Academy.
+
+    Fields
+    ------
+    id                   : Unique kebab-case identifier (e.g. ``"god-object"``).
+    name                 : Human-readable name.
+    category             : Anti-pattern category (e.g. ``"object-oriented"``,
+                           ``"structural"``, ``"maintenance"``, ``"process"``).
+    description          : What the anti-pattern is and how it manifests.
+    symptoms             : Observable signs that the anti-pattern is present.
+    consequences         : Problems that result from the anti-pattern.
+    detection            : How to identify the anti-pattern in a codebase.
+    recommended_solution : How to refactor away from the anti-pattern.
+    related_principles   : IDs of principles violated by this anti-pattern.
+    related_patterns     : IDs of design patterns that address this anti-pattern.
+    examples             : Concrete examples, including Jarvis-specific ones.
+    references           : Book or article citations.
+    tags                 : Keywords for filtering and search.
+    """
+
+    id: str
+    name: str
+    category: str
+    description: str
+    symptoms: List[str]
+    consequences: List[str]
+    detection: List[str]
+    recommended_solution: str
+    tags: List[str]
+    related_principles: List[str] = field(default_factory=list)
+    related_patterns: List[str] = field(default_factory=list)
+    examples: List[str] = field(default_factory=list)
+    references: List[str] = field(default_factory=list)
+    extra: dict = field(default_factory=dict, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        list_fields = (
+            "symptoms", "consequences", "detection", "tags",
+            "related_principles", "related_patterns",
+            "examples", "references",
+        )
+        for lf in list_fields:
+            value = getattr(self, lf)
+            if not isinstance(value, list):
+                object.__setattr__(self, lf, list(value))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AntiPattern":
+        """Construct an AntiPattern from a raw dictionary."""
+        known = {
+            "id", "name", "category", "description", "symptoms",
+            "consequences", "detection", "recommended_solution",
+            "related_principles", "related_patterns",
+            "examples", "references", "tags",
+        }
+        extra = {k: v for k, v in data.items() if k not in known}
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            category=data["category"],
+            description=data["description"],
+            symptoms=list(data.get("symptoms", [])),
+            consequences=list(data.get("consequences", [])),
+            detection=list(data.get("detection", [])),
+            recommended_solution=data["recommended_solution"],
+            tags=list(data.get("tags", [])),
+            related_principles=list(data.get("related_principles", [])),
+            related_patterns=list(data.get("related_patterns", [])),
             examples=list(data.get("examples", [])),
             references=list(data.get("references", [])),
             extra=extra,

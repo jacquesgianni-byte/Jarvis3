@@ -1,7 +1,7 @@
 """
 Engineering Academy Repository.
 
-Abstract read-only interfaces for principle and pattern storage.
+Abstract read-only interfaces for principle, pattern, and anti-pattern storage.
 No write operations. No mutation. No caching requirements.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from .models import DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, DesignPattern, EngineeringPrinciple
 
 
 class AcademyRepository(ABC):
@@ -78,4 +78,39 @@ class PatternRepository(ABC):
         """
         Return all patterns whose tags list contains *tag* (case-insensitive).
         Returns an empty list if no match — never raises.
+        """
+
+
+class AntiPatternRepository(ABC):
+    """
+    Abstract base class for the Engineering Academy anti-pattern data layer.
+    (Genesis-019 Sprint 003)
+
+    Contract
+    --------
+    * All operations are read-only.
+    * Implementations must never mutate stored anti-patterns.
+    * Result ordering must be stable and deterministic (sorted by id).
+    """
+
+    @abstractmethod
+    def get_by_id(self, anti_pattern_id: str) -> Optional[AntiPattern]:
+        """Return the anti-pattern with *anti_pattern_id*, or ``None`` if not found."""
+
+    @abstractmethod
+    def list_all(self) -> List[AntiPattern]:
+        """Return all anti-patterns sorted by id (stable, deterministic)."""
+
+    @abstractmethod
+    def filter_by_category(self, category: str) -> List[AntiPattern]:
+        """
+        Return all anti-patterns whose category matches *category*
+        (case-insensitive). Returns an empty list if no match — never raises.
+        """
+
+    @abstractmethod
+    def filter_by_tag(self, tag: str) -> List[AntiPattern]:
+        """
+        Return all anti-patterns whose tags list contains *tag*
+        (case-insensitive). Returns an empty list if no match — never raises.
         """

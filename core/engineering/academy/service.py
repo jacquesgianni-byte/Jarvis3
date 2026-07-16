@@ -1,7 +1,8 @@
 """
 Engineering Academy Services.
 
-Deterministic lookup and search over principle and pattern repositories.
+Deterministic lookup and search over principle, pattern, and
+anti-pattern repositories.
 No AI. No semantic search. No mutations. No autonomous decisions.
 """
 
@@ -10,8 +11,12 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .exceptions import PrincipleNotFoundError
-from .models import DesignPattern, EngineeringPrinciple
-from .repository import AcademyRepository, PatternRepository
+from .models import AntiPattern, DesignPattern, EngineeringPrinciple
+from .repository import (
+    AcademyRepository,
+    AntiPatternRepository,
+    PatternRepository,
+)
 
 
 class AcademyService:
@@ -134,5 +139,68 @@ class PatternService:
             *pattern.tags, *pattern.advantages,
             *pattern.disadvantages, *pattern.examples,
             *pattern.when_to_use, *pattern.when_not_to_use,
+        ]
+        return any(needle in s.lower() for s in searchable)
+
+
+class AntiPatternService:
+    """
+    Business-logic layer for engineering anti-patterns.
+    (Genesis-019 Sprint 003)
+
+    Provides deterministic access to anti-patterns.
+    All search is keyword/substring-based — no AI, no fuzzy matching.
+    """
+
+    def __init__(self, repository: AntiPatternRepository) -> None:
+        self._repository = repository
+
+    def get_anti_pattern(self, anti_pattern_id: str) -> AntiPattern:
+        """
+        Return the anti-pattern with *anti_pattern_id*.
+
+        Raises
+        ------
+        PrincipleNotFoundError
+            If no anti-pattern with that ID exists.
+        """
+        result = self._repository.get_by_id(anti_pattern_id)
+        if result is None:
+            raise PrincipleNotFoundError(anti_pattern_id)
+        return result
+
+    def list_anti_patterns(self) -> List[AntiPattern]:
+        """Return all anti-patterns in stable, deterministic order (sorted by id)."""
+        return self._repository.list_all()
+
+    def find_by_category(self, category: str) -> List[AntiPattern]:
+        """Return anti-patterns in *category* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_category(category)
+
+    def find_by_tag(self, tag: str) -> List[AntiPattern]:
+        """Return anti-patterns tagged with *tag* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_tag(tag)
+
+    def search(self, query: str) -> List[AntiPattern]:
+        """
+        Return anti-patterns whose text fields contain *query* as a substring.
+
+        Case-insensitive. Deterministic. Results sorted by id.
+        No AI. No semantic matching. No fuzzy matching.
+        """
+        needle = query.strip().lower()
+        if not needle:
+            return []
+        return [
+            ap for ap in self._repository.list_all()
+            if self._anti_pattern_matches(ap, needle)
+        ]
+
+    def _anti_pattern_matches(self, ap: AntiPattern, needle: str) -> bool:
+        searchable = [
+            ap.id, ap.name, ap.category, ap.description,
+            ap.recommended_solution,
+            *ap.tags, *ap.symptoms, *ap.consequences,
+            *ap.detection, *ap.examples,
         ]
         return any(needle in s.lower() for s in searchable)

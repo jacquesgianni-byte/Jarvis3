@@ -1,8 +1,9 @@
 """
 Engineering Academy JSON Repositories.
 
-Concrete implementations of AcademyRepository and PatternRepository
-backed by principles.json and patterns.json respectively.
+Concrete implementations of AcademyRepository, PatternRepository,
+and AntiPatternRepository backed by JSON files.
+
 Loads on construction. Returns immutable model objects. No writes.
 """
 
@@ -12,8 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .loader import AcademyLoader
-from .models import DesignPattern, EngineeringPrinciple
-from .repository import AcademyRepository, PatternRepository
+from .models import AntiPattern, DesignPattern, EngineeringPrinciple
+from .repository import AcademyRepository, AntiPatternRepository, PatternRepository
 
 
 class JsonAcademyRepository(AcademyRepository):
@@ -22,13 +23,6 @@ class JsonAcademyRepository(AcademyRepository):
 
     All data is loaded once at construction time.
     No runtime writes. No mutations. No network access.
-
-    Parameters
-    ----------
-    principles_path:
-        Path to the ``principles.json`` data file.
-    loader:
-        Optional ``AcademyLoader`` instance (injected for testability).
     """
 
     def __init__(
@@ -66,13 +60,6 @@ class JsonPatternRepository(PatternRepository):
 
     All data is loaded once at construction time.
     No runtime writes. No mutations. No network access.
-
-    Parameters
-    ----------
-    patterns_path:
-        Path to the ``patterns.json`` data file.
-    loader:
-        Optional ``AcademyLoader`` instance (injected for testability).
     """
 
     def __init__(
@@ -101,4 +88,52 @@ class JsonPatternRepository(PatternRepository):
         return [
             p for p in self._index.values()
             if target in [t.lower() for t in p.tags]
+        ]
+
+
+class JsonAntiPatternRepository(AntiPatternRepository):
+    """
+    Read-only repository that loads anti-patterns from a JSON file.
+    (Genesis-019 Sprint 003)
+
+    All data is loaded once at construction time.
+    No runtime writes. No mutations. No network access.
+
+    Parameters
+    ----------
+    anti_patterns_path:
+        Path to the ``anti_patterns.json`` data file.
+    loader:
+        Optional ``AcademyLoader`` instance (injected for testability).
+    """
+
+    def __init__(
+        self,
+        anti_patterns_path: Path,
+        loader: Optional[AcademyLoader] = None,
+    ) -> None:
+        _loader = loader or AcademyLoader()
+        raw = _loader.load_anti_patterns(anti_patterns_path)
+        self._index: Dict[str, AntiPattern] = {
+            ap.id: ap for ap in sorted(raw, key=lambda ap: ap.id)
+        }
+
+    def get_by_id(self, anti_pattern_id: str) -> Optional[AntiPattern]:
+        return self._index.get(anti_pattern_id)
+
+    def list_all(self) -> List[AntiPattern]:
+        return list(self._index.values())
+
+    def filter_by_category(self, category: str) -> List[AntiPattern]:
+        target = category.strip().lower()
+        return [
+            ap for ap in self._index.values()
+            if ap.category.lower() == target
+        ]
+
+    def filter_by_tag(self, tag: str) -> List[AntiPattern]:
+        target = tag.strip().lower()
+        return [
+            ap for ap in self._index.values()
+            if target in [t.lower() for t in ap.tags]
         ]
