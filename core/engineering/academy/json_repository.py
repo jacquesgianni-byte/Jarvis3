@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .loader import AcademyLoader
-from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringPrinciple
-from .repository import AcademyRepository, AntiPatternRepository, ArchitecturePatternRepository, BestPracticeRepository, PatternRepository
+from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringDecision, EngineeringPrinciple
+from .repository import AcademyRepository, AntiPatternRepository, ArchitecturePatternRepository, BestPracticeRepository, EngineeringDecisionRepository, PatternRepository
 
 
 class JsonAcademyRepository(AcademyRepository):
@@ -217,3 +217,35 @@ class JsonBestPracticeRepository(BestPracticeRepository):
         target = tag.strip().lower()
         return [bp for bp in self._index.values()
                 if target in [t.lower() for t in bp.tags]]
+
+
+class JsonEngineeringDecisionRepository(EngineeringDecisionRepository):
+    """
+    Read-only repository that loads engineering decisions from a JSON file.
+    (Genesis-019 Sprint 006)
+
+    All data is loaded once at construction time.
+    No runtime writes. No mutations. No network access.
+    """
+
+    def __init__(self, decisions_path, loader=None) -> None:
+        _loader = loader or AcademyLoader()
+        raw = _loader.load_engineering_decisions(decisions_path)
+        self._index: Dict[str, EngineeringDecision] = {
+            d.id: d for d in sorted(raw, key=lambda d: d.id)
+        }
+
+    def get_by_id(self, decision_id: str):
+        return self._index.get(decision_id)
+
+    def list_all(self) -> list:
+        return list(self._index.values())
+
+    def filter_by_category(self, category: str) -> list:
+        target = category.strip().lower()
+        return [d for d in self._index.values() if d.category.lower() == target]
+
+    def filter_by_tag(self, tag: str) -> list:
+        target = tag.strip().lower()
+        return [d for d in self._index.values()
+                if target in [t.lower() for t in d.tags]]

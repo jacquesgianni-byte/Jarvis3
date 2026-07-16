@@ -8,7 +8,7 @@ No write operations. No mutation. No caching requirements.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringDecision, EngineeringPrinciple
 
 
 class AcademyRepository(ABC):
@@ -180,5 +180,40 @@ class BestPracticeRepository(ABC):
     def filter_by_tag(self, tag: str) -> List[BestPractice]:
         """
         Return all best practices whose tags list contains *tag*
+        (case-insensitive). Returns an empty list if no match.
+        """
+
+
+class EngineeringDecisionRepository(ABC):
+    """
+    Abstract base class for the Engineering Academy decision data layer.
+    (Genesis-019 Sprint 006)
+
+    Contract
+    --------
+    * All operations are read-only.
+    * Implementations must never mutate stored decisions.
+    * Result ordering must be stable and deterministic (sorted by id).
+    """
+
+    @abstractmethod
+    def get_by_id(self, decision_id: str) -> Optional[EngineeringDecision]:
+        """Return the decision with *decision_id*, or None if not found."""
+
+    @abstractmethod
+    def list_all(self) -> List[EngineeringDecision]:
+        """Return all decisions sorted by id (stable, deterministic)."""
+
+    @abstractmethod
+    def filter_by_category(self, category: str) -> List[EngineeringDecision]:
+        """
+        Return all decisions whose category matches *category*
+        (case-insensitive). Returns an empty list if no match.
+        """
+
+    @abstractmethod
+    def filter_by_tag(self, tag: str) -> List[EngineeringDecision]:
+        """
+        Return all decisions whose tags list contains *tag*
         (case-insensitive). Returns an empty list if no match.
         """

@@ -21,9 +21,11 @@ from .models import (
     REQUIRED_ANTI_PATTERN_FIELDS,
     REQUIRED_ARCHITECTURE_PATTERN_FIELDS,
     REQUIRED_BEST_PRACTICE_FIELDS,
+    REQUIRED_ENGINEERING_DECISION_FIELDS,
     AntiPattern,
     ArchitecturePattern,
     BestPractice,
+    EngineeringDecision,
     DesignPattern,
     EngineeringPrinciple,
 )
@@ -163,6 +165,30 @@ class AcademyLoader:
             [p.id for p in practices], label="best-practice"
         )
         return practices
+
+    # ------------------------------------------------------------------
+    # Engineering Decisions (Sprint 006)
+    # ------------------------------------------------------------------
+
+    def load_engineering_decisions(self, path) -> list:
+        """
+        Load engineering decisions from *path* and return a validated list.
+
+        Raises
+        ------
+        AcademySchemaError
+            If the file is missing, unreadable, malformed JSON, or fails
+            top-level structure validation.
+        InvalidPrincipleError
+            If any individual decision record fails validation.
+        """
+        raw = self._read_file(path)
+        records = self._validate_top_level(raw, key="engineering_decisions")
+        decisions = [self._validate_engineering_decision(r) for r in records]
+        self._detect_duplicates(
+            [d.id for d in decisions], label="engineering-decision"
+        )
+        return decisions
 
     # ------------------------------------------------------------------
     # Private — shared I/O
@@ -391,3 +417,40 @@ class AcademyLoader:
                 )
 
         return BestPractice.from_dict(record)
+
+    # ------------------------------------------------------------------
+    # Private — engineering decision validation (Sprint 006)
+    # ------------------------------------------------------------------
+
+    def _validate_engineering_decision(self, record: object) -> "EngineeringDecision":
+        """Validate a single engineering decision record and construct the model."""
+        if not isinstance(record, dict):
+            raise AcademySchemaError(
+                f"Each engineering decision must be a JSON object; "
+                f"got {type(record).__name__}."
+            )
+
+        d_id = record.get("id", "<unknown>")
+
+        for field in REQUIRED_ENGINEERING_DECISION_FIELDS:
+            if field not in record:
+                raise InvalidPrincipleError(
+                    d_id, f"missing required field '{field}'"
+                )
+
+        str_fields = ("id", "name", "category", "situation", "recommended_action")
+        for f in str_fields:
+            if not isinstance(record[f], str) or not record[f].strip():
+                raise InvalidPrincipleError(
+                    d_id, f"field '{f}' must be a non-empty string"
+                )
+
+        list_fields = ("indicators", "trade_offs", "risks", "benefits",
+                       "decision_questions", "tags")
+        for f in list_fields:
+            if not isinstance(record[f], list):
+                raise InvalidPrincipleError(
+                    d_id, f"field '{f}' must be a list"
+                )
+
+        return EngineeringDecision.from_dict(record)

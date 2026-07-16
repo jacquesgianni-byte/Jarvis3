@@ -454,3 +454,116 @@ class BestPractice:
             references=list(data.get("references", [])),
             extra=extra,
         )
+
+
+# Required fields every engineering decision record must supply.
+REQUIRED_ENGINEERING_DECISION_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "category",
+    "situation",
+    "indicators",
+    "recommended_action",
+    "trade_offs",
+    "risks",
+    "benefits",
+    "decision_questions",
+    "tags",
+)
+
+
+@dataclass(frozen=True)
+class EngineeringDecision:
+    """
+    An immutable record describing an engineering decision framework.
+    (Genesis-019 Sprint 006)
+
+    frozen=True enforces the read-only contract of the Academy.
+
+    Fields
+    ------
+    id                           : Unique kebab-case identifier.
+    name                         : Human-readable decision name.
+    category                     : Decision category.
+    situation                    : When this decision arises.
+    indicators                   : Signals that suggest each option.
+    recommended_action           : The default recommended approach.
+    trade_offs                   : What each option gains and loses.
+    risks                        : Risks associated with each option.
+    benefits                     : Benefits of the recommended action.
+    decision_questions           : Questions to ask before deciding.
+    related_principles           : Principle IDs relevant to this decision.
+    related_patterns             : Pattern IDs relevant to this decision.
+    related_anti_patterns        : Anti-pattern IDs relevant to this decision.
+    related_architecture_patterns: Architecture pattern IDs relevant.
+    related_best_practices       : Best practice IDs relevant to this decision.
+    jarvis_example               : A Jarvis-specific concrete example.
+    references                   : Book or article citations.
+    tags                         : Keywords for filtering and search.
+    """
+
+    id: str
+    name: str
+    category: str
+    situation: str
+    recommended_action: str
+    jarvis_example: str
+    indicators: List[str]
+    trade_offs: List[str]
+    risks: List[str]
+    benefits: List[str]
+    decision_questions: List[str]
+    tags: List[str]
+    related_principles: List[str] = field(default_factory=list)
+    related_patterns: List[str] = field(default_factory=list)
+    related_anti_patterns: List[str] = field(default_factory=list)
+    related_architecture_patterns: List[str] = field(default_factory=list)
+    related_best_practices: List[str] = field(default_factory=list)
+    references: List[str] = field(default_factory=list)
+    extra: dict = field(default_factory=dict, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        list_fields = (
+            "indicators", "trade_offs", "risks", "benefits",
+            "decision_questions", "tags", "related_principles",
+            "related_patterns", "related_anti_patterns",
+            "related_architecture_patterns", "related_best_practices",
+            "references",
+        )
+        for lf in list_fields:
+            value = getattr(self, lf)
+            if not isinstance(value, list):
+                object.__setattr__(self, lf, list(value))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EngineeringDecision":
+        """Construct an EngineeringDecision from a raw dictionary."""
+        known = {
+            "id", "name", "category", "situation", "indicators",
+            "recommended_action", "trade_offs", "risks", "benefits",
+            "decision_questions", "related_principles", "related_patterns",
+            "related_anti_patterns", "related_architecture_patterns",
+            "related_best_practices", "jarvis_example", "references", "tags",
+        }
+        extra = {k: v for k, v in data.items() if k not in known}
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            category=data["category"],
+            situation=data["situation"],
+            recommended_action=data["recommended_action"],
+            jarvis_example=data["jarvis_example"],
+            indicators=list(data.get("indicators", [])),
+            trade_offs=list(data.get("trade_offs", [])),
+            risks=list(data.get("risks", [])),
+            benefits=list(data.get("benefits", [])),
+            decision_questions=list(data.get("decision_questions", [])),
+            tags=list(data.get("tags", [])),
+            related_principles=list(data.get("related_principles", [])),
+            related_patterns=list(data.get("related_patterns", [])),
+            related_anti_patterns=list(data.get("related_anti_patterns", [])),
+            related_architecture_patterns=list(data.get("related_architecture_patterns", [])),
+            related_best_practices=list(data.get("related_best_practices", [])),
+            references=list(data.get("references", [])),
+            extra=extra,
+        )

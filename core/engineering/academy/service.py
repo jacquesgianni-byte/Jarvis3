@@ -11,12 +11,13 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .exceptions import PrincipleNotFoundError
-from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringDecision, EngineeringPrinciple
 from .repository import (
     AcademyRepository,
     AntiPatternRepository,
     ArchitecturePatternRepository,
     BestPracticeRepository,
+    EngineeringDecisionRepository,
     PatternRepository,
 )
 
@@ -330,5 +331,68 @@ class BestPracticeService:
             bp.id, bp.name, bp.category, bp.description, bp.rationale,
             *bp.tags, *bp.implementation_guidance, *bp.benefits,
             *bp.common_mistakes, *bp.examples,
+        ]
+        return any(needle in s.lower() for s in searchable)
+
+
+class EngineeringDecisionService:
+    """
+    Business-logic layer for engineering decisions.
+    (Genesis-019 Sprint 006)
+
+    Provides deterministic access to engineering decision records.
+    All search is keyword/substring-based — no AI, no fuzzy matching.
+    """
+
+    def __init__(self, repository: EngineeringDecisionRepository) -> None:
+        self._repository = repository
+
+    def get_decision(self, decision_id: str) -> EngineeringDecision:
+        """
+        Return the decision with *decision_id*.
+
+        Raises
+        ------
+        PrincipleNotFoundError
+            If no decision with that ID exists.
+        """
+        result = self._repository.get_by_id(decision_id)
+        if result is None:
+            raise PrincipleNotFoundError(decision_id)
+        return result
+
+    def list_decisions(self) -> list:
+        """Return all decisions in stable, deterministic order (sorted by id)."""
+        return self._repository.list_all()
+
+    def find_by_category(self, category: str) -> list:
+        """Return decisions in *category* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_category(category)
+
+    def find_by_tag(self, tag: str) -> list:
+        """Return decisions tagged with *tag* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_tag(tag)
+
+    def search(self, query: str) -> list:
+        """
+        Return decisions whose text fields contain *query* as a substring.
+
+        Case-insensitive. Deterministic. Results sorted by id.
+        No AI. No semantic matching. No fuzzy matching.
+        """
+        needle = query.strip().lower()
+        if not needle:
+            return []
+        return [
+            d for d in self._repository.list_all()
+            if self._decision_matches(d, needle)
+        ]
+
+    def _decision_matches(self, d: EngineeringDecision, needle: str) -> bool:
+        searchable = [
+            d.id, d.name, d.category, d.situation,
+            d.recommended_action, d.jarvis_example,
+            *d.tags, *d.indicators, *d.trade_offs,
+            *d.risks, *d.benefits, *d.decision_questions,
         ]
         return any(needle in s.lower() for s in searchable)

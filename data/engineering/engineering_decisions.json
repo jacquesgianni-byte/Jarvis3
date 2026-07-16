@@ -1,0 +1,807 @@
+{
+  "engineering_decisions": [
+    {
+      "id": "refactor-vs-rewrite",
+      "name": "Refactor vs Rewrite",
+      "category": "codebase",
+      "situation": "An existing module, class, or subsystem is difficult to maintain, slow to extend, or regularly produces bugs. The team must decide whether to improve the existing code incrementally or replace it entirely with a new implementation.",
+      "indicators": [
+        "The existing code produces frequent bugs despite ongoing fixes",
+        "Adding features requires touching more than five unrelated files",
+        "The code has no test coverage and cannot be tested safely",
+        "The original design assumptions are fundamentally wrong for current requirements",
+        "The time to understand the existing code before changing it exceeds the time to write a new version"
+      ],
+      "recommended_action": "Default to refactoring. Rewrite only when the existing code is genuinely beyond incremental repair — typically when the architecture is fundamentally wrong, not merely messy. A rewrite that is 80% complete and stalls is more dangerous than the code it replaced.",
+      "trade_offs": [
+        "Refactor: slower progress, continuous delivery, lower risk, preserves existing behaviour",
+        "Rewrite: faster initial progress, big-bang delivery, higher risk, may miss edge cases the original handled silently"
+      ],
+      "risks": [
+        "Rewrites almost always take three times longer than estimated",
+        "Rewrites lose the institutional knowledge embedded in the original code's edge case handling",
+        "A partial rewrite leaves the system in a worse state than either the original or the completed rewrite",
+        "Refactoring without tests can introduce regressions"
+      ],
+      "benefits": [
+        "Refactoring produces continuous improvement without a 'dark period' where the system is unreliable",
+        "A successful rewrite can eliminate years of accumulated technical debt in one step",
+        "Refactoring builds team understanding of the existing code before improving it"
+      ],
+      "decision_questions": [
+        "Can the existing code be made testable without a rewrite?",
+        "Is the design fundamentally wrong, or merely messy?",
+        "Can the rewrite be delivered incrementally rather than as a big bang?",
+        "Does the team have enough knowledge of the existing behaviour to avoid regressing it in a rewrite?"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "jarvis-compound-progress", "solid-ocp"],
+      "related_patterns": ["adapter", "facade"],
+      "related_anti_patterns": ["dead-code", "spaghetti-code", "copy-paste-programming"],
+      "related_architecture_patterns": ["modular-monolith", "layered-architecture"],
+      "related_best_practices": ["refactoring-safely", "testing-first", "incremental-development"],
+      "jarvis_example": "Jarvis agent.py was accidentally overwritten during Genesis-015. The decision was to restore from git rather than rewrite from memory — evidence before assumption. The git history contained the authoritative version.",
+      "tags": ["refactor", "rewrite", "codebase", "technical-debt", "risk", "incremental"]
+    },
+    {
+      "id": "composition-vs-inheritance",
+      "name": "Composition vs Inheritance",
+      "category": "design",
+      "situation": "A new class needs to share behaviour with an existing class. The engineer must decide whether to inherit from the existing class (is-a relationship) or hold a reference to it and delegate (has-a relationship).",
+      "indicators": [
+        "The new class needs some but not all of the parent class behaviour",
+        "The new class would need to override several parent methods to correct inherited behaviour",
+        "The relationship between the two classes is 'uses' rather than 'is a'",
+        "The class hierarchy is already more than two levels deep",
+        "The same behaviour needs to be shared between classes that are not related by type"
+      ],
+      "recommended_action": "Prefer composition. Inherit only when the relationship is genuinely an is-a relationship and the subclass will use all inherited behaviour without overriding most of it. The Open/Closed Principle and the Liskov Substitution Principle together constrain when inheritance is appropriate.",
+      "trade_offs": [
+        "Inheritance: less boilerplate for true is-a relationships, but creates rigid coupling between parent and child",
+        "Composition: more flexible and testable, but requires explicit delegation for each delegated method"
+      ],
+      "risks": [
+        "Deep inheritance hierarchies become fragile — a change to a base class breaks all subclasses",
+        "Composition with too many delegated objects creates a coordination problem",
+        "Inheritance used for code reuse rather than type hierarchy creates wrong abstractions"
+      ],
+      "benefits": [
+        "Composition allows behaviour to change at runtime by swapping the composed object",
+        "Composed objects are independently testable",
+        "Composition does not create hidden dependencies on base class implementation details"
+      ],
+      "decision_questions": [
+        "Is this genuinely an is-a relationship or a has-a relationship?",
+        "Will the subclass use all inherited behaviour without overriding most of it?",
+        "Does the composed behaviour need to vary independently of the containing class?",
+        "Would a Strategy pattern serve better than inheritance here?"
+      ],
+      "related_principles": ["solid-ocp", "solid-lsp", "composition-over-inheritance", "solid-dip"],
+      "related_patterns": ["strategy", "decorator", "adapter"],
+      "related_anti_patterns": ["tight-coupling", "god-object"],
+      "related_architecture_patterns": ["clean-architecture", "hexagonal-architecture"],
+      "related_best_practices": ["single-responsibility", "separation-of-concerns"],
+      "jarvis_example": "Jarvis AIProvider hierarchy: OpenAIProvider and AnthropicProvider do not inherit from each other but both implement the BaseAIProvider interface. The Manager composes whichever provider is active rather than inheriting from it.",
+      "tags": ["composition", "inheritance", "design", "oop", "flexibility", "coupling"]
+    },
+    {
+      "id": "pattern-vs-simplicity",
+      "name": "Pattern vs Simplicity",
+      "category": "design",
+      "situation": "A design problem could be solved with a well-known pattern (Strategy, Observer, Command, etc.) or with a simpler direct implementation. The engineer must decide whether the pattern's structure is justified by the problem's complexity.",
+      "indicators": [
+        "The problem involves only one variant — the pattern would add a class for one implementation",
+        "The team is unfamiliar with the pattern and the learning cost exceeds the benefit",
+        "The pattern is being applied because it fits rather than because it is needed",
+        "A simpler implementation would be immediately understandable to any developer"
+      ],
+      "recommended_action": "Apply a pattern only when the problem it solves genuinely exists. Patterns address recurring design problems — if the problem does not recur, the pattern adds complexity without benefit. Start simple; introduce a pattern when the need emerges from the code, not from anticipation.",
+      "trade_offs": [
+        "Pattern: communicates structure clearly to developers who know it, but adds indirection for those who do not",
+        "Simplicity: immediately understandable, but may require refactoring if complexity grows"
+      ],
+      "risks": [
+        "Premature pattern application creates wrong abstractions that are expensive to remove",
+        "Not applying a pattern when warranted leads to spaghetti code when complexity grows",
+        "Pattern names used incorrectly mislead the team about the design's intent"
+      ],
+      "benefits": [
+        "Well-applied patterns communicate design intent concisely to experienced engineers",
+        "Simple code is easier to test, debug, and hand to a new developer",
+        "Patterns deferred until needed are based on real requirements rather than speculation"
+      ],
+      "decision_questions": [
+        "Does the problem this pattern solves actually exist in the current code?",
+        "Are there two or more variants that need to be interchangeable?",
+        "Would a new developer understand the code faster with or without the pattern?",
+        "Can the pattern be introduced later if needed without major restructuring?"
+      ],
+      "related_principles": ["kiss", "yagni", "solid-ocp"],
+      "related_patterns": ["strategy", "factory", "observer"],
+      "related_anti_patterns": ["premature-optimisation", "god-object"],
+      "related_architecture_patterns": ["layered-architecture"],
+      "related_best_practices": ["kiss", "yagni", "keep-functions-small"],
+      "jarvis_example": "Jarvis ValidationRegistry uses a plain dictionary to map recommendation names to commands. A full Command pattern was considered but rejected — there is only one executor and the dictionary is immediately understandable.",
+      "tags": ["patterns", "simplicity", "design", "kiss", "yagni", "over-engineering"]
+    },
+    {
+      "id": "performance-vs-readability",
+      "name": "Performance vs Readability",
+      "category": "quality",
+      "situation": "An engineer identifies that a clearer, more readable implementation runs slower than a less readable optimised version. The decision is whether to accept the performance cost of the readable implementation or the readability cost of the optimised one.",
+      "indicators": [
+        "Profiling confirms the readable implementation is a measurable bottleneck",
+        "The optimised version introduces complexity that requires a comment to explain",
+        "The performance difference is below the threshold of user perceptibility",
+        "The code is not in a hot path and is called infrequently"
+      ],
+      "recommended_action": "Default to readability. Optimise only when profiling confirms the code is a real bottleneck and the performance improvement is measurable and significant. Document the profiling evidence in the code. An optimisation without evidence is premature.",
+      "trade_offs": [
+        "Readability: easier to maintain, test, and understand, but may be slower in hot paths",
+        "Performance: faster execution, but harder to maintain and more likely to contain bugs"
+      ],
+      "risks": [
+        "Optimising unconfirmed bottlenecks wastes engineering time on problems that do not exist",
+        "Clever optimised code contains more bugs per line than clear code",
+        "Performance optimisations become outdated as hardware improves or the code path changes"
+      ],
+      "benefits": [
+        "Readable code reduces the cost of every future change",
+        "Confirmed optimisations in real bottlenecks provide genuine user value",
+        "Clear code is easier to profile correctly because its structure matches the mental model"
+      ],
+      "decision_questions": [
+        "Has this code path been profiled and confirmed as a bottleneck?",
+        "Is the performance difference perceptible to the user?",
+        "Can the optimisation be encapsulated so it does not affect surrounding code clarity?",
+        "What is the maintenance cost of the optimisation over the lifetime of the codebase?"
+      ],
+      "related_principles": ["kiss", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["strategy"],
+      "related_anti_patterns": ["premature-optimisation", "magic-numbers"],
+      "related_architecture_patterns": [],
+      "related_best_practices": ["meaningful-naming", "keep-functions-small", "documentation"],
+      "jarvis_example": "Jarvis AcademyLoader uses a straightforward list comprehension and a set for duplicate detection rather than a more complex single-pass algorithm. The loader runs in under 20ms — no profiling evidence justifies complexity.",
+      "tags": ["performance", "readability", "optimisation", "profiling", "evidence", "trade-off"]
+    },
+    {
+      "id": "technical-debt-assessment",
+      "name": "Technical Debt Assessment",
+      "category": "codebase",
+      "situation": "The team needs to decide whether to address existing technical debt now or defer it to a future sprint. The decision involves weighing the current cost of carrying the debt against the opportunity cost of addressing it instead of delivering new features.",
+      "indicators": [
+        "Every new feature in the affected area takes longer than expected because of the debt",
+        "The debt causes frequent bugs that consume more time than the debt would take to fix",
+        "New developers cannot contribute to the area without a long ramp-up caused by the debt",
+        "The debt is in a stable, rarely-changed area that does not slow down delivery"
+      ],
+      "recommended_action": "Address debt when its carrying cost exceeds its repayment cost, or when it is in a hot path that blocks current work. Defer debt that is in a stable, low-traffic area where the carrying cost is negligible. Never defer debt that causes production failures.",
+      "trade_offs": [
+        "Address now: removes friction immediately, but delays feature delivery",
+        "Defer: maintains delivery velocity now, but debt compounds and becomes more expensive over time"
+      ],
+      "risks": [
+        "Deferred debt compounds — each new feature built on a weak foundation adds to the instability",
+        "Addressing debt without tests introduces regressions that cost more than the debt itself",
+        "Debt in shared infrastructure is multiplied across every consumer of that infrastructure"
+      ],
+      "benefits": [
+        "Addressing debt in hot paths immediately improves delivery velocity",
+        "A clean codebase reduces the cognitive overhead of every future change",
+        "Deferred debt in stable areas allows the team to focus on higher-value work"
+      ],
+      "decision_questions": [
+        "What is the current weekly carrying cost of this debt in developer time?",
+        "How long would it take to repay this debt?",
+        "Is the debt in a frequently-changed area or a stable one?",
+        "Does the debt cause production failures or just slowdowns?"
+      ],
+      "related_principles": ["jarvis-compound-progress", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["facade", "adapter"],
+      "related_anti_patterns": ["dead-code", "copy-paste-programming", "spaghetti-code"],
+      "related_architecture_patterns": ["modular-monolith"],
+      "related_best_practices": ["refactoring-safely", "incremental-development", "testing-first"],
+      "jarvis_example": "The core/core/ nested legacy directory in Jarvis was identified as dead code technical debt. The decision was to defer removal to a dedicated maintenance patch rather than interrupt an active Genesis sprint.",
+      "tags": ["technical-debt", "codebase", "prioritisation", "maintenance", "carrying-cost", "velocity"]
+    },
+    {
+      "id": "local-solution-vs-external-dependency",
+      "name": "Local Solution vs External Dependency",
+      "category": "architecture",
+      "situation": "A required capability can be built in-house or satisfied by an external library, service, or API. The decision involves weighing control, cost, maintenance burden, and capability against build time and dependency risk.",
+      "indicators": [
+        "The external library does exactly what is needed with minimal configuration",
+        "The capability is a solved problem with mature, well-maintained open-source options",
+        "Building in-house would take longer than the external library's integration",
+        "The external dependency has a history of breaking changes or abandonment"
+      ],
+      "recommended_action": "Use external dependencies for capabilities that are outside your core domain. Build in-house when the capability is a core competitive differentiator, when no suitable external option exists, or when external options carry unacceptable vendor lock-in or data privacy risk.",
+      "trade_offs": [
+        "External: faster delivery, battle-tested, maintained by others — but adds dependency risk and potential breaking changes",
+        "Local: full control, no external risk — but requires ongoing maintenance and may never match the quality of a mature library"
+      ],
+      "risks": [
+        "External dependencies can be abandoned, relicensed, or break with upstream changes",
+        "In-house solutions in non-core domains divert engineering time from core product work",
+        "Vendor lock-in can make future changes expensive"
+      ],
+      "benefits": [
+        "External dependencies accelerate delivery of non-core capabilities",
+        "In-house solutions give full control over behaviour, performance, and security",
+        "Wrapping external dependencies behind interfaces allows them to be swapped later"
+      ],
+      "decision_questions": [
+        "Is this capability part of our core domain or a commodity function?",
+        "What happens to the product if this dependency is abandoned or breaks?",
+        "Can we wrap the dependency behind an interface to reduce lock-in?",
+        "What is the total cost of ownership of the external dependency including integration, upgrades, and risk?"
+      ],
+      "related_principles": ["solid-dip", "solid-ocp", "yagni"],
+      "related_patterns": ["adapter", "facade"],
+      "related_anti_patterns": ["tight-coupling", "premature-optimisation"],
+      "related_architecture_patterns": ["hexagonal-architecture", "clean-architecture"],
+      "related_best_practices": ["backwards-compatibility", "configuration-over-hardcoding"],
+      "jarvis_example": "Jarvis uses OpenAI and Anthropic as external AI providers wrapped behind the BaseAIProvider interface. The interface means Jarvis is not locked in to either — swapping providers requires only a new adapter class.",
+      "tags": ["dependency", "build-vs-buy", "architecture", "vendor-lock-in", "control", "risk"]
+    },
+    {
+      "id": "yagni-decision",
+      "name": "YAGNI Decision",
+      "category": "design",
+      "situation": "An engineer is about to add a feature, abstraction, or configuration option that is not required by the current sprint but seems like it will be needed eventually. The decision is whether to build it now or defer.",
+      "indicators": [
+        "The feature is not in the current sprint backlog",
+        "The feature is based on a future requirement that is not yet confirmed",
+        "Adding the feature now would make the current sprint's design more complex",
+        "The feature would not be used until at least two sprints from now"
+      ],
+      "recommended_action": "Do not build it. Defer to the last responsible moment — when the requirement is confirmed and the context for the decision is complete. Code written for speculative requirements must still be maintained, tested, and reasoned about, even if the requirement never materialises.",
+      "trade_offs": [
+        "Build now: avoids a future refactoring if the requirement arrives, but adds complexity that may never be needed",
+        "Defer: keeps the current design simple, but requires refactoring if the requirement arrives"
+      ],
+      "risks": [
+        "Speculative code that is never used becomes dead code and a maintenance burden",
+        "Speculative abstractions lock in wrong assumptions before the requirements are understood",
+        "Deferring genuinely time-sensitive capabilities can delay future sprints"
+      ],
+      "benefits": [
+        "Deferring keeps the current sprint's design simple and focused",
+        "Deferred decisions are made with more information — producing better designs",
+        "The refactoring cost of adding a feature later is usually less than the carrying cost of maintaining it speculatively"
+      ],
+      "decision_questions": [
+        "Is this requirement confirmed for a specific future sprint, or is it speculative?",
+        "What is the cost of adding this later versus the cost of carrying it now?",
+        "Does adding this now make the current implementation meaningfully harder to understand?",
+        "Has a stakeholder confirmed this will be needed?"
+      ],
+      "related_principles": ["yagni", "kiss", "jarvis-architecture-before-implementation"],
+      "related_patterns": ["factory"],
+      "related_anti_patterns": ["premature-optimisation", "dead-code", "god-object"],
+      "related_architecture_patterns": ["modular-monolith"],
+      "related_best_practices": ["yagni", "incremental-development", "kiss"],
+      "jarvis_example": "Jarvis Genesis-016 Sprint 001 built a Repository Catalogue without AST parsing or dependency resolution. Those capabilities were deferred because the current sprint did not require them — they were not speculated into existence.",
+      "tags": ["yagni", "design", "deferral", "speculative", "simplicity", "requirements"]
+    },
+    {
+      "id": "premature-optimisation-decision",
+      "name": "Premature Optimisation Decision",
+      "category": "quality",
+      "situation": "An engineer is considering optimising a piece of code for performance before validating that it is a bottleneck. The decision is whether to optimise now or write the simplest correct implementation and measure first.",
+      "indicators": [
+        "No profiling has been performed on the code in question",
+        "The performance concern is based on intuition rather than measurement",
+        "The optimisation would make the code significantly harder to read",
+        "The code path is not in a hot loop or a user-facing latency-sensitive operation"
+      ],
+      "recommended_action": "Write the simplest correct implementation first. Measure with a profiler. Optimise only the confirmed bottleneck, only as much as the measurement justifies. Document the profiling evidence alongside the optimisation.",
+      "trade_offs": [
+        "Optimise now: may solve a real problem, but more likely wastes time on a non-issue",
+        "Measure first: adds a profiling step, but ensures optimisation effort is directed at real bottlenecks"
+      ],
+      "risks": [
+        "Optimising the wrong place provides no user benefit while adding complexity",
+        "Premature optimisation locks in implementation details before the design is stable",
+        "Optimised code contains more bugs and is harder to refactor"
+      ],
+      "benefits": [
+        "Evidence-based optimisation ensures effort is spent on real problems",
+        "Simple code is faster to implement, test, and debug",
+        "Deferred optimisation allows the design to stabilise before its performance is tuned"
+      ],
+      "decision_questions": [
+        "Has this code been profiled and confirmed as a bottleneck?",
+        "Is the performance difference perceptible to the user in real usage?",
+        "What is the maintenance cost of this optimisation over the lifetime of the code?",
+        "Can the optimisation be isolated behind an abstraction so it does not pollute surrounding code?"
+      ],
+      "related_principles": ["kiss", "jarvis-evidence-before-assumption", "yagni"],
+      "related_patterns": ["strategy"],
+      "related_anti_patterns": ["premature-optimisation", "magic-numbers"],
+      "related_architecture_patterns": [],
+      "related_best_practices": ["performance-vs-readability", "testing-first", "documentation"],
+      "jarvis_example": "Jarvis reasoning engine caching was considered during Genesis-015. The decision was to defer — the engine runs in under 100ms per request and there was no profiling evidence of a bottleneck. Evidence before assumption.",
+      "tags": ["optimisation", "performance", "profiling", "evidence", "premature", "measurement"]
+    },
+    {
+      "id": "build-vs-buy",
+      "name": "Build vs Buy",
+      "category": "architecture",
+      "situation": "A required product capability could be purchased as a commercial product or SaaS, acquired as open source, or built from scratch. The decision involves weighing time to value, total cost of ownership, control, and strategic fit.",
+      "indicators": [
+        "A commercial product satisfies 90%+ of requirements with minimal customisation",
+        "The capability is a commodity function outside the core product domain",
+        "Building from scratch would take months and divert the team from core work",
+        "The commercial option introduces vendor lock-in for a strategically critical capability"
+      ],
+      "recommended_action": "Buy or use open source for commodity capabilities outside your core domain. Build when the capability is a core competitive differentiator, when no suitable option exists, or when the customisation required exceeds the effort of building.",
+      "trade_offs": [
+        "Buy: faster time to value, maintained by others — but costs money, may not fit exactly, and creates dependency",
+        "Build: full control, exact fit — but expensive, slow, and requires ongoing maintenance"
+      ],
+      "risks": [
+        "Bought solutions may not cover edge cases specific to your product",
+        "Built solutions divert engineering resources from core product development",
+        "SaaS dependencies create operational risk if the vendor has downtime or raises prices"
+      ],
+      "benefits": [
+        "Buying commodity capabilities accelerates time to market",
+        "Building core capabilities creates defensible competitive advantage",
+        "Open source options provide the control of building with the speed of buying"
+      ],
+      "decision_questions": [
+        "Is this capability part of our core domain or a commodity?",
+        "What is the total cost of ownership including integration, licensing, and migration risk?",
+        "How much customisation would be required to make the commercial option work?",
+        "What is our exit strategy if the vendor changes pricing or discontinues the product?"
+      ],
+      "related_principles": ["yagni", "jarvis-earned-authority", "solid-dip"],
+      "related_patterns": ["adapter", "facade"],
+      "related_anti_patterns": ["tight-coupling", "premature-optimisation"],
+      "related_architecture_patterns": ["hexagonal-architecture", "plugin-architecture"],
+      "related_best_practices": ["local-solution-vs-external-dependency", "backwards-compatibility"],
+      "jarvis_example": "Jarvis uses Whisper (open source) for voice transcription and win32com SAPI for TTS rather than paid cloud services — both are free, local, and give full control. The AI intelligence layer uses paid APIs because that is the core differentiator.",
+      "tags": ["build-vs-buy", "architecture", "vendor", "open-source", "commercial", "cost", "control"]
+    },
+    {
+      "id": "synchronous-vs-asynchronous",
+      "name": "Synchronous vs Asynchronous",
+      "category": "architecture",
+      "situation": "A communication or processing interaction could be implemented synchronously (caller waits for result) or asynchronously (caller continues and result arrives later). The decision affects latency, throughput, complexity, and error handling.",
+      "indicators": [
+        "The operation takes long enough to block the caller's primary responsibility",
+        "The caller does not need the result immediately to continue its work",
+        "The system must handle bursts of requests without degrading under load",
+        "Async adds significant complexity to error handling and debugging"
+      ],
+      "recommended_action": "Use synchronous communication as the default — it is simpler, easier to debug, and easier to reason about. Introduce asynchronous communication when the caller genuinely cannot wait, when throughput requirements demand it, or when producer and consumer need to be decoupled.",
+      "trade_offs": [
+        "Synchronous: simple, easy to reason about, but blocks the caller and creates temporal coupling",
+        "Asynchronous: higher throughput, decoupled — but harder to debug, test, and handle errors"
+      ],
+      "risks": [
+        "Async introduces eventual consistency — the system may be in an inconsistent state between request and response",
+        "Error handling in async systems is significantly more complex",
+        "Debugging async code requires distributed tracing rather than a simple stack trace"
+      ],
+      "benefits": [
+        "Async enables the caller to continue working while the operation completes",
+        "Async decouples producers from consumers, enabling independent scaling",
+        "Async smooths out burst load via queuing"
+      ],
+      "decision_questions": [
+        "Does the caller need the result immediately, or can it continue without it?",
+        "Is the operation duration long enough to justify the async complexity?",
+        "Does the system need to handle bursts that would overwhelm a synchronous handler?",
+        "Is the team prepared to handle the debugging and error handling complexity of async?"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns"],
+      "related_patterns": ["observer", "command"],
+      "related_anti_patterns": ["tight-coupling", "god-object"],
+      "related_architecture_patterns": ["event-driven-architecture", "pipeline-architecture", "microservices"],
+      "related_best_practices": ["error-handling", "logging-and-observability"],
+      "jarvis_example": "Jarvis Desktop processes AI responses in a background QThread (async from the UI thread) so the UI remains responsive. The result is dispatched back to the UI thread via a Qt signal — a controlled async boundary with clear ownership.",
+      "tags": ["synchronous", "asynchronous", "architecture", "throughput", "latency", "complexity", "threading"]
+    },
+    {
+      "id": "monolith-vs-modularisation",
+      "name": "Monolith vs Modularisation",
+      "category": "architecture",
+      "situation": "A growing application needs a decision about how to manage increasing complexity. The choice is between keeping a monolithic structure (possibly modular internally) or splitting into separate, independently deployable services or packages.",
+      "indicators": [
+        "Different parts of the application have radically different scaling requirements",
+        "Different teams need to deploy independently without coordinating",
+        "Internal module boundaries are clear and the monolith is well-structured",
+        "The domain boundaries are not yet stable enough to commit to service extraction"
+      ],
+      "recommended_action": "Start with a well-structured modular monolith. Extract services only when a specific, proven need exists — independent scaling, independent deployment cadence, or team autonomy. Premature service extraction creates a distributed monolith with all the complexity and none of the benefits.",
+      "trade_offs": [
+        "Monolith: simpler operations, easier debugging, single deployment — but all teams deploy together",
+        "Services: independent deployment and scaling, team autonomy — but distributed systems complexity"
+      ],
+      "risks": [
+        "Service extraction with unclear domain boundaries creates tightly coupled services that are harder to manage than the original monolith",
+        "A well-structured modular monolith can scale further than teams expect before services are needed",
+        "Service extraction is expensive to reverse if the boundaries turn out to be wrong"
+      ],
+      "benefits": [
+        "A modular monolith provides clear boundaries without operational overhead",
+        "Service extraction at the right time delivers genuine team autonomy and scaling benefits",
+        "Starting with a monolith allows domain boundaries to emerge from real usage"
+      ],
+      "decision_questions": [
+        "Do different parts of the system have proven, different scaling requirements?",
+        "Do teams need to deploy independently right now, or is this anticipated for the future?",
+        "Are the domain boundaries stable and well-understood?",
+        "Does the team have the operational maturity to manage distributed services?"
+      ],
+      "related_principles": ["yagni", "solid-srp", "separation-of-concerns"],
+      "related_patterns": ["facade", "repository"],
+      "related_anti_patterns": ["premature-optimisation", "god-object"],
+      "related_architecture_patterns": ["modular-monolith", "microservices", "layered-architecture"],
+      "related_best_practices": ["incremental-development", "yagni"],
+      "jarvis_example": "Jarvis OS is a modular monolith. The engineering, knowledge, reasoning, voice, and skills subsystems are well-bounded modules — not separate services. Service extraction is a future option when genuine need emerges.",
+      "tags": ["monolith", "microservices", "modularisation", "architecture", "scaling", "deployment", "team-autonomy"]
+    },
+    {
+      "id": "feature-flags",
+      "name": "Feature Flags",
+      "category": "process",
+      "situation": "A new feature is ready for code integration but not ready for user exposure. Or a feature needs to be available to only a subset of users. The decision is whether to use a feature flag to control exposure versus branching or delaying integration.",
+      "indicators": [
+        "The feature is complete in code but needs controlled rollout",
+        "The feature must be available to specific users or environments before all users",
+        "The team wants to integrate code continuously without exposing incomplete features",
+        "The feature needs to be quickly disabled in production if problems are detected"
+      ],
+      "recommended_action": "Use feature flags for controlled rollout of significant features, for A/B testing, and for emergency kill switches on risky capabilities. Avoid feature flags for long-lived permanent toggles — they accumulate and become technical debt. Set a removal date for every flag when it is created.",
+      "trade_offs": [
+        "Feature flags: continuous integration with controlled exposure, but flags accumulate and add complexity",
+        "Branching: clean main branch, but merge conflicts and integration risk accumulate over time"
+      ],
+      "risks": [
+        "Stale feature flags that are never removed become dead code",
+        "Multiple active feature flags create a combinatorial explosion of states to test",
+        "Feature flag logic that is too complex creates hidden coupling between features"
+      ],
+      "benefits": [
+        "Code is integrated continuously without exposing incomplete features",
+        "Features can be rolled out incrementally to reduce user-visible risk",
+        "Features can be instantly disabled if production issues are detected"
+      ],
+      "decision_questions": [
+        "What is the removal date for this flag?",
+        "How many feature flags are currently active and what is the total testing surface?",
+        "Does this flag need to be per-user, per-environment, or global?",
+        "Is branching a cleaner alternative for short-duration feature work?"
+      ],
+      "related_principles": ["solid-ocp", "jarvis-earned-authority"],
+      "related_patterns": ["strategy"],
+      "related_anti_patterns": ["dead-code", "magic-numbers"],
+      "related_architecture_patterns": ["modular-monolith"],
+      "related_best_practices": ["configuration-over-hardcoding", "incremental-development", "version-control-discipline"],
+      "jarvis_example": "Jarvis Settings uses environment variables as lightweight feature flags — REASONING_EFFORT and DEFAULT_AI_PROVIDER allow switching behaviour per environment without code changes.",
+      "tags": ["feature-flags", "process", "rollout", "toggle", "continuous-integration", "risk-mitigation"]
+    },
+    {
+      "id": "short-term-vs-long-term-solution",
+      "name": "Short-Term vs Long-Term Solution",
+      "category": "codebase",
+      "situation": "A problem has two solutions: a quick fix that solves it immediately but creates technical debt, and a proper solution that takes longer but leaves the codebase in a better state. The decision is which to implement given time constraints.",
+      "indicators": [
+        "There is genuine time pressure that makes the proper solution impractical right now",
+        "The quick fix has a clear, planned removal date",
+        "The proper solution is well-understood and will definitely be implemented",
+        "The quick fix solves a production incident where every minute of downtime costs more than the debt"
+      ],
+      "recommended_action": "Accept a short-term solution only when time pressure is genuine and the quick fix is explicitly tracked for replacement. Create a ticket, set a deadline, and document the debt in the code with a comment explaining what the proper solution is and when it will be implemented.",
+      "trade_offs": [
+        "Short-term: immediate relief, but debt accumulated if not replaced",
+        "Long-term: better outcome, but slower — may be unacceptable under genuine time pressure"
+      ],
+      "risks": [
+        "Short-term solutions that are never replaced become permanent technical debt",
+        "Multiple short-term solutions compound and create a system that nobody understands",
+        "Quick fixes in critical paths introduce hard-to-reproduce bugs"
+      ],
+      "benefits": [
+        "Short-term solutions can unblock teams under genuine deadline pressure",
+        "Long-term solutions leave the codebase cleaner for every future engineer",
+        "Explicit tracking of short-term solutions prevents them from becoming permanent"
+      ],
+      "decision_questions": [
+        "Is the time pressure genuine or perceived?",
+        "Is there a ticket tracking the replacement of this short-term solution?",
+        "When exactly will the proper solution be implemented?",
+        "Is a comment in the code documenting the debt and the plan to address it?"
+      ],
+      "related_principles": ["jarvis-compound-progress", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["adapter"],
+      "related_anti_patterns": ["dead-code", "copy-paste-programming", "spaghetti-code"],
+      "related_architecture_patterns": ["modular-monolith"],
+      "related_best_practices": ["technical-debt-assessment", "documentation", "version-control-discipline"],
+      "jarvis_example": "Jarvis conftest.py fix (Maintenance Patch 004) was a targeted short-term isolation fix. It was immediately committed, documented, and the root cause of slow test collection was explained in the commit message.",
+      "tags": ["short-term", "long-term", "technical-debt", "pragmatism", "time-pressure", "trade-off"]
+    },
+    {
+      "id": "abstraction-level",
+      "name": "Abstraction Level Decision",
+      "category": "design",
+      "situation": "An engineer must decide how abstract to make an interface, module, or API. Too abstract and the interface is difficult to implement and understand. Too concrete and it is brittle and hard to extend.",
+      "indicators": [
+        "The interface exposes implementation details that callers should not need to know",
+        "The interface is so abstract that it cannot be meaningfully implemented",
+        "There are currently zero or one concrete implementations — abstraction may be premature",
+        "The interface leaks the vocabulary of a specific technology rather than the domain"
+      ],
+      "recommended_action": "Abstract at the level of the domain, not the implementation. An interface should be defined from the caller's perspective — what does the caller need to do? — not from the implementer's perspective. Introduce abstractions when there are two concrete implementations, or when hiding an implementation detail provides testability or replaceability.",
+      "trade_offs": [
+        "Higher abstraction: more flexible and testable, but harder to understand and implement",
+        "Lower abstraction: simpler and more concrete, but harder to test and swap implementations"
+      ],
+      "risks": [
+        "Wrong abstraction level locks in assumptions that are expensive to change",
+        "Too abstract an interface forces all implementations to support behaviour they do not naturally have",
+        "Too concrete an interface creates coupling that prevents testing in isolation"
+      ],
+      "benefits": [
+        "The right abstraction level hides implementation details while remaining implementable",
+        "Abstract interfaces enable testing with mocks and swapping implementations",
+        "Domain-level abstractions communicate intent rather than mechanism"
+      ],
+      "decision_questions": [
+        "Is this abstraction defined from the caller's perspective or the implementer's?",
+        "Are there currently two or more implementations that justify this abstraction?",
+        "Does this interface expose domain concepts or technology concepts?",
+        "Can a new team member implement this interface from its signature alone?"
+      ],
+      "related_principles": ["solid-dip", "solid-isp", "solid-ocp", "separation-of-concerns"],
+      "related_patterns": ["repository", "adapter", "strategy", "factory"],
+      "related_anti_patterns": ["tight-coupling", "feature-envy"],
+      "related_architecture_patterns": ["clean-architecture", "hexagonal-architecture"],
+      "related_best_practices": ["separation-of-concerns", "meaningful-naming", "single-responsibility"],
+      "jarvis_example": "Jarvis AcademyRepository exposes get_by_id, list_all, filter_by_category, filter_by_tag — domain operations, not SQL or JSON operations. A caller does not need to know whether storage is JSON, SQLite, or in-memory.",
+      "tags": ["abstraction", "design", "interface", "domain", "level", "coupling"]
+    },
+    {
+      "id": "test-coverage-decision",
+      "name": "Test Coverage Decision",
+      "category": "quality",
+      "situation": "A team must decide how much test coverage to target, which code paths to cover, and when coverage is sufficient to enable confident delivery. High coverage has a cost; insufficient coverage creates risk.",
+      "indicators": [
+        "The code contains complex business logic that is easy to get wrong",
+        "The code is infrastructure with few branches that is well-covered by integration tests",
+        "Coverage is high but tests are fragile and testing implementation details",
+        "A critical code path has no test coverage"
+      ],
+      "recommended_action": "Cover every behaviour that matters, not every line. Focus coverage on business rules, error paths, edge cases, and integration boundaries. Do not test implementation details — test observable behaviour. Aim for confidence in deployment, not a coverage percentage metric.",
+      "trade_offs": [
+        "High coverage: more confidence, slower delivery — but can create maintenance burden if tests are fragile",
+        "Low coverage: faster delivery, lower confidence — acceptable only in throwaway or purely infrastructure code"
+      ],
+      "risks": [
+        "High coverage of the wrong things (implementation details) creates brittle tests that break on every refactoring",
+        "Low coverage of business logic creates silent regressions that reach production",
+        "Coverage percentage as a goal encourages testing trivial code while missing complex paths"
+      ],
+      "benefits": [
+        "Well-targeted coverage enables confident refactoring",
+        "Tests of business logic document requirements in executable form",
+        "High coverage of boundary conditions prevents the most common class of production bugs"
+      ],
+      "decision_questions": [
+        "Is this code path covering business logic, infrastructure, or glue code?",
+        "Would a bug in this code path cause a production incident?",
+        "Are the tests covering behaviour (what) or implementation (how)?",
+        "Is the coverage preventing real bugs or just improving a metric?"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "solid-srp"],
+      "related_patterns": ["repository", "strategy"],
+      "related_anti_patterns": ["dead-code", "premature-optimisation"],
+      "related_architecture_patterns": ["clean-architecture"],
+      "related_best_practices": ["testing-first", "defensive-programming", "refactoring-safely"],
+      "jarvis_example": "Jarvis Engineering Academy has 428 tests covering 94 knowledge records. Coverage targets business logic (schema validation, duplicate detection, relationship integrity) and observable behaviour (search, filtering, ordering) — not getter implementations.",
+      "tags": ["test-coverage", "quality", "testing", "confidence", "behaviour", "risk"]
+    },
+    {
+      "id": "api-stability-decision",
+      "name": "API Stability Decision",
+      "category": "architecture",
+      "situation": "An existing public API or interface has a design problem that the team wants to fix. The fix would be a breaking change. The decision is whether to fix it now, deprecate and migrate, or leave it as-is.",
+      "indicators": [
+        "The API is used by external consumers who cannot all be updated simultaneously",
+        "The design problem causes regular bugs or confusion for callers",
+        "The number of callers is small enough that coordinated migration is practical",
+        "The API is internal and all callers are in the same codebase"
+      ],
+      "recommended_action": "For public or external APIs, deprecate before breaking. Add the new API alongside the old, mark the old as deprecated, allow callers to migrate, then remove the old API after a versioned migration window. For internal APIs where all callers can be updated atomically, prefer a single clean migration.",
+      "trade_offs": [
+        "Break now: clean API faster, but forces all callers to update simultaneously",
+        "Deprecate and migrate: callers migrate at their own pace, but the codebase carries both the old and new API temporarily"
+      ],
+      "risks": [
+        "Breaking external APIs without warning destroys trust with API consumers",
+        "Deprecation windows that are too short do not give consumers enough time to migrate",
+        "Deprecated APIs that are never removed become permanent dead code"
+      ],
+      "benefits": [
+        "Clean APIs reduce the long-term maintenance burden",
+        "Controlled migration windows allow consumers to migrate safely",
+        "Breaking internal APIs atomically is faster and cleaner than deprecation"
+      ],
+      "decision_questions": [
+        "Who are all the callers of this API and can they be updated simultaneously?",
+        "Is this API internal (same codebase) or external (other teams, public)?",
+        "What is the migration path and how long does it need to be?",
+        "When will the deprecated version be removed?"
+      ],
+      "related_principles": ["solid-ocp", "jarvis-earned-authority"],
+      "related_patterns": ["adapter", "facade"],
+      "related_anti_patterns": ["tight-coupling", "shotgun-surgery"],
+      "related_architecture_patterns": ["layered-architecture", "plugin-architecture"],
+      "related_best_practices": ["backwards-compatibility", "documentation", "version-control-discipline"],
+      "jarvis_example": "Jarvis AIManager preserves set_provider() alongside the new registry API. Existing code that calls set_provider() continues to work while the team migrates to the registry pattern.",
+      "tags": ["api-stability", "breaking-changes", "deprecation", "migration", "versioning", "backwards-compatibility"]
+    },
+    {
+      "id": "scalability-decision",
+      "name": "Scalability Decision",
+      "category": "architecture",
+      "situation": "The system is approaching a scale limit, or a design decision must be made that will affect future scalability. The team must decide how much scalability to build in now versus deferring until it is needed.",
+      "indicators": [
+        "The current load is approaching the system's measured capacity limits",
+        "The anticipated growth rate is well-understood and quantified",
+        "Scalability work is speculative — growth projections are uncertain",
+        "The current design has a well-understood scalability ceiling"
+      ],
+      "recommended_action": "Design for the next order of magnitude, not ten orders. Know the current system's scalability ceiling and plan to address it before it is hit, not after. Do not invest in scalability for anticipated load that may never materialise. The right time to address scalability is when measured load is at 70% of capacity.",
+      "trade_offs": [
+        "Scale early: avoids scrambling when load hits ceiling, but wastes engineering on possibly unnecessary infrastructure",
+        "Scale when needed: maximises simplicity until scale is genuinely required, but risks scrambling under load"
+      ],
+      "risks": [
+        "Premature scalability adds complexity that makes the system harder to operate and debug",
+        "Insufficient scalability causes production failures when load grows unexpectedly",
+        "Designing for the wrong scalability dimension — optimising vertical scale when horizontal is needed"
+      ],
+      "benefits": [
+        "A system with known, measured scalability limits can be planned for proactively",
+        "Deferring scalability keeps the initial design simple and fast to deliver",
+        "Evidence-based scalability decisions are made with real load data"
+      ],
+      "decision_questions": [
+        "What is the measured current load and what is the system's measured capacity ceiling?",
+        "How confident is the growth forecast, and on what timescale?",
+        "What is the cost of addressing scalability now versus at 70% capacity?",
+        "Which scalability dimension matters most: throughput, latency, storage, or concurrency?"
+      ],
+      "related_principles": ["yagni", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["repository", "observer"],
+      "related_anti_patterns": ["premature-optimisation", "god-object"],
+      "related_architecture_patterns": ["microservices", "event-driven-architecture", "modular-monolith"],
+      "related_best_practices": ["performance-vs-readability", "logging-and-observability", "technical-debt-assessment"],
+      "jarvis_example": "Jarvis OS is designed as a modular monolith with clean module boundaries. The modular design means individual subsystems can be extracted to services when genuine scale requires it — without redesigning the domain model.",
+      "tags": ["scalability", "architecture", "capacity", "growth", "load", "evidence-based"]
+    },
+    {
+      "id": "maintainability-decision",
+      "name": "Maintainability Decision",
+      "category": "quality",
+      "situation": "A design choice will affect how easy the code is to maintain over time. The team must balance delivering a feature quickly with writing code that future engineers (including themselves) can understand, modify, and extend without excessive effort.",
+      "indicators": [
+        "The feature is in a core module that will be frequently modified",
+        "The time pressure is real and the quick version would be clearly documented",
+        "The code will likely be handed to a new engineer within the next six months",
+        "The feature is in a stable, rarely-touched module where maintainability is less critical"
+      ],
+      "recommended_action": "Optimise for maintainability in any code that will be changed frequently, that others will inherit, or that implements complex domain logic. Accept lower maintainability in throwaway scripts, one-off tools, or genuinely stable code that is never changed.",
+      "trade_offs": [
+        "High maintainability: slower to write initially, but faster to change and cheaper to understand",
+        "Low maintainability: faster to write initially, but expensive to change and dangerous to modify"
+      ],
+      "risks": [
+        "Code optimised for speed of delivery becomes unmaintainable as it accumulates changes",
+        "Over-optimising for maintainability in throwaway code wastes time on code that will be deleted",
+        "Maintainability decisions made in isolation lead to inconsistent code style across the codebase"
+      ],
+      "benefits": [
+        "Maintainable code reduces the cost of every future change",
+        "Maintainable code enables confident refactoring rather than fearful patching",
+        "Consistent maintainability standards allow any team member to work in any part of the codebase"
+      ],
+      "decision_questions": [
+        "How often will this code be changed in the next year?",
+        "Who will maintain this code — the current author, a new hire, or an external contributor?",
+        "How complex is the domain logic — does it require extra clarity investment?",
+        "Is this code in a core module or a stable utility?"
+      ],
+      "related_principles": ["solid-srp", "kiss", "dry"],
+      "related_patterns": ["facade", "repository"],
+      "related_anti_patterns": ["god-object", "long-method", "spaghetti-code"],
+      "related_architecture_patterns": ["clean-architecture", "modular-monolith"],
+      "related_best_practices": ["meaningful-naming", "keep-functions-small", "documentation", "refactoring-safely"],
+      "jarvis_example": "Jarvis Engineering Academy loader follows extreme maintainability standards: each load method is named for its data type, each validation method is extracted and named, and the code reads like a specification. This module will be read frequently as the Academy grows.",
+      "tags": ["maintainability", "quality", "readability", "long-term", "handover", "consistency"]
+    },
+    {
+      "id": "security-vs-convenience",
+      "name": "Security vs Convenience",
+      "category": "reliability",
+      "situation": "A design choice trades security for convenience or vice versa. The team must decide how much friction to accept in exchange for security, based on the actual risk profile of the system and its users.",
+      "indicators": [
+        "The data handled by the system is sensitive or regulated",
+        "The security measure significantly degrades the user experience",
+        "The threat model is hypothetical rather than based on real attack patterns",
+        "The system handles financial, medical, or personal data"
+      ],
+      "recommended_action": "Match security measures to the actual threat model. Over-secured systems that sacrifice too much convenience drive users to unsafe workarounds. Under-secured systems expose sensitive data. Define the threat model explicitly, implement proportional security, and review when the threat model changes.",
+      "trade_offs": [
+        "High security: protects sensitive data, but adds friction that degrades user experience",
+        "High convenience: better user experience, but exposes the system to avoidable risks"
+      ],
+      "risks": [
+        "Security measures that are too burdensome get bypassed by users",
+        "Insufficient security exposes sensitive user data to attackers",
+        "Security decisions made without a threat model are arbitrary and may address the wrong risks"
+      ],
+      "benefits": [
+        "Proportional security delivers protection without unnecessary friction",
+        "A clear threat model makes security decisions defensible and auditable",
+        "Security built into design is more effective than security added later"
+      ],
+      "decision_questions": [
+        "What is the threat model for this system and what are the realistic attack vectors?",
+        "What is the impact if this data or capability is compromised?",
+        "Does the security measure address a real risk or a theoretical one?",
+        "How does this security measure affect the user experience for legitimate users?"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "solid-srp"],
+      "related_patterns": ["adapter", "facade"],
+      "related_anti_patterns": ["tight-coupling", "dead-code"],
+      "related_architecture_patterns": ["clean-architecture", "hexagonal-architecture"],
+      "related_best_practices": ["input-validation", "configuration-over-hardcoding", "defensive-programming"],
+      "jarvis_example": "Jarvis API keys are stored in .env (git-ignored) rather than in source code. The threat model is accidental exposure via version control — a simple, proportional control for a real risk.",
+      "tags": ["security", "convenience", "trade-off", "threat-model", "risk", "user-experience", "data-protection"]
+    },
+    {
+      "id": "risk-vs-reward",
+      "name": "Risk vs Reward",
+      "category": "process",
+      "situation": "An engineering decision involves a risk — a possibility of failure, regression, or delay — in exchange for a potential reward. The team must decide whether the reward justifies the risk, and how to manage the risk if proceeding.",
+      "indicators": [
+        "The change touches a critical path that, if broken, causes production incidents",
+        "The reward is a significant improvement in user experience, performance, or maintainability",
+        "The risk is quantifiable and can be mitigated by testing and rollback planning",
+        "The risk is unquantifiable and the failure mode is unclear"
+      ],
+      "recommended_action": "Quantify both the risk and the reward before deciding. Risks that cannot be quantified should be investigated until they can be, or reduced through prototyping. Always have a rollback plan before taking a significant risk. Never take a risk whose failure mode would be unrecoverable.",
+      "trade_offs": [
+        "Accept risk: potentially significant reward, but exposure to failure",
+        "Avoid risk: safe, predictable — but forgoes potential improvements and can lead to stagnation"
+      ],
+      "risks": [
+        "Underestimating the risk because the reward is attractive (optimism bias)",
+        "Overestimating the risk and avoiding changes that would significantly improve the system",
+        "Taking a risk without a rollback plan, leaving the team without an exit if things go wrong"
+      ],
+      "benefits": [
+        "Accepting well-understood risks enables the system to improve",
+        "A clear risk/reward framework makes decisions transparent and auditable",
+        "Having a rollback plan reduces the effective risk of any change"
+      ],
+      "decision_questions": [
+        "What is the probability of failure and what is the impact if it fails?",
+        "What is the reward if the change succeeds?",
+        "What is the rollback plan if the change fails?",
+        "Can the risk be reduced by testing in a non-production environment first?"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "jarvis-earned-authority", "jarvis-compound-progress"],
+      "related_patterns": ["command"],
+      "related_anti_patterns": ["premature-optimisation", "dead-code"],
+      "related_architecture_patterns": ["modular-monolith"],
+      "related_best_practices": ["incremental-development", "version-control-discipline", "testing-first"],
+      "jarvis_example": "Jarvis Genesis milestone freeze discipline: every sprint is validated before freezing. The freeze is the risk management gate — no new sprint begins until the previous one is confirmed to pass all tests, giving a clean rollback point.",
+      "tags": ["risk", "reward", "decision", "process", "rollback", "trade-off", "judgement"]
+    }
+  ]
+}
