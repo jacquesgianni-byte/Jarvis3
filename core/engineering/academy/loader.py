@@ -20,8 +20,10 @@ from .models import (
     REQUIRED_PATTERN_FIELDS,
     REQUIRED_ANTI_PATTERN_FIELDS,
     REQUIRED_ARCHITECTURE_PATTERN_FIELDS,
+    REQUIRED_BEST_PRACTICE_FIELDS,
     AntiPattern,
     ArchitecturePattern,
+    BestPractice,
     DesignPattern,
     EngineeringPrinciple,
 )
@@ -137,6 +139,30 @@ class AcademyLoader:
             [p.id for p in patterns], label="architecture-pattern"
         )
         return patterns
+
+    # ------------------------------------------------------------------
+    # Best Practices (Sprint 005)
+    # ------------------------------------------------------------------
+
+    def load_best_practices(self, path) -> list:
+        """
+        Load best practices from *path* and return a validated list.
+
+        Raises
+        ------
+        AcademySchemaError
+            If the file is missing, unreadable, malformed JSON, or fails
+            top-level structure validation.
+        InvalidPrincipleError
+            If any individual best practice record fails validation.
+        """
+        raw = self._read_file(path)
+        records = self._validate_top_level(raw, key="best_practices")
+        practices = [self._validate_best_practice(r) for r in records]
+        self._detect_duplicates(
+            [p.id for p in practices], label="best-practice"
+        )
+        return practices
 
     # ------------------------------------------------------------------
     # Private — shared I/O
@@ -329,3 +355,39 @@ class AcademyLoader:
                 )
 
         return ArchitecturePattern.from_dict(record)
+
+    # ------------------------------------------------------------------
+    # Private — best practice validation (Sprint 005)
+    # ------------------------------------------------------------------
+
+    def _validate_best_practice(self, record: object) -> "BestPractice":
+        """Validate a single best practice record and construct the model."""
+        if not isinstance(record, dict):
+            raise AcademySchemaError(
+                f"Each best practice must be a JSON object; "
+                f"got {type(record).__name__}."
+            )
+
+        bp_id = record.get("id", "<unknown>")
+
+        for field in REQUIRED_BEST_PRACTICE_FIELDS:
+            if field not in record:
+                raise InvalidPrincipleError(
+                    bp_id, f"missing required field '{field}'"
+                )
+
+        str_fields = ("id", "name", "category", "description", "rationale")
+        for f in str_fields:
+            if not isinstance(record[f], str) or not record[f].strip():
+                raise InvalidPrincipleError(
+                    bp_id, f"field '{f}' must be a non-empty string"
+                )
+
+        list_fields = ("implementation_guidance", "benefits", "common_mistakes", "tags")
+        for f in list_fields:
+            if not isinstance(record[f], list):
+                raise InvalidPrincipleError(
+                    bp_id, f"field '{f}' must be a list"
+                )
+
+        return BestPractice.from_dict(record)

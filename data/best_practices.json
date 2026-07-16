@@ -1,0 +1,808 @@
+{
+  "best_practices": [
+    {
+      "id": "single-responsibility",
+      "name": "Single Responsibility",
+      "category": "design",
+      "description": "Every function, class, and module should have one clearly stated reason to change. When a unit of code has a single responsibility, its purpose is obvious, its tests are focused, and changes to one concern cannot inadvertently break another.",
+      "rationale": "Code that mixes multiple responsibilities becomes difficult to understand, test, and change. When a class handles both data access and business logic, a database schema change breaks business logic tests. Separating responsibilities eliminates these accidental dependencies and makes each unit independently evolvable.",
+      "implementation_guidance": [
+        "Name every class and function so precisely that its single responsibility is obvious from the name alone",
+        "If you need the word 'and' to describe what a function does, split it",
+        "Keep classes focused on a single actor — the person or system whose requirements drive changes to that class",
+        "When a class starts importing from many unrelated modules, it is absorbing multiple responsibilities",
+        "Apply the test: if a change to requirement A forces you to modify this class, and a change to requirement B also forces a modification, the class has two responsibilities"
+      ],
+      "benefits": [
+        "Each unit is independently testable with a focused, minimal test suite",
+        "Changes to one concern cannot break unrelated concerns",
+        "Code is easier to understand because each unit has one clear purpose",
+        "Units can be reused because they are not entangled with unrelated logic"
+      ],
+      "common_mistakes": [
+        "Creating 'Utils' or 'Helper' classes that accumulate unrelated functions over time",
+        "Adding a second responsibility to an existing class because it is 'close enough'",
+        "Confusing single responsibility with single method — a class can have many methods that all serve the same responsibility",
+        "Over-applying the principle to create trivially small classes that add indirection without benefit"
+      ],
+      "related_principles": ["solid-srp", "separation-of-concerns", "kiss"],
+      "related_patterns": ["facade", "strategy", "repository"],
+      "related_anti_patterns": ["god-object", "long-method", "shotgun-surgery"],
+      "related_architecture_patterns": ["layered-architecture", "clean-architecture", "modular-monolith"],
+      "examples": [
+        "Jarvis AcademyLoader has one responsibility: read JSON and construct models. It does not cache, query, or filter — those belong to the repository and service layers",
+        "Jarvis EngineeringGuardrails has one responsibility: evaluate a plan against safety rules. It does not create plans or execute them",
+        "Jarvis GitReader has one responsibility: read repository state. It never writes"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 3: Functions, Chapter 10: Classes)",
+        "Robert C. Martin — Agile Software Development: Principles, Patterns, and Practices (SRP)"
+      ],
+      "tags": ["single-responsibility", "design", "srp", "cohesion", "focus", "testability"]
+    },
+    {
+      "id": "keep-functions-small",
+      "name": "Keep Functions Small",
+      "category": "design",
+      "description": "Functions should do one thing and do it well. They should be short enough to be understood at a glance — ideally fewer than 20 lines — with a single level of abstraction throughout. A function that can be read in full without scrolling is a function that can be reasoned about.",
+      "rationale": "Long functions hide multiple levels of abstraction, make it impossible to unit test individual steps, and force readers to hold too much context in working memory simultaneously. Short functions with descriptive names allow readers to understand intent without reading implementation, and allow each step to be tested and modified independently.",
+      "implementation_guidance": [
+        "Extract any block of code that has a comment explaining it — the comment reveals that the block deserves its own named function",
+        "A function should operate at a single level of abstraction — high-level orchestration should not mix with low-level implementation details",
+        "Prefer functions that can be named precisely over functions that require 'and' in their description",
+        "Functions with more than three parameters are candidates for a Parameter Object",
+        "Apply the stepdown rule: read the code like a newspaper — high-level functions at the top, low-level details below"
+      ],
+      "benefits": [
+        "Short functions are independently testable — each step can be verified in isolation",
+        "Short functions are reusable — a well-named step can be called from multiple places",
+        "Intent is communicated by function names, not by reading implementation",
+        "Bugs are easier to locate when the code is decomposed into named steps"
+      ],
+      "common_mistakes": [
+        "Measuring function quality by line count rather than single responsibility",
+        "Extracting functions but giving them meaningless names like 'doStep1'",
+        "Creating so many tiny functions that the call graph becomes harder to follow than the original",
+        "Extracting functions into a different class when they belong as private methods of the current one"
+      ],
+      "related_principles": ["solid-srp", "kiss", "dry"],
+      "related_patterns": ["command", "strategy"],
+      "related_anti_patterns": ["long-method", "spaghetti-code", "god-object"],
+      "related_architecture_patterns": ["pipeline-architecture", "layered-architecture"],
+      "examples": [
+        "Jarvis Agent._route() is a short orchestration function that delegates to named helpers — it reads like a table of contents for the routing logic",
+        "Jarvis EngineeringGuardrails.evaluate() delegates to _find_protected() and _build_plan() rather than inlining all logic",
+        "Jarvis AcademyLoader._validate_principle() is extracted from load() so validation is independently testable"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 3: Functions)",
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (Extract Method)"
+      ],
+      "tags": ["functions", "design", "small", "cohesion", "readability", "abstraction"]
+    },
+    {
+      "id": "meaningful-naming",
+      "name": "Meaningful Naming",
+      "category": "readability",
+      "description": "Names — of variables, functions, classes, modules, and files — should reveal intent so completely that a reader can understand the code without reading comments. A name is the primary documentation. If a name requires a comment to explain it, the name has failed.",
+      "rationale": "Code is read far more often than it is written. Names that reveal intent eliminate the need to mentally translate abbreviations, decode conventions, or read surrounding context to understand what a variable holds or what a function does. Poor names force every reader to do this translation work on every read.",
+      "implementation_guidance": [
+        "Use names that reveal purpose: elapsed_time_in_days over d, user_account over ua",
+        "Avoid disinformation: do not name a list of accounts accountList unless it is literally a List type",
+        "Use pronounceable names: customer_modification_timestamp over cstmrmods",
+        "Use searchable names: constants should be named, not embedded as magic numbers",
+        "Class names should be nouns; function names should be verbs or verb phrases",
+        "The length of a name should be proportional to its scope — loop variables can be short; module-level constants need descriptive names"
+      ],
+      "benefits": [
+        "Code becomes self-documenting — the intent is expressed in the names, not in comments",
+        "Searching the codebase by meaningful name finds relevant code immediately",
+        "Renamed concepts propagate cleanly when the name is precise and not reused for different concepts",
+        "New developers understand code faster when names are informative"
+      ],
+      "common_mistakes": [
+        "Using single-letter names outside of very short loop bodies",
+        "Using type suffixes in names: user_list, config_dict — the type is already visible in the code",
+        "Using names that are synonyms for 'data' or 'info': user_data, account_info",
+        "Giving different names to the same concept in different parts of the codebase"
+      ],
+      "related_principles": ["kiss", "dry"],
+      "related_patterns": [],
+      "related_anti_patterns": ["magic-numbers", "dead-code"],
+      "related_architecture_patterns": [],
+      "examples": [
+        "Jarvis WorkerStatus.PENDING, RUNNING, SUCCESS, FAILED, SKIPPED — each name communicates the lifecycle state precisely with no ambiguity",
+        "Jarvis GitStatus.dirty vs GitStatus.is_dirty — the property name reveals it is a boolean condition",
+        "Jarvis EngineeringPlan.candidate_files — 'candidate' signals these are estimated, not confirmed, preserving epistemic honesty in the name"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 2: Meaningful Names)",
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer (Chapter: What's in a Name?)"
+      ],
+      "tags": ["naming", "readability", "intent", "self-documenting", "clarity", "communication"]
+    },
+    {
+      "id": "defensive-programming",
+      "name": "Defensive Programming",
+      "category": "reliability",
+      "description": "Write code that behaves correctly even when called with unexpected, invalid, or malicious input. Validate assumptions explicitly at boundaries. Never assume a caller has done the right thing — verify it and fail clearly if not.",
+      "rationale": "In any non-trivial system, functions are called by code that was written separately, at a different time, by a different person. Assuming correct input is assuming that all callers, forever, will always do the right thing. Defensive programming makes invalid states impossible to represent or immediately detectable, turning subtle silent failures into clear, diagnosable errors.",
+      "implementation_guidance": [
+        "Validate inputs at every public boundary — the surface where untrusted or external data enters the system",
+        "Use assertions for internal invariants that should never be violated by correct code",
+        "Return results or raise specific exceptions — never return None silently for a failure that the caller needs to know about",
+        "Prefer immutable data structures where possible — an object that cannot be mutated cannot be put into an invalid state",
+        "Use type annotations and enforce them at runtime boundaries where practical"
+      ],
+      "benefits": [
+        "Bugs are caught at the point of invalid input, not downstream where symptoms are confusing",
+        "Error messages identify the cause precisely, reducing debug time",
+        "The system degrades gracefully rather than silently producing wrong results",
+        "Invariants are explicit and checkable rather than assumed and invisible"
+      ],
+      "common_mistakes": [
+        "Validating inputs only at the outermost layer and trusting internal calls",
+        "Catching all exceptions with a bare except: and silently continuing",
+        "Returning None when an error should be raised — callers must then defensively check for None",
+        "Writing defensive checks that are never tested — an untested guard is a false sense of security"
+      ],
+      "related_principles": ["solid-srp", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["builder"],
+      "related_anti_patterns": ["spaghetti-code", "dead-code"],
+      "related_architecture_patterns": ["clean-architecture", "hexagonal-architecture"],
+      "examples": [
+        "Jarvis AcademyLoader validates every required field before constructing a model — it raises InvalidPrincipleError immediately on first violation rather than returning a partially valid object",
+        "Jarvis EngineeringGuardrails.evaluate() deduplicates the file list before processing — it defends against a planning error rather than propagating it",
+        "Jarvis WorkerExecutor.dispatch() returns a FAILED WorkerResult rather than raising when a worker is not registered — the caller always receives a usable result"
+      ],
+      "references": [
+        "Steve McConnell — Code Complete (Chapter 8: Defensive Programming)",
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer (Dead Programs Tell No Lies)"
+      ],
+      "tags": ["defensive", "reliability", "validation", "robustness", "invariants", "boundaries"]
+    },
+    {
+      "id": "fail-fast",
+      "name": "Fail Fast",
+      "category": "reliability",
+      "description": "Detect errors at the earliest possible point and report them immediately, loudly, and with precision. A system that fails fast at the point of error is far easier to debug than one that silently absorbs an error and produces mysterious symptoms elsewhere.",
+      "rationale": "When an error is not detected immediately, it propagates through the system. By the time symptoms appear, the original cause may be far removed in time and code. Fail fast ensures that the distance between cause and detection is zero — the error is visible at the exact point it is introduced.",
+      "implementation_guidance": [
+        "Raise specific, descriptive exceptions at the point of violation, not generic exceptions at a higher layer",
+        "Validate preconditions at the start of every function that depends on them",
+        "Use assertions for conditions that represent programming errors rather than runtime conditions",
+        "Avoid swallowing exceptions in catch blocks — if an exception cannot be handled meaningfully, let it propagate",
+        "Log the full context of an error at the point it occurs, before it is wrapped or re-raised"
+      ],
+      "benefits": [
+        "Bugs are discovered at the exact line and moment they occur",
+        "Error messages contain the full context of the failure",
+        "The system does not enter an invalid state and continue operating silently",
+        "Debugging time is dramatically reduced because cause and effect are co-located"
+      ],
+      "common_mistakes": [
+        "Catching exceptions broadly and logging 'something went wrong' without context",
+        "Continuing after a failed precondition check rather than aborting",
+        "Returning a default value when a precondition is violated, masking the error",
+        "Deferring validation to a later stage when it could have been performed immediately"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "solid-srp"],
+      "related_patterns": ["builder"],
+      "related_anti_patterns": ["dead-code", "spaghetti-code"],
+      "related_architecture_patterns": ["clean-architecture", "pipeline-architecture"],
+      "examples": [
+        "Jarvis AcademySchemaError is raised immediately when a JSON file is missing, malformed, or structurally invalid — not after partially processing its contents",
+        "Jarvis WorkerContext.make() validates its arguments at construction time rather than at execution time",
+        "Jarvis EngineeringCoordinator._require_ready() raises RuntimeError immediately if called before initialise() — it does not silently return empty results"
+      ],
+      "references": [
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer (Dead Programs Tell No Lies)",
+        "Robert C. Martin — Clean Code (Chapter 7: Error Handling)"
+      ],
+      "tags": ["fail-fast", "reliability", "errors", "detection", "debugging", "validation"]
+    },
+    {
+      "id": "input-validation",
+      "name": "Input Validation",
+      "category": "reliability",
+      "description": "Validate all input at every system boundary before it is processed. Input from external sources — users, APIs, files, databases, network requests — must be treated as untrusted until explicitly verified. Validation should check type, range, format, length, and semantic correctness.",
+      "rationale": "External input is the primary source of runtime errors, security vulnerabilities, and data corruption. A system that processes unvalidated input is only as reliable as its least careful caller. Validating at boundaries ensures that internal system components can trust the data they receive.",
+      "implementation_guidance": [
+        "Define and enforce the valid range of every input parameter explicitly",
+        "Validate at the system boundary — the function that first receives external data — not deep in the call chain",
+        "Provide specific error messages that identify the invalid input and what was expected",
+        "Use schema validation for structured data (JSON, YAML, configuration files) before processing",
+        "Never trust file paths, user-supplied names, or external IDs without sanitisation"
+      ],
+      "benefits": [
+        "Invalid data is rejected at the boundary before it can corrupt internal state",
+        "Error messages are meaningful because validation is close to the source of the problem",
+        "Internal functions can operate with stronger guarantees about their inputs",
+        "Security vulnerabilities from injection attacks are prevented at the boundary"
+      ],
+      "common_mistakes": [
+        "Validating only the happy path and omitting edge cases (empty string, zero, None, negative numbers)",
+        "Trusting data from internal services on the assumption that they have already validated it",
+        "Using generic validation that catches nothing meaningful ('must not be null')",
+        "Omitting validation for fields that seem unlikely to be invalid in practice"
+      ],
+      "related_principles": ["solid-srp", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["builder", "repository"],
+      "related_anti_patterns": ["dead-code", "spaghetti-code"],
+      "related_architecture_patterns": ["hexagonal-architecture", "clean-architecture"],
+      "examples": [
+        "Jarvis AcademyLoader._validate_principle() checks every required field, verifies string fields are non-empty, and verifies list fields are lists before constructing any model",
+        "Jarvis EngineeringGuardrails validates that the files parameter is iterable and deduplicates it before evaluating",
+        "Jarvis Settings loads and validates environment variables at startup, raising a clear error if a required variable is missing or malformed"
+      ],
+      "references": [
+        "OWASP — Input Validation Cheat Sheet",
+        "Steve McConnell — Code Complete (Chapter 8: Defensive Programming — Assertions)"
+      ],
+      "tags": ["input-validation", "reliability", "security", "boundaries", "schema", "robustness"]
+    },
+    {
+      "id": "dry",
+      "name": "DRY (Don't Repeat Yourself)",
+      "category": "design",
+      "description": "Every piece of knowledge in a system should have a single, unambiguous, authoritative representation. When logic, data, or structure is duplicated, every change to that concept requires finding and updating every copy, which is both tedious and error-prone.",
+      "rationale": "Duplication is the root cause of a large class of bugs: the bug fixed in one copy is not fixed in the others. DRY is not just about avoiding code duplication — it is about ensuring that each concept, rule, or piece of knowledge has exactly one home in the codebase.",
+      "implementation_guidance": [
+        "Extract duplicated logic into a shared function, method, or class the first time it appears in a second place",
+        "Apply DRY to knowledge, not just code — a business rule expressed in both code and a comment is a DRY violation",
+        "Use constants for values that appear more than once — a magic number appearing twice is a DRY violation",
+        "Extract shared test setup into fixtures or factory functions",
+        "Be cautious of premature DRY: two pieces of code that look the same but represent different concepts should not be merged"
+      ],
+      "benefits": [
+        "A bug fixed once is fixed everywhere — there is only one place to update",
+        "The codebase is smaller and clearer because knowledge is not scattered",
+        "Refactoring is safer when each concept has a single home",
+        "New developers find the authoritative source of any concept without searching for duplicates"
+      ],
+      "common_mistakes": [
+        "Merging code that is accidentally similar but conceptually distinct — this creates wrong abstractions",
+        "Applying DRY to configuration rather than code — some duplication in configuration is acceptable",
+        "Over-applying DRY to create deep inheritance hierarchies that are harder to understand than the duplication they replaced",
+        "Ignoring DRY in test code — duplicated test setup is a maintenance problem"
+      ],
+      "related_principles": ["dry", "solid-srp", "solid-ocp"],
+      "related_patterns": ["repository", "factory", "strategy"],
+      "related_anti_patterns": ["copy-paste-programming", "shotgun-surgery", "magic-numbers"],
+      "related_architecture_patterns": ["modular-monolith", "layered-architecture"],
+      "examples": [
+        "Jarvis AcademyLoader._read_file(), _validate_top_level(), and _detect_duplicates() are shared by load(), load_patterns(), load_anti_patterns(), and load_architecture_patterns() — the file I/O logic has one home",
+        "Jarvis REQUIRED_FIELDS, REQUIRED_PATTERN_FIELDS, REQUIRED_ANTI_PATTERN_FIELDS — each field list is defined once and referenced by both the loader and the tests",
+        "Jarvis WorkerContext.make() is a factory that eliminates duplicated context construction across all call sites"
+      ],
+      "references": [
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer (The Evils of Duplication)",
+        "Robert C. Martin — Clean Code (Chapter 17: Smells and Heuristics — Duplication)"
+      ],
+      "tags": ["dry", "design", "duplication", "single-source", "maintainability", "knowledge"]
+    },
+    {
+      "id": "kiss",
+      "name": "KISS (Keep It Simple)",
+      "category": "design",
+      "description": "Prefer the simplest solution that correctly solves the problem. Complexity should be introduced only when it is justified by a concrete requirement. Simple code is easier to read, test, debug, and extend than complex code that achieves the same result.",
+      "rationale": "Every layer of abstraction, every design pattern, and every architectural decision adds complexity. That complexity must be justified by the problem it solves. When engineers add complexity speculatively or out of habit, they create cognitive overhead for every future reader without delivering proportional benefit.",
+      "implementation_guidance": [
+        "Start with the simplest possible implementation that makes the tests pass",
+        "Add complexity only when a specific requirement demands it — not speculatively",
+        "When two approaches both solve the problem, choose the one that is easier to understand",
+        "Resist the urge to demonstrate knowledge by using complex patterns when a simple function suffices",
+        "Measure complexity by asking: how long would it take a new developer to understand this?"
+      ],
+      "benefits": [
+        "Simple code has fewer places where bugs can hide",
+        "Simple code is faster to read and understand — reducing the cost of every future change",
+        "Simple code is easier to test exhaustively",
+        "Simple code is easier to delete when requirements change"
+      ],
+      "common_mistakes": [
+        "Introducing a design pattern because it fits rather than because it is needed",
+        "Abstracting prematurely before the requirements are stable",
+        "Confusing cleverness with quality — clever code is often the hardest to maintain",
+        "Adding configuration options for behaviours that never vary in practice"
+      ],
+      "related_principles": ["kiss", "yagni", "solid-srp"],
+      "related_patterns": ["facade"],
+      "related_anti_patterns": ["premature-optimisation", "god-object", "long-parameter-list"],
+      "related_architecture_patterns": ["modular-monolith", "layered-architecture"],
+      "examples": [
+        "Jarvis RepositoryCatalogue uses os.walk and a simple list of path prefixes rather than a complex AST-based dependency graph — it answers 'where is it?' without over-engineering",
+        "Jarvis ValidationRegistry uses a plain dictionary to map recommendation names to commands — a simple structure that is immediately understandable",
+        "Jarvis WorkerStatus is a plain Enum with five values — it does not use complex state machines for a simple lifecycle"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 17: Simplicity)",
+        "Eric Raymond — The Art of Unix Programming (Rule of Simplicity)"
+      ],
+      "tags": ["kiss", "simplicity", "design", "complexity", "readability", "pragmatism"]
+    },
+    {
+      "id": "yagni",
+      "name": "YAGNI (You Aren't Gonna Need It)",
+      "category": "design",
+      "description": "Do not implement features, abstractions, or infrastructure that are not required by the current, concrete requirements. Every line of speculative code must be read, tested, and maintained by future engineers — without ever delivering value if the anticipated requirement never materialises.",
+      "rationale": "Speculative generality is one of the most expensive forms of technical debt. Code written for a use case that never arrives must still be understood, tested, and refactored as the system evolves. It adds complexity without delivering value and often interferes with the simpler design that would have emerged naturally if the feature had been deferred.",
+      "implementation_guidance": [
+        "Implement only what the current sprint or story requires — not what future stories might require",
+        "When tempted to add a configuration option 'just in case', ask: who will set this, and when?",
+        "Defer architectural decisions until the last responsible moment — when you have the most information",
+        "Trust that the codebase can be refactored when new requirements arrive — do not pre-refactor speculatively",
+        "Apply YAGNI to abstractions: do not introduce an interface until there are two concrete implementations"
+      ],
+      "benefits": [
+        "Less code to read, test, and maintain",
+        "The design reflects real requirements rather than imagined ones",
+        "Deferred decisions are made with more information — resulting in better designs",
+        "Teams deliver working software faster by not building things that are not needed"
+      ],
+      "common_mistakes": [
+        "Adding plugin hooks, extension points, or configuration options for requirements that do not yet exist",
+        "Introducing a base class or interface when only one implementation is currently needed",
+        "Building reporting or analytics features before the core functionality is validated",
+        "Designing for scale that the system will never reach"
+      ],
+      "related_principles": ["yagni", "kiss", "jarvis-architecture-before-implementation"],
+      "related_patterns": ["factory"],
+      "related_anti_patterns": ["premature-optimisation", "dead-code", "god-object"],
+      "related_architecture_patterns": ["modular-monolith"],
+      "examples": [
+        "Jarvis Genesis-016 Sprint 001 built a Repository Catalogue without AST parsing or dependency graphs — those are deferred to later sprints that earn them",
+        "Jarvis EngineeringTestRunner's parallel execution is architecturally compatible but not yet implemented — the infrastructure was not built speculatively",
+        "Jarvis EngineeringGuardrails has five protected paths by default — it does not have a complex rule engine for rules that do not yet exist"
+      ],
+      "references": [
+        "Ron Jeffries, Chet Hendrickson, Martin Fowler — Extreme Programming (YAGNI)",
+        "Martin Fowler — YAGNI (martinfowler.com, 2015)"
+      ],
+      "tags": ["yagni", "design", "speculative", "deferred", "simplicity", "requirements"]
+    },
+    {
+      "id": "separation-of-concerns",
+      "name": "Separation of Concerns",
+      "category": "design",
+      "description": "Divide a system so that each part addresses a distinct concern — a specific aspect of the system's functionality. Different concerns should be handled by different components, with minimal overlap between them.",
+      "rationale": "When multiple concerns are mixed in one component, every change to any concern risks affecting the others. Separated concerns can evolve, be tested, be replaced, and be reasoned about independently. This is the architectural foundation for testability, maintainability, and team autonomy.",
+      "implementation_guidance": [
+        "Identify the distinct concerns in the problem: data access, business logic, presentation, infrastructure, and configuration are common separations",
+        "Assign each concern a dedicated layer, module, or class",
+        "Cross-cutting concerns (logging, error handling, security) belong in a single shared location, not scattered across the codebase",
+        "Use dependency injection to ensure that one concern does not construct or depend on the concrete implementation of another",
+        "When a concern bleeds into a neighbouring layer, refactor before the bleed becomes endemic"
+      ],
+      "benefits": [
+        "Each concern can be modified without risk of breaking unrelated concerns",
+        "Teams can work on different concerns in parallel without conflicts",
+        "Concerns can be tested in isolation using mocks for their dependencies",
+        "The architecture is easier to explain because each layer or module has a clear, bounded purpose"
+      ],
+      "common_mistakes": [
+        "Mixing data access and business logic in the same function",
+        "Putting presentation logic in the domain model",
+        "Letting configuration leak into business logic",
+        "Allowing logging, error handling, or telemetry to dominate a function's primary logic"
+      ],
+      "related_principles": ["separation-of-concerns", "solid-srp", "solid-dip"],
+      "related_patterns": ["repository", "facade", "adapter", "strategy"],
+      "related_anti_patterns": ["god-object", "tight-coupling", "spaghetti-code"],
+      "related_architecture_patterns": ["layered-architecture", "clean-architecture", "hexagonal-architecture", "mvc"],
+      "examples": [
+        "Jarvis Engineering Academy: AcademyLoader owns file reading and validation; AcademyRepository owns data access; AcademyService owns business queries — three distinct concerns, three distinct classes",
+        "Jarvis AIManager separates provider selection (configuration concern) from AI invocation (infrastructure concern) from response handling (business concern)",
+        "Jarvis telemetry module handles all timing and logging — it does not leak into Agent, Skills, or Providers"
+      ],
+      "references": [
+        "Edsger Dijkstra — On the role of scientific thought (1974)",
+        "Robert C. Martin — Clean Architecture (Chapter 3)"
+      ],
+      "tags": ["separation-of-concerns", "design", "layers", "modularity", "independence", "testability"]
+    },
+    {
+      "id": "logging-and-observability",
+      "name": "Logging and Observability",
+      "category": "operations",
+      "description": "Instrument the system so that its behaviour is visible at runtime without requiring a debugger or code modification. Structured logs, metrics, and traces should answer: what happened, when, in what sequence, and with what result — for every significant operation.",
+      "rationale": "A system that cannot be observed cannot be operated. When a bug occurs in production, the only evidence available is what was logged. Systems without structured observability force operators to guess at causes or reproduce issues locally. Good observability turns operations from archaeology into engineering.",
+      "implementation_guidance": [
+        "Log at the right level: DEBUG for detailed diagnostics, INFO for significant lifecycle events, WARNING for unexpected but recoverable situations, ERROR for failures",
+        "Include structured context in every log entry: request ID, operation name, duration, and result",
+        "Log the start and end of every significant operation with enough context to reconstruct what happened",
+        "Never log sensitive data: API keys, passwords, personal information",
+        "Use a correlation ID to trace a single request across all subsystems"
+      ],
+      "benefits": [
+        "Production issues can be diagnosed from logs without reproduction",
+        "Performance bottlenecks are visible from timing data in structured logs",
+        "The system's behaviour is auditable — every significant action has a record",
+        "Anomalies are detectable because normal behaviour is measurable"
+      ],
+      "common_mistakes": [
+        "Logging only on failure — a failure log without any preceding success logs lacks context",
+        "Logging unstructured prose that cannot be parsed or queried programmatically",
+        "Over-logging at DEBUG level in production, drowning signal in noise",
+        "Logging sensitive data such as API keys, passwords, or personal information"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "solid-srp"],
+      "related_patterns": ["observer", "facade"],
+      "related_anti_patterns": ["dead-code", "premature-optimisation"],
+      "related_architecture_patterns": ["layered-architecture", "pipeline-architecture"],
+      "examples": [
+        "Jarvis telemetry module produces structured TIMING and USAGE log lines for every request: req=N | stage=X | result=Y | duration_ms — these answer every operational question about request processing",
+        "Jarvis AIManager logs every provider registration, activation, and ask() failure with structured context",
+        "Jarvis EngineeringTestRunner logs the start and completion of every validation step with status and duration"
+      ],
+      "references": [
+        "Charity Majors, Liz Fong-Jones, George Miranda — Observability Engineering (O'Reilly, 2022)",
+        "Peter Bourgon — Go for Industrial Programming (structured logging)"
+      ],
+      "tags": ["logging", "observability", "operations", "telemetry", "monitoring", "structured-logs", "tracing"]
+    },
+    {
+      "id": "error-handling",
+      "name": "Error Handling",
+      "category": "reliability",
+      "description": "Handle errors explicitly, specifically, and at the right level of abstraction. Every error should be caught where it can be meaningfully handled, propagated where it cannot, and never silently swallowed. Error handling code is as important as happy-path code.",
+      "rationale": "Poorly handled errors are the most common cause of unreliable software. Code that silently swallows exceptions continues to run in an invalid state, producing wrong results that may not be detected until much later. Explicit error handling with specific exception types makes failures visible, diagnosable, and recoverable.",
+      "implementation_guidance": [
+        "Use specific exception types that communicate what went wrong — not generic Exception",
+        "Handle exceptions at the level where meaningful recovery or reporting is possible",
+        "Never use bare except: or except Exception: to swallow all errors without action",
+        "Log the full context of an error before handling it, not just the exception message",
+        "Distinguish between recoverable errors (retry, fallback) and unrecoverable errors (abort, alert)",
+        "Ensure error handling code is tested — untested error paths contain the most bugs"
+      ],
+      "benefits": [
+        "Failures are visible and diagnosable rather than silent",
+        "The system responds to failures predictably rather than entering unknown states",
+        "Specific exception types communicate failure modes clearly to callers",
+        "Error recovery logic is explicit and testable"
+      ],
+      "common_mistakes": [
+        "Catching all exceptions with a bare except and logging 'unknown error'",
+        "Re-raising a generic exception that loses the original context",
+        "Handling errors at the wrong abstraction level — catching IO errors in business logic",
+        "Using exceptions for flow control in the happy path — exceptions are for exceptional conditions"
+      ],
+      "related_principles": ["solid-srp", "jarvis-evidence-before-assumption"],
+      "related_patterns": ["command", "observer"],
+      "related_anti_patterns": ["dead-code", "spaghetti-code"],
+      "related_architecture_patterns": ["clean-architecture", "pipeline-architecture"],
+      "examples": [
+        "Jarvis OpenAIProvider maps each specific exception (APITimeoutError, AuthenticationError, RateLimitError) to a specific, spoken-friendly Response — no exception escapes the module",
+        "Jarvis AcademyLoader raises AcademySchemaError for structural problems and InvalidPrincipleError for record-level problems — callers can handle each specifically",
+        "Jarvis WorkerExecutor._execute_step() catches subprocess.TimeoutExpired and generic Exception separately, returning a distinct StepResult for each"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 7: Error Handling)",
+        "Joshua Bloch — Effective Java (Item 70: Use checked exceptions for recoverable conditions)"
+      ],
+      "tags": ["error-handling", "reliability", "exceptions", "robustness", "recovery", "visibility"]
+    },
+    {
+      "id": "testing-first",
+      "name": "Testing First",
+      "category": "quality",
+      "description": "Write tests before or alongside the code they verify. Tests written first force clarity about requirements, produce code that is testable by design, and create a safety net that enables confident refactoring. A codebase with comprehensive tests changes fearlessly.",
+      "rationale": "Tests written after code tend to test the implementation rather than the specification. Tests written first force the engineer to specify behaviour precisely before writing any implementation. This discipline produces cleaner interfaces, more focused functions, and a test suite that genuinely validates requirements rather than describing the implementation.",
+      "implementation_guidance": [
+        "Write the test first, watch it fail, then write the minimum code to make it pass",
+        "One test per behaviour — not one test per function",
+        "Tests should be fast, independent, repeatable, self-validating, and timely",
+        "Test the contract (what the function does) not the implementation (how it does it)",
+        "Include tests for error paths, edge cases, and boundary conditions — not just the happy path",
+        "Keep test code as clean as production code — it requires the same level of care"
+      ],
+      "benefits": [
+        "Requirements are specified precisely before implementation begins",
+        "Code is testable by design because it was designed with testing in mind",
+        "A comprehensive test suite enables confident refactoring",
+        "Regressions are caught immediately rather than in production"
+      ],
+      "common_mistakes": [
+        "Writing tests after the code as an afterthought — they tend to test the implementation, not the spec",
+        "Writing tests that only cover the happy path and omit error conditions",
+        "Writing fragile tests that depend on implementation details rather than observable behaviour",
+        "Neglecting test cleanup — tests that leave state behind interfere with each other"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "solid-srp"],
+      "related_patterns": ["repository", "strategy"],
+      "related_anti_patterns": ["dead-code", "premature-optimisation"],
+      "related_architecture_patterns": ["clean-architecture", "hexagonal-architecture"],
+      "examples": [
+        "Jarvis Genesis-016: every sprint delivers a test battery alongside the implementation — tests were written to match the spec before implementation was considered complete",
+        "Jarvis Engineering Academy: all 366 tests were delivered with the implementations they verify — the test count grew in lock-step with the codebase",
+        "Jarvis conftest.py Maintenance Patch 004: pytest isolation was fixed by instrumenting the test suite first to understand the collection problem"
+      ],
+      "references": [
+        "Kent Beck — Test-Driven Development: By Example (2002)",
+        "Robert C. Martin — Clean Code (Chapter 9: Unit Tests)"
+      ],
+      "tags": ["testing", "quality", "tdd", "test-first", "regression", "specification", "confidence"]
+    },
+    {
+      "id": "incremental-development",
+      "name": "Incremental Development",
+      "category": "process",
+      "description": "Build and deliver software in small, validated increments rather than large batches. Each increment should be complete, tested, and deployable. Feedback from each increment informs the next, reducing risk and enabling course correction before large investments are made.",
+      "rationale": "Large batches of unreleased work accumulate risk. The longer the feedback loop, the more expensive it is to correct mistakes. Incremental development shortens the feedback loop to its minimum: each increment is small enough to be fully understood, completely tested, and safely integrated, with feedback available before the next increment begins.",
+      "implementation_guidance": [
+        "Break work into the smallest increment that delivers a complete, testable capability",
+        "Integrate and validate each increment before beginning the next",
+        "Never leave an increment in a partially-complete state that would prevent a deployment",
+        "Use feature flags to deliver increments that are not yet user-visible",
+        "Commit and push at the end of every complete increment — not at the end of the day"
+      ],
+      "benefits": [
+        "Risk is distributed across many small increments rather than concentrated in one large release",
+        "Defects are found immediately, in the context of the change that introduced them",
+        "Course corrections are inexpensive because they are made before large investments compound",
+        "The team always has a working, deployable system"
+      ],
+      "common_mistakes": [
+        "Declaring an increment done before it is tested and integrated",
+        "Waiting until a feature is 'finished' to integrate — this defers all integration risk to the end",
+        "Creating increments so small that they cannot be validated in isolation",
+        "Treating the freeze milestone as optional — frozen increments are the unit of progress"
+      ],
+      "related_principles": ["jarvis-compound-progress", "jarvis-earned-authority"],
+      "related_patterns": ["command", "strategy"],
+      "related_anti_patterns": ["premature-optimisation", "dead-code"],
+      "related_architecture_patterns": ["modular-monolith", "pipeline-architecture"],
+      "examples": [
+        "Jarvis Genesis milestones: each sprint delivers one frozen, validated capability — Repository Catalogue, then Git Awareness, then Guardrails — each earning the right to proceed",
+        "Jarvis Engineering Academy: each sprint adds one knowledge base (principles, patterns, anti-patterns, architecture patterns, best practices) and is frozen before the next begins",
+        "Jarvis Maintenance Patch 004: a targeted, single-concern patch that was integrated and validated before any new feature work resumed"
+      ],
+      "references": [
+        "Kent Beck — Extreme Programming Explained (Incremental Design)",
+        "Martin Fowler — Continuous Integration (martinfowler.com, 2006)"
+      ],
+      "tags": ["incremental", "process", "delivery", "risk", "feedback", "integration", "sprint"]
+    },
+    {
+      "id": "backwards-compatibility",
+      "name": "Backwards Compatibility",
+      "category": "reliability",
+      "description": "Changes to public interfaces, data formats, and APIs should not break existing callers without a deliberate, communicated, and versioned migration path. A system is backwards compatible when existing clients continue to work correctly after an upgrade, without modification.",
+      "rationale": "Every caller of a public interface is an implicit contract. Breaking that contract forces all callers to update simultaneously — a coordination cost that grows with the number of callers. Backwards compatibility allows callers to migrate on their own schedule and protects against cascading breakages across a system.",
+      "implementation_guidance": [
+        "Add to interfaces rather than removing or changing existing methods",
+        "Deprecate before removing — mark old behaviour as deprecated, provide the replacement, then remove in a later version",
+        "Version APIs explicitly when breaking changes are unavoidable",
+        "Use the 'extra' field pattern to absorb unknown JSON fields gracefully rather than raising on unrecognised input",
+        "Test backwards compatibility explicitly by running old client code against new implementations"
+      ],
+      "benefits": [
+        "Callers are not forced to update simultaneously — they migrate at their own pace",
+        "The system can be upgraded without a coordinated big-bang migration",
+        "Trust in the interface is maintained — callers can rely on documented contracts",
+        "Integration tests remain valid across versions"
+      ],
+      "common_mistakes": [
+        "Removing a field or method without a deprecation period",
+        "Changing the semantics of an existing field without changing its name or version",
+        "Breaking JSON schema compatibility by renaming or removing fields",
+        "Assuming that internal use means no backwards compatibility obligation — internal callers break too"
+      ],
+      "related_principles": ["solid-ocp", "dry"],
+      "related_patterns": ["adapter", "facade"],
+      "related_anti_patterns": ["shotgun-surgery", "tight-coupling"],
+      "related_architecture_patterns": ["plugin-architecture", "layered-architecture"],
+      "examples": [
+        "Jarvis Academy models use an 'extra' dict field to absorb unknown JSON fields — a new field in the data file does not break existing loaders",
+        "Jarvis AIManager.set_provider() is preserved alongside the new registry API — existing code that calls set_provider() continues to work",
+        "Jarvis REQUIRED_FIELDS constants are additive — new sprints add new field tuples rather than modifying existing ones"
+      ],
+      "references": [
+        "Semantic Versioning (semver.org)",
+        "Martin Fowler — Tolerant Reader (martinfowler.com, 2011)"
+      ],
+      "tags": ["backwards-compatibility", "reliability", "versioning", "contracts", "migration", "stability"]
+    },
+    {
+      "id": "configuration-over-hardcoding",
+      "name": "Configuration over Hardcoding",
+      "category": "operations",
+      "description": "Values that vary between environments, deployments, or users should be externalised as configuration rather than hardcoded in source code. Configuration belongs in environment variables, configuration files, or a settings layer — not in the code itself.",
+      "rationale": "Hardcoded values couple the code to a specific deployment context. Changing a hardcoded value requires a code change, a test run, and a deployment. Externalised configuration allows the same code to run in development, staging, and production with different settings, and allows operators to tune behaviour without touching source code.",
+      "implementation_guidance": [
+        "Identify every value that differs between environments: API endpoints, timeouts, credentials, feature flags",
+        "Read configuration from environment variables as the default for server-side applications",
+        "Provide sensible defaults for all configuration values so the system works out of the box with minimal configuration",
+        "Validate configuration at startup and fail fast if required values are missing or invalid",
+        "Never commit secrets (API keys, passwords) to version control — use environment variables or a secrets manager"
+      ],
+      "benefits": [
+        "The same code artefact runs in every environment without modification",
+        "Configuration changes do not require a deployment in environments that support hot reload",
+        "Secrets are kept out of version control and audit logs",
+        "Deployment-specific values are visible in one place rather than scattered through the code"
+      ],
+      "common_mistakes": [
+        "Committing API keys, passwords, or other secrets to version control",
+        "Using configuration files that are themselves committed to version control with production secrets",
+        "Hardcoding values that were expected to be constant but changed in production",
+        "Providing no defaults, requiring extensive configuration before the system starts"
+      ],
+      "related_principles": ["dry", "kiss"],
+      "related_patterns": ["factory", "strategy"],
+      "related_anti_patterns": ["magic-numbers", "tight-coupling"],
+      "related_architecture_patterns": ["layered-architecture", "modular-monolith"],
+      "examples": [
+        "Jarvis Settings reads DEFAULT_AI_PROVIDER, REASONING_EFFORT, ENGINEERING_MAX_FILES, and all API keys from environment variables with sensible defaults",
+        "Jarvis .env file (git-ignored) holds all secrets locally; production environments inject them as environment variables",
+        "Jarvis ValidationRegistry maps abstract recommendation names to commands — the mapping is centralised configuration, not scattered hardcoding"
+      ],
+      "references": [
+        "The Twelve-Factor App — III: Config (12factor.net)",
+        "Andrew Hunt, David Thomas — The Pragmatic Programmer (Put Abstractions in Code, Details in Metadata)"
+      ],
+      "tags": ["configuration", "operations", "environment", "secrets", "hardcoding", "twelve-factor", "deployment"]
+    },
+    {
+      "id": "documentation",
+      "name": "Documentation",
+      "category": "communication",
+      "description": "Document the intent, contract, and rationale of non-obvious code. Good documentation explains why, not what — the what is visible in the code itself. Documentation lives as close to the code it describes as possible, and is updated whenever the code changes.",
+      "rationale": "Code expresses what the computer does. Documentation expresses what the author intended and why decisions were made. Future engineers — including the original author six months later — need to understand not just the mechanics but the reasoning. Undocumented assumptions are technical debt that accumulates silently.",
+      "implementation_guidance": [
+        "Document the purpose, parameters, return value, and exceptions of every public function and class",
+        "Document why a design decision was made, not what the code does — the code already shows what it does",
+        "Keep documentation co-located with the code: docstrings over external wikis, README.md in the module directory",
+        "Update documentation in the same commit as the code it describes — never as a separate follow-up",
+        "Prefer examples over prose — a concrete example communicates faster than an abstract description"
+      ],
+      "benefits": [
+        "Future engineers understand intent and constraints without guessing",
+        "Onboarding is faster because context is explicit rather than tribal knowledge",
+        "Design decisions are auditable — the reasoning behind choices is recorded",
+        "APIs are usable without reading implementation — the docstring is the contract"
+      ],
+      "common_mistakes": [
+        "Writing documentation that describes the code rather than the intent: 'this function adds x and y' when the function is named add(x, y)",
+        "Documenting the implementation and then changing the implementation without updating the docs",
+        "Writing documentation in a separate wiki that becomes stale immediately",
+        "Treating documentation as optional — it is part of the deliverable, not an optional extra"
+      ],
+      "related_principles": ["dry", "kiss"],
+      "related_patterns": [],
+      "related_anti_patterns": ["dead-code", "magic-numbers"],
+      "related_architecture_patterns": [],
+      "examples": [
+        "Jarvis core/engineering/README.md documents the intent, capability ladder, and current scope of the Engineering subsystem — it explains why, not just what",
+        "Jarvis module docstrings include constitutional constraints ('this module MUST NEVER modify files') alongside the public API — intent and contract in one place",
+        "Jarvis CONSTITUTION.md records the four principles with their engineering rationale — future engineers can understand why the project is run this way"
+      ],
+      "references": [
+        "Robert C. Martin — Clean Code (Chapter 4: Comments)",
+        "Daniele Procida — Diátaxis: A systematic approach to technical documentation (diataxis.fr)"
+      ],
+      "tags": ["documentation", "communication", "intent", "docstrings", "readme", "knowledge", "onboarding"]
+    },
+    {
+      "id": "code-reviews",
+      "name": "Code Reviews",
+      "category": "quality",
+      "description": "Every change to production code should be reviewed by at least one other engineer before it is merged. Code reviews catch bugs, enforce standards, share knowledge, and ensure that the codebase reflects the team's collective understanding rather than any individual's assumptions.",
+      "rationale": "A single engineer's perspective is always incomplete. Code review introduces a second perspective that catches not just bugs but design issues, missing tests, unclear names, and violations of architectural principles — things that are invisible to the author because they are too close to their own assumptions.",
+      "implementation_guidance": [
+        "Review for correctness, clarity, tests, and architectural consistency — not just style",
+        "Keep changes small enough to review thoroughly — large pull requests receive superficial reviews",
+        "Review the tests as carefully as the implementation — tests are the specification",
+        "Give specific, actionable feedback: 'this method does two things — consider extracting X' not 'this is complex'",
+        "Approve what is good; request changes for what is not — do not block on personal preference"
+      ],
+      "benefits": [
+        "Bugs are caught before they reach production",
+        "Knowledge is shared across the team — everyone understands changes to the codebase",
+        "Architectural principles are enforced consistently by the team, not just the original author",
+        "Code quality improves because engineers write knowing their work will be read"
+      ],
+      "common_mistakes": [
+        "Approving large pull requests without reading them carefully — rubber-stamping",
+        "Reviewing only for style and not for correctness or architecture",
+        "Blocking a review over personal preference rather than objective quality concerns",
+        "Treating review comments as criticism rather than collaborative improvement"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "jarvis-compound-progress"],
+      "related_patterns": [],
+      "related_anti_patterns": ["dead-code", "copy-paste-programming"],
+      "related_architecture_patterns": [],
+      "examples": [
+        "Jarvis Genesis workflow: ChatGPT reviews the architecture spec before Claude implements — architectural review before implementation is the team's default process",
+        "Jarvis freeze discipline: no sprint is frozen without validation evidence — the Chief's review of test results is the production code review gate",
+        "Jarvis sprint boundaries: each sprint is a natural code review unit — scoped, testable, and complete"
+      ],
+      "references": [
+        "Karl Wiegers — Peer Reviews in Software (2002)",
+        "Google Engineering Practices — Code Review Developer Guide (google.github.io/eng-practices)"
+      ],
+      "tags": ["code-review", "quality", "collaboration", "knowledge-sharing", "correctness", "team"]
+    },
+    {
+      "id": "version-control-discipline",
+      "name": "Version Control Discipline",
+      "category": "process",
+      "description": "Use version control as an engineering tool, not just a backup system. Commits should be atomic, focused, and described by messages that explain why the change was made. Branches should be short-lived and integrated frequently. The version history is the authoritative record of the project's evolution.",
+      "rationale": "A disciplined version history is an engineering asset. Bisection finds the commit that introduced a bug. Blame identifies when and why a line changed. Tags mark stable milestones. A history of large, undescribed commits is useless for forensics and expensive to revert. Discipline makes the history useful.",
+      "implementation_guidance": [
+        "Each commit should represent one logical change — not an accumulation of unrelated work",
+        "Write commit messages that explain why the change was made, not what changed",
+        "Never commit credentials, secrets, or generated files to version control",
+        "Tag every frozen release so it can be recovered exactly",
+        "Keep feature branches short-lived — merge frequently to avoid divergence",
+        "Use .gitignore to exclude build artefacts, virtual environments, and IDE settings"
+      ],
+      "benefits": [
+        "Any commit can be reverted precisely and safely",
+        "The history explains the evolution of the system — every decision is traceable",
+        "Bugs can be bisected to the exact commit that introduced them",
+        "Frozen releases can be reproduced exactly from a tagged commit"
+      ],
+      "common_mistakes": [
+        "Committing with messages like 'fix' or 'WIP' that explain nothing",
+        "Combining multiple unrelated changes in a single commit",
+        "Committing API keys, passwords, or generated code",
+        "Working directly on the main branch without a review gate"
+      ],
+      "related_principles": ["jarvis-compound-progress", "jarvis-earned-authority"],
+      "related_patterns": [],
+      "related_anti_patterns": ["dead-code", "copy-paste-programming"],
+      "related_architecture_patterns": [],
+      "examples": [
+        "Jarvis Genesis commits follow the pattern 'Genesis-016 Sprint 003: Engineering Guardrails' — each commit message names the milestone and the deliverable",
+        "Jarvis git history is sanitised: OpenAI secrets were removed from all commits before the repository was made public",
+        "Jarvis GitHub: every frozen sprint is committed and pushed — the commit history is the project's engineering record"
+      ],
+      "references": [
+        "Scott Chacon, Ben Straub — Pro Git (git-scm.com/book)",
+        "Chris Beams — How to Write a Git Commit Message (cbea.ms, 2014)"
+      ],
+      "tags": ["version-control", "git", "process", "commits", "history", "branching", "discipline"]
+    },
+    {
+      "id": "refactoring-safely",
+      "name": "Refactoring Safely",
+      "category": "quality",
+      "description": "Improve the structure of existing code without changing its observable behaviour. Refactoring is disciplined, incremental, and always performed under test coverage. Every refactoring step is small enough to be verifiable, and the test suite confirms that behaviour is preserved at each step.",
+      "rationale": "Code that is never refactored accumulates structural debt until it is no longer maintainable. Refactoring without tests is rewriting with risk — there is no way to know if behaviour changed. Refactoring with tests and small steps is the engineering discipline that keeps a codebase in a state where features can be added safely.",
+      "implementation_guidance": [
+        "Never refactor without test coverage — the tests are the safety net that confirms behaviour is preserved",
+        "Make one structural change at a time; run the tests after each change",
+        "Do not refactor and add features in the same commit — separate structural changes from behaviour changes",
+        "Extract, rename, and inline as small, reversible steps rather than large rewrites",
+        "Refactor opportunistically — when touching a class for another reason, leave it cleaner than you found it"
+      ],
+      "benefits": [
+        "The codebase remains understandable as it grows, because structure is maintained continuously",
+        "Technical debt is paid incrementally rather than accumulating until it is unmanageable",
+        "Refactoring under tests is safe — the test suite confirms that no behaviour was broken",
+        "Features can be added to a clean codebase faster than to a tangled one"
+      ],
+      "common_mistakes": [
+        "Refactoring without tests — this is rewriting, not refactoring, and the risk is uncontrolled",
+        "Making structural changes and behaviour changes in the same commit — impossible to bisect if something breaks",
+        "Refactoring speculatively to a design that future requirements might need",
+        "Treating refactoring as a separate project rather than a continuous discipline"
+      ],
+      "related_principles": ["jarvis-evidence-before-assumption", "jarvis-compound-progress", "solid-ocp"],
+      "related_patterns": ["strategy", "adapter", "factory"],
+      "related_anti_patterns": ["dead-code", "copy-paste-programming", "spaghetti-code"],
+      "related_architecture_patterns": ["modular-monolith", "clean-architecture"],
+      "examples": [
+        "Jarvis Genesis Maintenance Patches: each patch is a targeted, single-concern refactoring committed separately from feature sprints",
+        "Jarvis conftest.py Maintenance Patch 004 fixed pytest collection behaviour as an isolated structural change — validated by running the full test suite before and after",
+        "Jarvis agent.py was restored from git after the accidental overwrite — version control as a safety net for refactoring gone wrong"
+      ],
+      "references": [
+        "Martin Fowler — Refactoring: Improving the Design of Existing Code (2nd ed., 2018)",
+        "Robert C. Martin — Clean Code (Chapter 14: Successive Refinement)"
+      ],
+      "tags": ["refactoring", "quality", "safety", "tests", "incremental", "structure", "technical-debt"]
+    }
+  ]
+}

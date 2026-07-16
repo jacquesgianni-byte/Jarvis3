@@ -353,3 +353,104 @@ class ArchitecturePattern:
             references=list(data.get("references", [])),
             extra=extra,
         )
+
+
+# Required fields every best practice record must supply.
+REQUIRED_BEST_PRACTICE_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "category",
+    "description",
+    "rationale",
+    "implementation_guidance",
+    "benefits",
+    "common_mistakes",
+    "tags",
+)
+
+
+@dataclass(frozen=True)
+class BestPractice:
+    """
+    An immutable record describing an engineering best practice.
+    (Genesis-019 Sprint 005)
+
+    frozen=True enforces the read-only contract of the Academy.
+
+    Fields
+    ------
+    id                           : Unique kebab-case identifier.
+    name                         : Human-readable name.
+    category                     : Practice category (e.g. "design",
+                                   "reliability", "quality", "process",
+                                   "operations", "communication", "readability").
+    description                  : What the practice is and why it matters.
+    rationale                    : The engineering reasoning behind the practice.
+    implementation_guidance      : Actionable steps for applying the practice.
+    benefits                     : The outcomes of applying the practice consistently.
+    common_mistakes              : Typical ways this practice is applied incorrectly.
+    related_principles           : IDs of principles that underpin this practice.
+    related_patterns             : IDs of design patterns that support this practice.
+    related_anti_patterns        : IDs of anti-patterns this practice guards against.
+    related_architecture_patterns: IDs of architecture patterns where this applies.
+    examples                     : Concrete examples, including Jarvis-specific ones.
+    references                   : Book or article citations.
+    tags                         : Keywords for filtering and search.
+    """
+
+    id: str
+    name: str
+    category: str
+    description: str
+    rationale: str
+    implementation_guidance: List[str]
+    benefits: List[str]
+    common_mistakes: List[str]
+    tags: List[str]
+    related_principles: List[str] = field(default_factory=list)
+    related_patterns: List[str] = field(default_factory=list)
+    related_anti_patterns: List[str] = field(default_factory=list)
+    related_architecture_patterns: List[str] = field(default_factory=list)
+    examples: List[str] = field(default_factory=list)
+    references: List[str] = field(default_factory=list)
+    extra: dict = field(default_factory=dict, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        list_fields = (
+            "implementation_guidance", "benefits", "common_mistakes", "tags",
+            "related_principles", "related_patterns", "related_anti_patterns",
+            "related_architecture_patterns", "examples", "references",
+        )
+        for lf in list_fields:
+            value = getattr(self, lf)
+            if not isinstance(value, list):
+                object.__setattr__(self, lf, list(value))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "BestPractice":
+        """Construct a BestPractice from a raw dictionary."""
+        known = {
+            "id", "name", "category", "description", "rationale",
+            "implementation_guidance", "benefits", "common_mistakes",
+            "related_principles", "related_patterns", "related_anti_patterns",
+            "related_architecture_patterns", "examples", "references", "tags",
+        }
+        extra = {k: v for k, v in data.items() if k not in known}
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            category=data["category"],
+            description=data["description"],
+            rationale=data["rationale"],
+            implementation_guidance=list(data.get("implementation_guidance", [])),
+            benefits=list(data.get("benefits", [])),
+            common_mistakes=list(data.get("common_mistakes", [])),
+            tags=list(data.get("tags", [])),
+            related_principles=list(data.get("related_principles", [])),
+            related_patterns=list(data.get("related_patterns", [])),
+            related_anti_patterns=list(data.get("related_anti_patterns", [])),
+            related_architecture_patterns=list(data.get("related_architecture_patterns", [])),
+            examples=list(data.get("examples", [])),
+            references=list(data.get("references", [])),
+            extra=extra,
+        )

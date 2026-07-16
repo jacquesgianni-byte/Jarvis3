@@ -8,7 +8,7 @@ No write operations. No mutation. No caching requirements.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from .models import AntiPattern, ArchitecturePattern, DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringPrinciple
 
 
 class AcademyRepository(ABC):
@@ -146,4 +146,39 @@ class ArchitecturePatternRepository(ABC):
         """
         Return all architecture patterns whose tags list contains *tag*
         (case-insensitive). Returns an empty list if no match — never raises.
+        """
+
+
+class BestPracticeRepository(ABC):
+    """
+    Abstract base class for the Engineering Academy best practice data layer.
+    (Genesis-019 Sprint 005)
+
+    Contract
+    --------
+    * All operations are read-only.
+    * Implementations must never mutate stored best practices.
+    * Result ordering must be stable and deterministic (sorted by id).
+    """
+
+    @abstractmethod
+    def get_by_id(self, best_practice_id: str) -> Optional[BestPractice]:
+        """Return the best practice with *best_practice_id*, or None."""
+
+    @abstractmethod
+    def list_all(self) -> List[BestPractice]:
+        """Return all best practices sorted by id (stable, deterministic)."""
+
+    @abstractmethod
+    def filter_by_category(self, category: str) -> List[BestPractice]:
+        """
+        Return all best practices whose category matches *category*
+        (case-insensitive). Returns an empty list if no match.
+        """
+
+    @abstractmethod
+    def filter_by_tag(self, tag: str) -> List[BestPractice]:
+        """
+        Return all best practices whose tags list contains *tag*
+        (case-insensitive). Returns an empty list if no match.
         """

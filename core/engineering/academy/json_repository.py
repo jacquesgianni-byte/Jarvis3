@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .loader import AcademyLoader
-from .models import AntiPattern, ArchitecturePattern, DesignPattern, EngineeringPrinciple
-from .repository import AcademyRepository, AntiPatternRepository, ArchitecturePatternRepository, PatternRepository
+from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringPrinciple
+from .repository import AcademyRepository, AntiPatternRepository, ArchitecturePatternRepository, BestPracticeRepository, PatternRepository
 
 
 class JsonAcademyRepository(AcademyRepository):
@@ -185,3 +185,35 @@ class JsonArchitecturePatternRepository(ArchitecturePatternRepository):
             ap for ap in self._index.values()
             if target in [t.lower() for t in ap.tags]
         ]
+
+
+class JsonBestPracticeRepository(BestPracticeRepository):
+    """
+    Read-only repository that loads best practices from a JSON file.
+    (Genesis-019 Sprint 005)
+
+    All data is loaded once at construction time.
+    No runtime writes. No mutations. No network access.
+    """
+
+    def __init__(self, best_practices_path, loader=None) -> None:
+        _loader = loader or AcademyLoader()
+        raw = _loader.load_best_practices(best_practices_path)
+        self._index: Dict[str, BestPractice] = {
+            bp.id: bp for bp in sorted(raw, key=lambda bp: bp.id)
+        }
+
+    def get_by_id(self, best_practice_id: str):
+        return self._index.get(best_practice_id)
+
+    def list_all(self) -> list:
+        return list(self._index.values())
+
+    def filter_by_category(self, category: str) -> list:
+        target = category.strip().lower()
+        return [bp for bp in self._index.values() if bp.category.lower() == target]
+
+    def filter_by_tag(self, tag: str) -> list:
+        target = tag.strip().lower()
+        return [bp for bp in self._index.values()
+                if target in [t.lower() for t in bp.tags]]

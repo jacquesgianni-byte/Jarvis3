@@ -11,11 +11,12 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .exceptions import PrincipleNotFoundError
-from .models import AntiPattern, ArchitecturePattern, DesignPattern, EngineeringPrinciple
+from .models import AntiPattern, ArchitecturePattern, BestPractice, DesignPattern, EngineeringPrinciple
 from .repository import (
     AcademyRepository,
     AntiPatternRepository,
     ArchitecturePatternRepository,
+    BestPracticeRepository,
     PatternRepository,
 )
 
@@ -267,5 +268,67 @@ class ArchitecturePatternService:
             *ap.tags, *ap.components, *ap.advantages,
             *ap.disadvantages, *ap.when_to_use,
             *ap.when_not_to_use, *ap.examples,
+        ]
+        return any(needle in s.lower() for s in searchable)
+
+
+class BestPracticeService:
+    """
+    Business-logic layer for engineering best practices.
+    (Genesis-019 Sprint 005)
+
+    Provides deterministic access to best practices.
+    All search is keyword/substring-based — no AI, no fuzzy matching.
+    """
+
+    def __init__(self, repository: BestPracticeRepository) -> None:
+        self._repository = repository
+
+    def get_best_practice(self, best_practice_id: str) -> BestPractice:
+        """
+        Return the best practice with *best_practice_id*.
+
+        Raises
+        ------
+        PrincipleNotFoundError
+            If no best practice with that ID exists.
+        """
+        result = self._repository.get_by_id(best_practice_id)
+        if result is None:
+            raise PrincipleNotFoundError(best_practice_id)
+        return result
+
+    def list_best_practices(self) -> list:
+        """Return all best practices in stable, deterministic order (sorted by id)."""
+        return self._repository.list_all()
+
+    def find_by_category(self, category: str) -> list:
+        """Return best practices in *category* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_category(category)
+
+    def find_by_tag(self, tag: str) -> list:
+        """Return best practices tagged with *tag* (case-insensitive). Empty list if none."""
+        return self._repository.filter_by_tag(tag)
+
+    def search(self, query: str) -> list:
+        """
+        Return best practices whose text fields contain *query* as a substring.
+
+        Case-insensitive. Deterministic. Results sorted by id.
+        No AI. No semantic matching. No fuzzy matching.
+        """
+        needle = query.strip().lower()
+        if not needle:
+            return []
+        return [
+            bp for bp in self._repository.list_all()
+            if self._best_practice_matches(bp, needle)
+        ]
+
+    def _best_practice_matches(self, bp: BestPractice, needle: str) -> bool:
+        searchable = [
+            bp.id, bp.name, bp.category, bp.description, bp.rationale,
+            *bp.tags, *bp.implementation_guidance, *bp.benefits,
+            *bp.common_mistakes, *bp.examples,
         ]
         return any(needle in s.lower() for s in searchable)
