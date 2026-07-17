@@ -33,6 +33,8 @@ from core.conversation.behaviour import ConversationBehaviour
 from core.conversation.decision import ConversationDecision, ConversationOutcome
 from core.conversation.memory_detector import MemoryDetector
 from core.conversation.memory_detection import MemoryDetection
+from core.conversation.conversation_observer import ConversationObserver  # Genesis-020
+from core.conversation.conversation_recall import ConversationRecall      # Genesis-020
 
 
 class Agent:
@@ -44,6 +46,8 @@ class Agent:
         ConversationIntelligence  — message classification
         ConversationBehaviour     — pending interaction handling
         MemoryDetector            — natural memory statement detection
+        ConversationObserver      — automatic fact extraction (Genesis-020)
+        ConversationRecall        — contextual/temporal recall (Genesis-020)
 
     Processing flow per request:
         1. Classify via ConversationIntelligence.
@@ -51,6 +55,7 @@ class Agent:
         3. Detect natural memory statements via MemoryDetector.
         4. Route to intent skills or AI fallback.
         5. Update ConversationContext.
+        6. Observe conversation turn for automatic memory extraction.
 
     Args:
         ai: Optional AI provider. Used as fallback when no intent is matched.
@@ -89,6 +94,10 @@ class Agent:
         # Memory detection
         self.memory_detector = MemoryDetector()
 
+        # Genesis-020: Conversation Memory
+        self.conversation_observer = ConversationObserver(self.knowledge)
+        self.conversation_recall = ConversationRecall(self.knowledge)
+
     def process(self, request: str, token=None) -> Response:
         """
         Process a user request.
@@ -109,6 +118,7 @@ class Agent:
             5. If detected, store via MemorySkill and acknowledge.
             6. Proceed with normal intent routing.
             7. Update ConversationContext after every interaction.
+            8. Observe conversation turn for automatic memory extraction.
         """
 
         self.logger.info("Request received: %s", request)
@@ -137,6 +147,7 @@ class Agent:
         if decision is not None and decision.handled:
             response = self._respond_to_decision(decision)
             self.context.last_jarvis_response = response.message
+            self.conversation_observer.observe(request, response.message)  # Genesis-020
             return response
 
         # Step 4 — Check for natural memory statements.
@@ -148,6 +159,7 @@ class Agent:
             response = self._handle_memory_detection(detection)
             self.context.last_skill = "memory"
             self.context.last_jarvis_response = response.message
+            self.conversation_observer.observe(request, response.message)  # Genesis-020
             return response
 
         # Step 6 — Normal intent routing.
@@ -159,6 +171,9 @@ class Agent:
         # Step 7 — Update context.
         self.context.last_intent = intent.name if intent else None
         self.context.last_jarvis_response = response.message
+
+        # Step 8 — Genesis-020: observe turn for automatic memory extraction.
+        self.conversation_observer.observe(request, response.message)
 
         return response
 
@@ -267,6 +282,13 @@ class Agent:
             return self._execute_skill("identity", request)
 
         if intent == Intent.MEMORY:
+            # Genesis-020: Try conversational recall before standard memory lookup.
+            # Answers "What project am I working on?", "Who is Claude?", etc.
+            if self.conversation_recall.can_answer(request):
+                recall_result = self.conversation_recall.answer(request)
+                if recall_result.found:
+                    return Response(success=True, message=recall_result.answer)
+
             response = self._execute_skill("memory", request)
 
             # Genesis-013 Task 002 — Memory <-> Reasoning escalation.
