@@ -25,6 +25,7 @@ from core.skills.identity import IdentitySkill
 from core.skills.memory import MemorySkill
 from core.skills.tool import ToolSkill
 from core.skills.exit import ExitSkill
+from core.skills.engineering import EngineeringSkill  # Genesis-019.5
 
 from core.conversation.context import ConversationContext
 from core.conversation.intelligence import ConversationIntelligence
@@ -78,6 +79,7 @@ class Agent:
         self.skills.register(ReasoningSkill(self.reasoning))
         self.skills.register(ToolSkill(self.tools))
         self.skills.register(ExitSkill())
+        self.skills.register(EngineeringSkill(ai=self.ai))  # Genesis-019.5
 
         # Conversation layer
         self.context = ConversationContext()
@@ -288,6 +290,13 @@ class Agent:
 
         if intent == Intent.EXIT:
             return self._execute_skill("exit", request)
+
+        # Genesis-019.5 — Engineering Academy routing.
+        # Checked before AI fallback so the Academy always answers
+        # engineering questions deterministically. EngineeringSkill
+        # falls back to AI internally when no Academy match exists.
+        if intent == Intent.ENGINEERING:
+            return self._execute_skill("engineering", request)
 
         # AI fallback — preserved unchanged.
         if self.ai is not None:
