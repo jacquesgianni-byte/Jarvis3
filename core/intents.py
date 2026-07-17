@@ -16,4 +16,7 @@ class Intent(Enum):
                          # not remembering — plus "why?" follow-ups.
     TOOL = auto()
     EXIT = auto()
+    ENGINEERING = auto() # Genesis-019.5: questions answered by the
+                         # Engineering Academy before any AI provider
+                         # is invoked.
     UNKNOWN = auto()
