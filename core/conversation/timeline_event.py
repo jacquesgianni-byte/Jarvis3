@@ -60,6 +60,14 @@ class EventType(Enum):
     DECISION_ACCEPTED     = auto()   # Genesis-020 S4: decision adopted
     DECISION_SUPERSEDED   = auto()   # Genesis-020 S4: decision replaced
     DECISION_REJECTED     = auto()   # Genesis-020 S4: decision rejected
+    GOAL_CREATED          = auto()   # Genesis-020 S5: goal added to plan
+    GOAL_STARTED          = auto()   # Genesis-020 S5: goal moved to active
+    GOAL_COMPLETED        = auto()   # Genesis-020 S5: goal achieved
+    GOAL_CANCELLED        = auto()   # Genesis-020 S5: goal abandoned
+    GOAL_BLOCKED          = auto()   # Genesis-020 S5: goal cannot proceed
+    GOAL_UNBLOCKED        = auto()   # Genesis-020 S5: blocker removed
+    GOAL_PRIORITY_CHANGED = auto()   # Genesis-020 S5: priority updated
+
 
     def label(self) -> str:
         """Human-readable label for the inspector."""

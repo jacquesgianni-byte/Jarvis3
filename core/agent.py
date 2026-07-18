@@ -45,6 +45,9 @@ from core.conversation.timeline_inspector import TimelineInspector        # Gene
 from core.conversation.decision_engine import DecisionEngine              # Genesis-020 S4
 from core.conversation.decision_query import DecisionQueryEngine          # Genesis-020 S4
 from core.conversation.decision_inspector import DecisionInspector        # Genesis-020 S4
+from core.conversation.goal_engine import GoalEngine                      # Genesis-020 S5
+from core.conversation.goal_query import GoalQueryEngine                  # Genesis-020 S5
+from core.conversation.goal_inspector import GoalInspector                # Genesis-020 S5
 
 
 class Agent:
@@ -68,15 +71,9 @@ class Agent:
         DecisionEngine            — records and explains decisions (Genesis-020 S4)
         DecisionQueryEngine       — answers decision questions (Genesis-020 S4)
         DecisionInspector         — developer decision snapshot (Genesis-020 S4)
-
-    Processing flow per request:
-        1.  Classify via ConversationIntelligence.
-        2.  Evaluate pending interactions via ConversationBehaviour.
-        3.  Detect natural memory statements via MemoryDetector.
-        4.  Resolve ambiguous references via ContextResolver.
-        5.  Route to intent skills or AI fallback.
-        6.  Update ConversationContext.
-        7.  Post-turn: memory extraction, context update, timeline events.
+        GoalEngine                — tracks goals as Projection (Genesis-020 S5)
+        GoalQueryEngine           — answers goal questions (Genesis-020 S5)
+        GoalInspector             — developer goal snapshot (Genesis-020 S5)
 
     Args:
         ai: Optional AI provider. Used as fallback when no intent is matched.
@@ -87,8 +84,7 @@ class Agent:
 
         # Core services
         self.router = IntentRouter()
-        # Genesis-012: persistent structured memory. Replaces the old
-        # in-memory MemoryManager (which never persisted to disk).
+        # Genesis-012: persistent structured memory.
         self.knowledge = KnowledgeEngine()
         # Genesis-013: the Reasoning Engine consumes the Knowledge
         # Engine read-only. Knowledge remembers; reasoning thinks.
@@ -98,7 +94,6 @@ class Agent:
 
         # Skills
         self.skills = SkillsManager()
-
         self.skills.register(GreetingSkill())
         self.skills.register(IdentitySkill())
         self.skills.register(MemorySkill(self.knowledge))
@@ -120,8 +115,7 @@ class Agent:
         self.conversation_recall = ConversationRecall(self.knowledge)
 
         # Genesis-020 Sprint-002: Active Conversation Context
-        # SessionContext is the shared Worker workspace — future Workers
-        # will read this same instance without parameter passing.
+        # SessionContext is the shared Worker workspace.
         self.session = SessionContext()
         self.context_manager = ContextManager(self.session)
         self.context_resolver = ContextResolver(self.session)
@@ -133,11 +127,15 @@ class Agent:
         self.timeline_query = TimelineQueryEngine(self.timeline)
         self.timeline_inspector = TimelineInspector(self.timeline)
 
-        # Genesis-020 Sprint-004: Decision Engine
-        # Projects from Timeline. Rebuilt via replay() on demand.
+        # Genesis-020 Sprint-004: Decision Engine (Projection over Timeline)
         self.decision_engine = DecisionEngine()
         self.decision_query = DecisionQueryEngine(self.decision_engine)
         self.decision_inspector = DecisionInspector(self.decision_engine)
+
+        # Genesis-020 Sprint-005: Goal Engine (Projection over Timeline)
+        self.goal_engine = GoalEngine()
+        self.goal_query = GoalQueryEngine(self.goal_engine)
+        self.goal_inspector = GoalInspector(self.goal_engine)
 
     def process(self, request: str, token=None) -> Response:
         """
@@ -148,26 +146,22 @@ class Agent:
             token:   Opaque conversation-ownership context supplied by
                      JarvisCore. The Agent never inspects it and never
                      decides whether a response is stale — that is the
-                     Conversation layer's job. It exists here so future
-                     async/cancellation work needs no signature change.
+                     Conversation layer's job.
 
         Flow:
-            1.  Classify the message via ConversationIntelligence.
+            1.  Classify via ConversationIntelligence.
             2.  Evaluate for pending interactions via ConversationBehaviour.
-            3.  If handled, translate the ConversationDecision into a Response.
+            3.  If handled, translate ConversationDecision to Response.
             4.  Check for natural memory statements via MemoryDetector.
             5.  If detected, store via MemorySkill and acknowledge.
             6.  Resolve ambiguous references via ContextResolver (S2).
-                Original request is NEVER rewritten — context_hint attached.
             7.  Proceed with normal intent routing.
-            8.  Update ConversationContext after every interaction.
-            9.  Post-turn: memory, context, timeline, decisions.
+            8.  Update ConversationContext.
+            9.  Post-turn: memory, context, timeline, decisions, goals.
         """
 
         self.logger.info("Request received: %s", request)
-
         pipeline_start = time.perf_counter()
-
         self.context.last_user_message = request
 
         # Step 1 — Classify.
@@ -199,19 +193,15 @@ class Agent:
             return response
 
         # Step 6 — Genesis-020 S2: Resolve ambiguous references.
-        # The original request is NEVER rewritten. If resolved, context_hint
-        # is attached so the AI receives both the original intent and the
-        # resolved context. Skills always receive the original request.
+        # Original request is NEVER rewritten. context_hint attached only.
         resolution = None
         if self.context_resolver.needs_resolution(request):
             resolution = self.context_resolver.resolve(request)
             if resolution.resolved:
                 self.logger.info(
                     "[CONTEXT] Resolved %r → hint=%r (slot=%s, conf=%.2f)",
-                    resolution.pronoun,
-                    resolution.context_hint,
-                    resolution.slot_type,
-                    resolution.confidence,
+                    resolution.pronoun, resolution.context_hint,
+                    resolution.slot_type, resolution.confidence,
                 )
 
         # Step 7 — Normal intent routing.
@@ -231,15 +221,13 @@ class Agent:
 
     def _post_turn(self, request: str, response_message: str) -> None:
         """
-        Fire-and-forget post-turn processing.
-
-        Called on every turn regardless of exit path. Errors in any
-        subsystem are caught and logged — never propagated.
+        Fire-and-forget post-turn processing. Errors never propagate.
 
         S1: ConversationObserver — extract facts → KnowledgeEngine
         S2: ContextManager      — update SessionContext working memory
         S3: Timeline            — publish events from extracted facts
-        S4: DecisionEngine      — apply DECISION_* events from timeline
+        S4: DecisionEngine      — apply DECISION_* events
+        S5: GoalEngine          — apply GOAL_* events
         """
         try:
             self.conversation_observer.observe(request, response_message)
@@ -253,62 +241,56 @@ class Agent:
 
         try:
             from core.conversation.fact_extractor import FactExtractor
+            from core.conversation.timeline_event import EventType
             facts = FactExtractor().extract(request)
             if facts:
                 self.timeline.record_from_facts(facts, self.session.current_turn)
-                # S4: replay new events into DecisionEngine
-                from core.conversation.timeline_event import EventType
-                for fact in facts:
-                    latest = self.timeline.latest(EventType.DECISION)
-                    if latest and latest.turn == self.session.current_turn:
-                        self.decision_engine.apply(latest)
+                for event in self.timeline.events_since_turn(self.session.current_turn):
+                    if event.event_type in (
+                        EventType.DECISION_PROPOSED, EventType.DECISION_ACCEPTED,
+                        EventType.DECISION_SUPERSEDED, EventType.DECISION_REJECTED,
+                        EventType.DECISION,
+                    ):
+                        self.decision_engine.apply(event)
+                    elif event.event_type in (
+                        EventType.GOAL_CREATED, EventType.GOAL_STARTED,
+                        EventType.GOAL_COMPLETED, EventType.GOAL_CANCELLED,
+                        EventType.GOAL_BLOCKED, EventType.GOAL_UNBLOCKED,
+                        EventType.GOAL_PRIORITY_CHANGED,
+                    ):
+                        self.goal_engine.apply(event)
         except Exception:
-            self.logger.exception("[TIMELINE] Timeline/Decision error.")
+            self.logger.exception("[TIMELINE] Timeline/Projection error.")
 
-    def _handle_memory_detection(
-        self,
-        detection: MemoryDetection
-    ) -> Response:
-        """
-        Store a detected memory via MemorySkill and return an acknowledgement.
-
-        Routes through MemorySkill — the single gateway into the
-        KnowledgeEngine. The Agent never calls the engine directly.
-        """
+    def _handle_memory_detection(self, detection: MemoryDetection) -> Response:
+        """Store a detected memory via MemorySkill and return acknowledgement."""
         self.logger.debug(
             "Memory detected — key: %r, value: %r, confidence: %.2f",
-            detection.key,
-            detection.value,
-            detection.confidence
+            detection.key, detection.value, detection.confidence
         )
         with telemetry.stage("skill_manager", skill="memory_store"):
             return self.skills.get("memory").remember(detection.key, detection.value)
 
     def _respond_to_decision(self, decision: ConversationDecision) -> Response:
         """Translate a ConversationDecision into a user-facing Response."""
-
         if decision.outcome == ConversationOutcome.CONFIRMED:
             self.logger.debug("Responding to CONFIRMED decision.")
             return Response(success=True, message="Understood, sir. I will proceed.")
-
         if decision.outcome == ConversationOutcome.DENIED:
             self.logger.debug("Responding to DENIED decision.")
             return Response(success=True, message="Understood, sir. I will stand by.")
-
         if decision.outcome == ConversationOutcome.CLARIFICATION:
             self.logger.debug("Responding to CLARIFICATION decision.")
             pending = decision.pending_question or decision.pending_action
             if pending:
                 return Response(success=True, message=f"Of course, sir. I was asking: {pending}")
             return Response(success=True, message="I apologise for the confusion, sir. Please go ahead.")
-
         if decision.outcome == ConversationOutcome.CONTINUATION:
             self.logger.debug("Responding to CONTINUATION decision.")
             pending = decision.pending_question or decision.pending_action
             if pending:
                 return Response(success=True, message=f"Of course, sir. To confirm — {pending}")
             return Response(success=True, message="Please go ahead, sir.")
-
         return Response(success=False, message="I'm not sure how to proceed, sir.")
 
     def _route(self, intent: Intent, request: str, resolution=None) -> Response:
@@ -322,6 +304,8 @@ class Agent:
             return Response(success=True, message=self.timeline_inspector.inspect())
         if req_lower in ("/decisions", "show decisions", "inspect decisions", "decisions"):
             return Response(success=True, message=self.decision_inspector.inspect())
+        if req_lower in ("/goals", "show goals", "inspect goals", "goals"):
+            return Response(success=True, message=self.goal_inspector.inspect())
 
         if intent == Intent.GREETING:
             return self._execute_skill("greeting", request)
@@ -330,7 +314,13 @@ class Agent:
             return self._execute_skill("identity", request)
 
         if intent == Intent.MEMORY:
-            # Genesis-020 S4: Try decision query first.
+            # Genesis-020 S5: Try goal query first.
+            if self.goal_query.can_answer(request):
+                result = self.goal_query.answer(request)
+                if result.answered:
+                    return Response(success=True, message=result.answer)
+
+            # Genesis-020 S4: Try decision query.
             if self.decision_query.can_answer(request):
                 result = self.decision_query.answer(request)
                 if result.answered:
@@ -350,7 +340,7 @@ class Agent:
 
             response = self._execute_skill("memory", request)
 
-            # Genesis-013 Task 002 — Memory <-> Reasoning escalation.
+            # Genesis-013: Memory <-> Reasoning escalation.
             if response.data and response.data.get("memory_miss"):
                 reasoned = self.skills.get("reasoning").infer_attribute(
                     response.data.get("attribute", "")
