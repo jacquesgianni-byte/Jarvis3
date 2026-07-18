@@ -134,6 +134,16 @@ class FactExtractor:
     Fast enough for synchronous use (no I/O, no LLM, pure regex).
     """
 
+    # Interrogative words that signal a question rather than a statement.
+    # Messages starting with these (or primarily composed of them) should
+    # not generate knowledge records. Genesis-020 MP-001.
+    _QUESTION_START = re.compile(
+        r"^\s*(?:what|who|where|when|why|how|which|whose|whom|is|are|do|does|"
+        r"did|can|could|would|should|shall|will|have|has|had)\b",
+        re.IGNORECASE,
+    )
+    _QUESTION_END = re.compile(r"\?\s*$")
+
     def extract(self, text: str) -> list[ExtractedFact]:
         """
         Extract all facts from a single text message.
@@ -143,8 +153,23 @@ class FactExtractor:
 
         Returns:
             A list of ExtractedFact objects. May be empty.
+
+        Note:
+            Interrogative sentences (questions) are never treated as
+            factual statements. A message that starts with a question
+            word and/or ends with '?' returns an empty list.
+            Genesis-020 MP-001.
         """
         if not text or not text.strip():
+            return []
+
+        # Guard: pure questions never produce knowledge records.
+        # A message is a question if it starts with a question word
+        # OR ends with a question mark.
+        stripped = text.strip()
+        if self._QUESTION_END.search(stripped):
+            return []
+        if self._QUESTION_START.match(stripped):
             return []
 
         facts: list[ExtractedFact] = []
@@ -209,15 +234,17 @@ class FactExtractor:
 
     def _extract_people(self, text: str) -> list[ExtractedFact]:
         facts = []
+        seen_roles: set[tuple[str, str]] = set()
         for pattern in _PERSON_PATTERNS:
             m = pattern.search(text)
             if m:
-                # Pattern 1: "Claude is my senior engineer"
-                # group(1)=Claude, group(2)=senior engineer
                 name = _clean_value(m.group(1))
                 role = _clean_value(m.group(2))
                 if not _is_noise(name) and not _is_noise(role):
-                    # Store as: subject=name.lower(), attribute="role", value=role
+                    key = (name.lower(), role.lower())
+                    if key in seen_roles:
+                        continue  # skip duplicate from overlapping patterns
+                    seen_roles.add(key)
                     facts.append(ExtractedFact(
                         fact_type=FactType.PERSON,
                         subject=name.lower(),
@@ -226,7 +253,6 @@ class FactExtractor:
                         confidence=0.85,
                         raw=text,
                     ))
-                    # Also store relationship from user's perspective
                     facts.append(ExtractedFact(
                         fact_type=FactType.PERSON,
                         subject="user",

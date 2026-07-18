@@ -102,6 +102,20 @@ class IntentRouter:
         ),
     ]
 
+    # Genesis-020 MP-001: Session summary queries route to MEMORY so the
+    # SessionSummaryQueryEngine intercepts them before AI fallback.
+    _SUMMARY_PATTERNS = [
+        re.compile(
+            r"\b(?:summarise|summarize|summary of|give me a summary|"
+            r"show session summary|show summary|what happened (?:today|this session|so far)|"
+            r"how long was this session|how many (?:decisions|goals|turns)|"
+            r"what did we (?:accomplish|achieve|do) (?:today|this session)|"
+            r"key events|session stats?|session statistics)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(r"^/summary$", re.IGNORECASE),
+    ]
+
     _EXITS = ["exit", "quit", "bye", "goodbye"]
 
     def __init__(self):
@@ -142,6 +156,11 @@ class IntentRouter:
         if _has_word(request, "tool"):
             return Intent.TOOL
 
+        # Session summary — route to MEMORY so SessionSummaryQueryEngine
+        # can intercept before AI fallback. Genesis-020 MP-001.
+        if any(p.search(request) for p in self._SUMMARY_PATTERNS):
+            return Intent.MEMORY
+
         # Engineering — Academy lookup before AI fallback.
         # Genesis-019.5: tried before UNKNOWN so the Academy is always
         # consulted for engineering questions.
@@ -149,4 +168,3 @@ class IntentRouter:
             return Intent.ENGINEERING
 
         return Intent.UNKNOWN
-    

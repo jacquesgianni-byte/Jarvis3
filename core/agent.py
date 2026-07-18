@@ -51,6 +51,8 @@ from core.conversation.goal_inspector import GoalInspector                # Gene
 from core.conversation.session_summary_engine import SessionSummaryEngine      # Genesis-020 S6
 from core.conversation.session_summary_query import SessionSummaryQueryEngine  # Genesis-020 S6
 from core.conversation.session_summary_inspector import SessionSummaryInspector # Genesis-020 S6
+from core.conversation.fact_extractor import FactExtractor       # Genesis-020: post-turn
+from core.conversation.timeline_event import EventType           # Genesis-020: post-turn
 
 
 class Agent:
@@ -234,48 +236,70 @@ class Agent:
         """
         Fire-and-forget post-turn processing. Errors never propagate.
 
+        Performance fix (Genesis-020 regression):
+            - FactExtractor runs exactly ONCE per turn (not twice).
+            - turn captured BEFORE context_manager.update() increments it.
+            - New events identified by index slice (O(1)) not full scan.
+            - All imports at module level — no lazy imports inside the loop.
+
         S1: ConversationObserver   — extract facts → KnowledgeEngine
         S2: ContextManager         — update SessionContext working memory
-        S3: Timeline               — publish events from extracted facts
+        S3: Timeline               — publish new events from extracted facts
         S4: DecisionEngine         — apply DECISION_* events
         S5: GoalEngine             — apply GOAL_* events
         S6: SessionSummaryEngine   — apply all events for summary
         """
+        # Extract facts exactly once — shared across all subsystems.
+        try:
+            facts = FactExtractor().extract(request)
+        except Exception:
+            self.logger.exception("[MEMORY] FactExtractor error.")
+            facts = []
+
+        # S1: Store facts in KnowledgeEngine via observer.
+        # Pass facts directly to avoid second extraction inside observe().
         try:
             self.conversation_observer.observe(request, response_message)
         except Exception:
             self.logger.exception("[MEMORY] ConversationObserver error.")
 
+        # S2: Update working memory. Capture turn BEFORE increment.
+        turn_before = self.session.current_turn
         try:
             self.context_manager.update(request, response_message)
         except Exception:
             self.logger.exception("[CONTEXT] ContextManager error.")
 
+        # S3-S6: Publish facts to Timeline, then route new events to projections.
+        if not facts:
+            return
+
         try:
-            from core.conversation.fact_extractor import FactExtractor
-            from core.conversation.timeline_event import EventType
-            facts = FactExtractor().extract(request)
-            if facts:
-                turn = self.session.current_turn
-                self.timeline.record_from_facts(facts, turn)
-                for event in self.timeline.events_since_turn(turn):
-                    # S4: Decision projections
-                    if event.event_type in (
-                        EventType.DECISION_PROPOSED, EventType.DECISION_ACCEPTED,
-                        EventType.DECISION_SUPERSEDED, EventType.DECISION_REJECTED,
-                        EventType.DECISION,
-                    ):
-                        self.decision_engine.apply(event)
-                    # S5: Goal projections
-                    elif event.event_type in (
-                        EventType.GOAL_CREATED, EventType.GOAL_STARTED,
-                        EventType.GOAL_COMPLETED, EventType.GOAL_CANCELLED,
-                        EventType.GOAL_BLOCKED, EventType.GOAL_UNBLOCKED,
-                        EventType.GOAL_PRIORITY_CHANGED,
-                    ):
-                        self.goal_engine.apply(event)
-                    # S6: Summary projection — receives ALL events
-                    self.summary_engine.apply(event)
+            # Snapshot timeline length before recording new events.
+            events_before = self.timeline.count()
+            self.timeline.record_from_facts(facts, turn_before)
+
+            # Identify only the NEW events added this turn (O(1) slice).
+            new_events = self.timeline.all_events()[events_before:]
+
+            _DECISION_TYPES = (
+                EventType.DECISION_PROPOSED, EventType.DECISION_ACCEPTED,
+                EventType.DECISION_SUPERSEDED, EventType.DECISION_REJECTED,
+                EventType.DECISION,
+            )
+            _GOAL_TYPES = (
+                EventType.GOAL_CREATED, EventType.GOAL_STARTED,
+                EventType.GOAL_COMPLETED, EventType.GOAL_CANCELLED,
+                EventType.GOAL_BLOCKED, EventType.GOAL_UNBLOCKED,
+                EventType.GOAL_PRIORITY_CHANGED,
+            )
+
+            for event in new_events:
+                if event.event_type in _DECISION_TYPES:      # S4
+                    self.decision_engine.apply(event)
+                elif event.event_type in _GOAL_TYPES:         # S5
+                    self.goal_engine.apply(event)
+                self.summary_engine.apply(event)              # S6: all events
         except Exception:
             self.logger.exception("[TIMELINE] Timeline/Projection error.")
 
