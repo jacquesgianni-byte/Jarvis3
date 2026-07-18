@@ -571,8 +571,16 @@ class TestBackwardsCompatibility:
         src = open(mod.__file__).read()
         assert "KnowledgeEngine" not in src
 
-    def test_event_type_count_is_ten(self):
-        assert len(list(EventType)) == 10
+    def test_original_ten_event_types_still_present(self):
+        """Original 10 event types must always be present.
+        New types (e.g. DECISION_*) may be added by future sprints."""
+        original = [
+            "START_PROJECT", "START_SPRINT", "FINISH_SPRINT", "FREEZE",
+            "DECISION", "TASK", "PERSON", "ACHIEVEMENT", "QUESTION", "GENERAL",
+        ]
+        for name in original:
+            assert hasattr(EventType, name), f"EventType.{name} missing"
+        assert len(list(EventType)) >= 10
 
 
 # ===========================================================================

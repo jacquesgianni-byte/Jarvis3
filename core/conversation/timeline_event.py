@@ -33,6 +33,7 @@ Event types:
     ACHIEVEMENT     — "We completed 529 tests"
     QUESTION        — user asked a question
     GENERAL         — any other noteworthy turn
+    DECISION_*      — architectural decision lifecycle events (Genesis-020 S4)
 """
 
 from __future__ import annotations
@@ -53,8 +54,12 @@ class EventType(Enum):
     TASK          = auto()
     PERSON        = auto()
     ACHIEVEMENT   = auto()
-    QUESTION      = auto()
-    GENERAL       = auto()
+    QUESTION              = auto()
+    GENERAL               = auto()
+    DECISION_PROPOSED     = auto()   # Genesis-020 S4: decision under consideration
+    DECISION_ACCEPTED     = auto()   # Genesis-020 S4: decision adopted
+    DECISION_SUPERSEDED   = auto()   # Genesis-020 S4: decision replaced
+    DECISION_REJECTED     = auto()   # Genesis-020 S4: decision rejected
 
     def label(self) -> str:
         """Human-readable label for the inspector."""
