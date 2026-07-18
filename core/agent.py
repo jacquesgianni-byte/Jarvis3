@@ -33,8 +33,12 @@ from core.conversation.behaviour import ConversationBehaviour
 from core.conversation.decision import ConversationDecision, ConversationOutcome
 from core.conversation.memory_detector import MemoryDetector
 from core.conversation.memory_detection import MemoryDetection
-from core.conversation.conversation_observer import ConversationObserver  # Genesis-020
-from core.conversation.conversation_recall import ConversationRecall      # Genesis-020
+from core.conversation.conversation_observer import ConversationObserver  # Genesis-020 S1
+from core.conversation.conversation_recall import ConversationRecall      # Genesis-020 S1
+from core.conversation.session_context import SessionContext              # Genesis-020 S2
+from core.conversation.context_manager import ContextManager             # Genesis-020 S2
+from core.conversation.context_resolver import ContextResolver           # Genesis-020 S2
+from core.conversation.context_inspector import ContextInspector         # Genesis-020 S2
 
 
 class Agent:
@@ -46,16 +50,22 @@ class Agent:
         ConversationIntelligence  — message classification
         ConversationBehaviour     — pending interaction handling
         MemoryDetector            — natural memory statement detection
-        ConversationObserver      — automatic fact extraction (Genesis-020)
-        ConversationRecall        — contextual/temporal recall (Genesis-020)
+        ConversationObserver      — automatic fact extraction (Genesis-020 S1)
+        ConversationRecall        — contextual/temporal recall (Genesis-020 S1)
+        SessionContext            — in-memory working memory (Genesis-020 S2)
+        ContextManager            — updates working memory each turn (Genesis-020 S2)
+        ContextResolver           — resolves pronouns/references (Genesis-020 S2)
+        ContextInspector          — developer context snapshot (Genesis-020 S2)
 
     Processing flow per request:
         1. Classify via ConversationIntelligence.
         2. Evaluate pending interactions via ConversationBehaviour.
         3. Detect natural memory statements via MemoryDetector.
-        4. Route to intent skills or AI fallback.
-        5. Update ConversationContext.
-        6. Observe conversation turn for automatic memory extraction.
+        4. Resolve ambiguous references via ContextResolver.
+        5. Route to intent skills or AI fallback.
+        6. Update ConversationContext.
+        7. Observe conversation turn for automatic memory extraction.
+        8. Update session working memory via ContextManager.
 
     Args:
         ai: Optional AI provider. Used as fallback when no intent is matched.
@@ -94,9 +104,17 @@ class Agent:
         # Memory detection
         self.memory_detector = MemoryDetector()
 
-        # Genesis-020: Conversation Memory
+        # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
         self.conversation_recall = ConversationRecall(self.knowledge)
+
+        # Genesis-020 Sprint-002: Active Conversation Context
+        # SessionContext is the shared Worker workspace — future Workers
+        # will read this same instance without parameter passing.
+        self.session = SessionContext()
+        self.context_manager = ContextManager(self.session)
+        self.context_resolver = ContextResolver(self.session)
+        self.context_inspector = ContextInspector(self.session)
 
     def process(self, request: str, token=None) -> Response:
         """
@@ -116,9 +134,12 @@ class Agent:
             3. If handled, translate the ConversationDecision into a Response.
             4. Check for natural memory statements via MemoryDetector.
             5. If detected, store via MemorySkill and acknowledge.
-            6. Proceed with normal intent routing.
-            7. Update ConversationContext after every interaction.
-            8. Observe conversation turn for automatic memory extraction.
+            6. Resolve ambiguous references via ContextResolver (S2).
+               Original request is NEVER rewritten — context_hint attached.
+            7. Proceed with normal intent routing.
+            8. Update ConversationContext after every interaction.
+            9. Observe conversation turn for automatic memory extraction (S1).
+           10. Update session working memory via ContextManager (S2).
         """
 
         self.logger.info("Request received: %s", request)
@@ -147,7 +168,8 @@ class Agent:
         if decision is not None and decision.handled:
             response = self._respond_to_decision(decision)
             self.context.last_jarvis_response = response.message
-            self.conversation_observer.observe(request, response.message)  # Genesis-020
+            self.conversation_observer.observe(request, response.message)  # S1
+            self.context_manager.update(request, response.message)         # S2
             return response
 
         # Step 4 — Check for natural memory statements.
@@ -159,21 +181,41 @@ class Agent:
             response = self._handle_memory_detection(detection)
             self.context.last_skill = "memory"
             self.context.last_jarvis_response = response.message
-            self.conversation_observer.observe(request, response.message)  # Genesis-020
+            self.conversation_observer.observe(request, response.message)  # S1
+            self.context_manager.update(request, response.message)         # S2
             return response
 
-        # Step 6 — Normal intent routing.
+        # Step 6 — Genesis-020 S2: Resolve ambiguous references.
+        # The original request is NEVER rewritten. If resolved, context_hint
+        # is attached so the AI receives both the original intent and the
+        # resolved context. Skills always receive the original request.
+        resolution = None
+        if self.context_resolver.needs_resolution(request):
+            resolution = self.context_resolver.resolve(request)
+            if resolution.resolved:
+                self.logger.info(
+                    "[CONTEXT] Resolved %r → hint=%r (slot=%s, conf=%.2f)",
+                    resolution.pronoun,
+                    resolution.context_hint,
+                    resolution.slot_type,
+                    resolution.confidence,
+                )
+
+        # Step 7 — Normal intent routing.
         with telemetry.stage("intent_routing"):
             intent = self.router.detect(request)
         telemetry.log_since("agent_pipeline", pipeline_start)
-        response = self._route(intent, request)
+        response = self._route(intent, request, resolution)
 
-        # Step 7 — Update context.
+        # Step 8 — Update context.
         self.context.last_intent = intent.name if intent else None
         self.context.last_jarvis_response = response.message
 
-        # Step 8 — Genesis-020: observe turn for automatic memory extraction.
+        # Step 9 — Genesis-020 S1: observe turn for automatic memory extraction.
         self.conversation_observer.observe(request, response.message)
+
+        # Step 10 — Genesis-020 S2: update session working memory.
+        self.context_manager.update(request, response.message)
 
         return response
 
@@ -263,17 +305,26 @@ class Agent:
             message="I'm not sure how to proceed, sir."
         )
 
-    def _route(self, intent: Intent, request: str) -> Response:
+    def _route(self, intent: Intent, request: str, resolution=None) -> Response:
         """
         Route a detected intent to the appropriate skill or AI fallback.
 
         Args:
-            intent:  The detected intent.
-            request: The original user request.
+            intent:     The detected intent.
+            request:    The original user request (never rewritten).
+            resolution: Optional Resolution from ContextResolver. If resolved,
+                        context_hint is appended to AI calls so the AI has
+                        both the original intent and the resolved context.
 
         Returns:
             A Response from the matched skill, AI fallback, or default.
         """
+
+        # Genesis-020 S2: Context Inspector command.
+        # Triggered before routing so it works regardless of intent.
+        req_lower = request.strip().lower()
+        if req_lower in ("inspect context", "/context", "show context", "context"):
+            return Response(success=True, message=self.context_inspector.inspect())
 
         if intent == Intent.GREETING:
             return self._execute_skill("greeting", request)
@@ -282,7 +333,7 @@ class Agent:
             return self._execute_skill("identity", request)
 
         if intent == Intent.MEMORY:
-            # Genesis-020: Try conversational recall before standard memory lookup.
+            # Genesis-020 S1: Try conversational recall before standard memory lookup.
             # Answers "What project am I working on?", "Who is Claude?", etc.
             if self.conversation_recall.can_answer(request):
                 recall_result = self.conversation_recall.answer(request)
@@ -321,10 +372,20 @@ class Agent:
             return self._execute_skill("engineering", request)
 
         # AI fallback — preserved unchanged.
+        # If a context resolution was found, append the hint to the request
+        # so the AI understands the pronoun/reference without seeing
+        # Jarvis's internal state. Original intent is always preserved.
         if self.ai is not None:
             self.context.last_skill = "ai_fallback"
+            ai_request = request
+            if resolution and resolution.resolved:
+                ai_request = (
+                    f"{request} "
+                    f"[Context: {resolution.pronoun} refers to "
+                    f"{resolution.context_hint}]"
+                )
             with telemetry.stage("ai_manager"):
-                return self.ai.ask(request)
+                return self.ai.ask(ai_request)
 
         self.context.last_skill = None
 
