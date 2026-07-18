@@ -48,6 +48,9 @@ from core.conversation.decision_inspector import DecisionInspector        # Gene
 from core.conversation.goal_engine import GoalEngine                      # Genesis-020 S5
 from core.conversation.goal_query import GoalQueryEngine                  # Genesis-020 S5
 from core.conversation.goal_inspector import GoalInspector                # Genesis-020 S5
+from core.conversation.session_summary_engine import SessionSummaryEngine      # Genesis-020 S6
+from core.conversation.session_summary_query import SessionSummaryQueryEngine  # Genesis-020 S6
+from core.conversation.session_summary_inspector import SessionSummaryInspector # Genesis-020 S6
 
 
 class Agent:
@@ -55,25 +58,28 @@ class Agent:
     The central decision maker for Jarvis.
 
     Owns one each of:
-        ConversationContext       — current conversation state
-        ConversationIntelligence  — message classification
-        ConversationBehaviour     — pending interaction handling
-        MemoryDetector            — natural memory statement detection
-        ConversationObserver      — automatic fact extraction (Genesis-020 S1)
-        ConversationRecall        — contextual/temporal recall (Genesis-020 S1)
-        SessionContext            — in-memory working memory (Genesis-020 S2)
-        ContextManager            — updates working memory each turn (Genesis-020 S2)
-        ContextResolver           — resolves pronouns/references (Genesis-020 S2)
-        ContextInspector          — developer context snapshot (Genesis-020 S2)
-        ConversationTimeline      — append-only event history (Genesis-020 S3)
-        TimelineQueryEngine       — answers history questions (Genesis-020 S3)
-        TimelineInspector         — developer timeline snapshot (Genesis-020 S3)
-        DecisionEngine            — records and explains decisions (Genesis-020 S4)
-        DecisionQueryEngine       — answers decision questions (Genesis-020 S4)
-        DecisionInspector         — developer decision snapshot (Genesis-020 S4)
-        GoalEngine                — tracks goals as Projection (Genesis-020 S5)
-        GoalQueryEngine           — answers goal questions (Genesis-020 S5)
-        GoalInspector             — developer goal snapshot (Genesis-020 S5)
+        ConversationContext         — current conversation state
+        ConversationIntelligence    — message classification
+        ConversationBehaviour       — pending interaction handling
+        MemoryDetector              — natural memory statement detection
+        ConversationObserver        — automatic fact extraction (S1)
+        ConversationRecall          — contextual/temporal recall (S1)
+        SessionContext              — in-memory working memory (S2)
+        ContextManager              — updates working memory each turn (S2)
+        ContextResolver             — resolves pronouns/references (S2)
+        ContextInspector            — developer context snapshot (S2)
+        ConversationTimeline        — append-only event history (S3)
+        TimelineQueryEngine         — answers history questions (S3)
+        TimelineInspector           — developer timeline snapshot (S3)
+        DecisionEngine              — records and explains decisions (S4)
+        DecisionQueryEngine         — answers decision questions (S4)
+        DecisionInspector           — developer decision snapshot (S4)
+        GoalEngine                  — tracks goals as Projection (S5)
+        GoalQueryEngine             — answers goal questions (S5)
+        GoalInspector               — developer goal snapshot (S5)
+        SessionSummaryEngine        — deterministic session summary (S6)
+        SessionSummaryQueryEngine   — answers session questions (S6)
+        SessionSummaryInspector     — developer summary snapshot (S6)
 
     Args:
         ai: Optional AI provider. Used as fallback when no intent is matched.
@@ -137,6 +143,11 @@ class Agent:
         self.goal_query = GoalQueryEngine(self.goal_engine)
         self.goal_inspector = GoalInspector(self.goal_engine)
 
+        # Genesis-020 Sprint-006: Session Summary Engine (Projection over Timeline)
+        self.summary_engine = SessionSummaryEngine()
+        self.summary_query = SessionSummaryQueryEngine(self.summary_engine)
+        self.summary_inspector = SessionSummaryInspector(self.summary_engine)
+
     def process(self, request: str, token=None) -> Response:
         """
         Process a user request.
@@ -157,7 +168,7 @@ class Agent:
             6.  Resolve ambiguous references via ContextResolver (S2).
             7.  Proceed with normal intent routing.
             8.  Update ConversationContext.
-            9.  Post-turn: memory, context, timeline, decisions, goals.
+            9.  Post-turn: memory, context, timeline, decisions, goals, summary.
         """
 
         self.logger.info("Request received: %s", request)
@@ -223,11 +234,12 @@ class Agent:
         """
         Fire-and-forget post-turn processing. Errors never propagate.
 
-        S1: ConversationObserver — extract facts → KnowledgeEngine
-        S2: ContextManager      — update SessionContext working memory
-        S3: Timeline            — publish events from extracted facts
-        S4: DecisionEngine      — apply DECISION_* events
-        S5: GoalEngine          — apply GOAL_* events
+        S1: ConversationObserver   — extract facts → KnowledgeEngine
+        S2: ContextManager         — update SessionContext working memory
+        S3: Timeline               — publish events from extracted facts
+        S4: DecisionEngine         — apply DECISION_* events
+        S5: GoalEngine             — apply GOAL_* events
+        S6: SessionSummaryEngine   — apply all events for summary
         """
         try:
             self.conversation_observer.observe(request, response_message)
@@ -244,14 +256,17 @@ class Agent:
             from core.conversation.timeline_event import EventType
             facts = FactExtractor().extract(request)
             if facts:
-                self.timeline.record_from_facts(facts, self.session.current_turn)
-                for event in self.timeline.events_since_turn(self.session.current_turn):
+                turn = self.session.current_turn
+                self.timeline.record_from_facts(facts, turn)
+                for event in self.timeline.events_since_turn(turn):
+                    # S4: Decision projections
                     if event.event_type in (
                         EventType.DECISION_PROPOSED, EventType.DECISION_ACCEPTED,
                         EventType.DECISION_SUPERSEDED, EventType.DECISION_REJECTED,
                         EventType.DECISION,
                     ):
                         self.decision_engine.apply(event)
+                    # S5: Goal projections
                     elif event.event_type in (
                         EventType.GOAL_CREATED, EventType.GOAL_STARTED,
                         EventType.GOAL_COMPLETED, EventType.GOAL_CANCELLED,
@@ -259,6 +274,8 @@ class Agent:
                         EventType.GOAL_PRIORITY_CHANGED,
                     ):
                         self.goal_engine.apply(event)
+                    # S6: Summary projection — receives ALL events
+                    self.summary_engine.apply(event)
         except Exception:
             self.logger.exception("[TIMELINE] Timeline/Projection error.")
 
@@ -306,6 +323,8 @@ class Agent:
             return Response(success=True, message=self.decision_inspector.inspect())
         if req_lower in ("/goals", "show goals", "inspect goals", "goals"):
             return Response(success=True, message=self.goal_inspector.inspect())
+        if req_lower in ("/summary", "show summary", "inspect summary", "summary"):
+            return Response(success=True, message=self.summary_inspector.inspect())
 
         if intent == Intent.GREETING:
             return self._execute_skill("greeting", request)
@@ -314,25 +333,31 @@ class Agent:
             return self._execute_skill("identity", request)
 
         if intent == Intent.MEMORY:
-            # Genesis-020 S5: Try goal query first.
+            # S6: Try session summary query first.
+            if self.summary_query.can_answer(request):
+                result = self.summary_query.answer(request)
+                if result.answered:
+                    return Response(success=True, message=result.answer)
+
+            # S5: Try goal query.
             if self.goal_query.can_answer(request):
                 result = self.goal_query.answer(request)
                 if result.answered:
                     return Response(success=True, message=result.answer)
 
-            # Genesis-020 S4: Try decision query.
+            # S4: Try decision query.
             if self.decision_query.can_answer(request):
                 result = self.decision_query.answer(request)
                 if result.answered:
                     return Response(success=True, message=result.answer)
 
-            # Genesis-020 S3: Try timeline query.
+            # S3: Try timeline query.
             if self.timeline_query.can_answer(request):
                 result = self.timeline_query.answer(request)
                 if result.answered:
                     return Response(success=True, message=result.answer)
 
-            # Genesis-020 S1: Try conversational recall.
+            # S1: Try conversational recall.
             if self.conversation_recall.can_answer(request):
                 recall_result = self.conversation_recall.answer(request)
                 if recall_result.found:
