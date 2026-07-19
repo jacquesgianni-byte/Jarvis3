@@ -37,6 +37,7 @@ from typing import Any
 
 from core.workers.manager import WorkerManager
 from core.workers.models import WorkerResult, WorkerTask
+from core.workers.worker_context import WorkerContext
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class WorkerCoordinator:
     def __init__(self, manager: WorkerManager) -> None:
         self._manager = manager
         self._workflows: dict[str, list[str]] = dict(_DEFAULT_WORKFLOWS)
+        self.context = WorkerContext()
 
     # ------------------------------------------------------------------
     # Workflow registry
@@ -155,6 +157,8 @@ class WorkerCoordinator:
             "[COORDINATOR] Starting workflow for task_type=%r id=%s",
             task.task_type, task.task_id[:8],
         )
+        # Fresh context per run() call unless the caller has pre-populated it.
+        # Callers may reuse context across runs by calling run() without reset.
 
         workflow = self.workflow_for(task.task_type)
         if not workflow:
@@ -196,7 +200,18 @@ class WorkerCoordinator:
                     priority=current_task.priority,
                     metadata=current_task.metadata,
                 )
-                result = self._manager.execute(worker_name, step_task)
+                # Check context before executing — reuse if valid
+                cached = self.context.get(worker_name, current_task.payload)
+                if cached is not None:
+                    logger.info(
+                        "[COORDINATOR] Context hit for worker=%r — skipping execution.",
+                        worker_name,
+                    )
+                    result = cached
+                else:
+                    result = self._manager.execute(worker_name, step_task)
+                    if result.success:
+                        self.context.store(worker_name, current_task.payload, result)
             except Exception as exc:
                 reason = (
                     f"Workflow step {index + 1} ({worker_name!r}) "
