@@ -104,6 +104,7 @@ class Decision:
     payload:          dict[str, Any]      = field(default_factory=dict)
     raw_input:        str                 = ""
     context_snapshot: dict[str, Any]      = field(default_factory=dict)
+    reason:           str                 = ""
     produced_at:      datetime            = field(
         default_factory=lambda: datetime.now(UTC)
     )

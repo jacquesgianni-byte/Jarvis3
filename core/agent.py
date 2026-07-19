@@ -53,6 +53,8 @@ from core.conversation.session_summary_query import SessionSummaryQueryEngine  #
 from core.conversation.session_summary_inspector import SessionSummaryInspector # Genesis-020 S6
 from core.conversation.fact_extractor import FactExtractor       # Genesis-020: post-turn
 from core.conversation.timeline_event import EventType           # Genesis-020: post-turn
+from core.conversation.conversation_engine import ConversationEngine   # Genesis-022
+from core.conversation.conversation_models import DecisionType         # Genesis-022
 
 
 class Agent:
@@ -149,6 +151,9 @@ class Agent:
         self.summary_engine = SessionSummaryEngine()
         self.summary_query = SessionSummaryQueryEngine(self.summary_engine)
         self.summary_inspector = SessionSummaryInspector(self.summary_engine)
+
+        # Genesis-022: Conversation Engine — wires pipeline, resolver, dialogue, router
+        self.conversation_engine = ConversationEngine()
 
     def process(self, request: str, token=None) -> Response:
         """
@@ -349,6 +354,29 @@ class Agent:
             return Response(success=True, message=self.goal_inspector.inspect())
         if req_lower in ("/summary", "show summary", "inspect summary", "summary"):
             return Response(success=True, message=self.summary_inspector.inspect())
+
+        # Genesis-022: Run Conversation Engine pipeline for enriched context.
+        # The engine runs Recovery → Resolution → Dialogue → Router.
+        # We use the Decision to augment routing without replacing existing paths.
+        try:
+            conv_decision = self.conversation_engine.process(request)
+            # Handle slot fills and recovery before normal intent routing
+            if conv_decision.decision_type == DecisionType.RECOVERY:
+                return Response(
+                    success=True,
+                    message="Understood, sir. I've cleared that.",
+                )
+            if conv_decision.decision_type == DecisionType.SLOT_FILLED:
+                slot_name  = conv_decision.payload.get("slot_name", "")
+                slot_value = conv_decision.payload.get("slot_value", "")
+                if slot_name and slot_value:
+                    self.skills.get("memory").remember(slot_name, slot_value)
+                return Response(
+                    success=True,
+                    message=f"Got it, sir. I've noted {slot_value!r}.",
+                )
+        except Exception:
+            self.logger.exception("[CONV] ConversationEngine error — continuing with intent routing.")
 
         if intent == Intent.GREETING:
             return self._execute_skill("greeting", request)
