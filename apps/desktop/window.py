@@ -1,5 +1,5 @@
 """
-Jarvis OS Main Window
+Jarvis OS Main Window (Genesis-023 MP-004 Sprint-006)
 
 The primary application window for Jarvis OS Desktop.
 Composes all widgets into the complete interface.
@@ -17,24 +17,32 @@ Genesis-011 Task 002 (Part 2) — Desktop Worker Integration:
       the conversation; the worker result is then silently discarded.
     * Worker threads are tracked until finished so overlapping requests
       can never crash Qt ("QThread destroyed while running").
+
+Genesis-023 MP-004 Sprint-006 — DesktopShell Integration:
+    * Body area migrated from inline ChatView/InputBar to DesktopShell.
+    * DesktopShell hosts ChatPage which owns ChatView and InputBar.
+    * DesktopController introduced as the desktop behaviour coordinator.
+    * SidebarWidget retained as a hidden compatibility layer so orb
+      state calls continue to work without modification.
+
+    TODO (Genesis-023 Sprint-008): Replace SidebarWidget compatibility
+    layer with PresenceController + OrbController, then remove
+    SidebarWidget completely.
 """
 
 import time
 
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QSplitter
-)
-from PySide6.QtCore import Qt, QThread, Signal, QObject, QTimer
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
+from PySide6.QtCore import QThread, Signal, QObject, QTimer
 
 from core import telemetry
 
 from apps.desktop.theme import Theme
 from apps.desktop.widgets.header import HeaderWidget
 from apps.desktop.widgets.sidebar import SidebarWidget
-from apps.desktop.widgets.chat_view import ChatView
-from apps.desktop.widgets.input_bar import InputBar
 from apps.desktop.widgets.status_bar import StatusBar
+from apps.desktop.shell.desktop_shell import DesktopShell
+from apps.desktop.controller.desktop_controller import DesktopController
 
 
 class ProcessWorker(QObject):
@@ -52,13 +60,9 @@ class ProcessWorker(QObject):
         super().__init__()
         self._jarvis = jarvis
         self._message = message
-        # perf_counter timestamp of when the UI queued this request.
         self._queued_at = queued_at if queued_at is not None else time.perf_counter()
 
     def run(self):
-        # Identity note: telemetry gets its request id from the
-        # RequestToken, which JarvisCore binds internally. The worker
-        # only marks the pipeline boundaries.
         telemetry.begin_request(queued_at=self._queued_at)
         response = self._jarvis.process(self._message)
         telemetry.end_request()
@@ -68,6 +72,17 @@ class ProcessWorker(QObject):
 class MainWindow(QMainWindow):
     """
     The main window for Jarvis OS Desktop.
+
+    Sprint-006 layout:
+
+        Header
+        DesktopShell
+            └── ChatPage (ChatView + InputBar)
+        StatusBar
+
+    SidebarWidget is instantiated but hidden — it serves as a
+    compatibility shim for orb state calls until Sprint-007 replaces
+    it with PresenceController + OrbController.
     """
 
     def __init__(self, jarvis):
@@ -77,19 +92,12 @@ class MainWindow(QMainWindow):
         self._busy = False
 
         # Speech lifecycle observation (Genesis-011 Task 002.6).
-        # While a response is being spoken, this timer polls
-        # jarvis.is_speaking and returns the UI to Idle only when speech
-        # has genuinely finished. The UI holds no speech logic — it only
-        # observes the Voice Manager's state through JarvisCore.
         self._awaiting_speech_end = False
         self._speech_timer = QTimer(self)
         self._speech_timer.setInterval(150)
         self._speech_timer.timeout.connect(self._check_speech_finished)
 
-        # Live worker threads. Each entry is (thread, worker). Entries are
-        # removed when the thread finishes. Holding these references keeps
-        # Python from garbage-collecting a running QThread, which would
-        # hard-crash Qt once overlapping requests are allowed.
+        # Live worker threads. Entries removed when thread finishes.
         self._jobs = []
 
         self.setWindowTitle(Theme.WINDOW_TITLE)
@@ -100,10 +108,17 @@ class MainWindow(QMainWindow):
         self._apply_global_style()
         self._connect_signals()
 
+        # Startup via controller — shows initial page.
+        self._controller.startup()
+
         self.chat_view.display_system_message(
             "Good afternoon, Ludovic.\n\nWelcome back.\n\nJarvis is online and ready."
         )
         self.input_bar.focus()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
 
     def _build_ui(self):
 
@@ -114,36 +129,29 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # Header
+        # Header — unchanged.
         self.header = HeaderWidget()
         root_layout.addWidget(self.header)
 
-        # Body
-        body = QSplitter(Qt.Horizontal)
-        body.setHandleWidth(1)
-        body.setChildrenCollapsible(False)
+        # DesktopShell — owns all page navigation.
+        # Sprint-006: ChatPage is the only registered page.
+        self._shell = DesktopShell()
+        root_layout.addWidget(self._shell, stretch=1)
 
+        # SidebarWidget — hidden compatibility shim.
+        # Retains set_orb_state() calls without visible presence.
+        # TODO (Genesis-023 Sprint-007): Replace with PresenceController
+        # + OrbController and remove SidebarWidget completely.
         self.sidebar = SidebarWidget()
-        body.addWidget(self.sidebar)
+        self.sidebar.setVisible(False)
 
-        main_panel = QWidget()
-        main_layout = QVBoxLayout(main_panel)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        # DesktopController — coordinates shell and JarvisCore.
+        self._controller = DesktopController(
+            jarvis=self.jarvis,
+            shell=self._shell,
+        )
 
-        self.chat_view = ChatView()
-        self.input_bar = InputBar()
-
-        main_layout.addWidget(self.chat_view, stretch=1)
-        main_layout.addWidget(self.input_bar)
-
-        body.addWidget(main_panel)
-        body.setSizes([Theme.SIDEBAR_WIDTH, Theme.WINDOW_WIDTH - Theme.SIDEBAR_WIDTH])
-        body.setStretchFactor(0, 0)
-        body.setStretchFactor(1, 1)
-
-        root_layout.addWidget(body, stretch=1)
-
+        # Status bar — unchanged.
         self.status_bar_widget = StatusBar()
         root_layout.addWidget(self.status_bar_widget)
 
@@ -154,9 +162,6 @@ class MainWindow(QMainWindow):
                 color: {Theme.TEXT};
                 font-family: "{Theme.FONT_FAMILY}";
                 font-size: {Theme.FONT_NORMAL}px;
-            }}
-            QSplitter::handle {{
-                background: {Theme.BORDER};
             }}
             QScrollBar:vertical {{
                 background: {Theme.SURFACE};
@@ -175,10 +180,27 @@ class MainWindow(QMainWindow):
         """)
 
     def _connect_signals(self):
-        # The action button is Send when idle and Stop when processing.
         self.input_bar.send_button.clicked.connect(self._on_action_button)
         self.input_bar.input_box.returnPressed.connect(self._send_message)
         self.input_bar.voice_button.clicked.connect(self._toggle_voice)
+
+    # ------------------------------------------------------------------
+    # Convenience accessors — route through DesktopShell's ChatPage
+    # ------------------------------------------------------------------
+
+    @property
+    def chat_view(self):
+        """The active ChatView, hosted inside ChatPage."""
+        return self._shell.chat_page.chat_view
+
+    @property
+    def input_bar(self):
+        """The active InputBar, hosted inside ChatPage."""
+        return self._shell.chat_page.input_bar
+
+    # ------------------------------------------------------------------
+    # Message handling — unchanged from pre-Sprint-006
+    # ------------------------------------------------------------------
 
     def _on_action_button(self):
         """
@@ -195,16 +217,9 @@ class MainWindow(QMainWindow):
     def _send_message(self):
         message = self.input_bar.text()
 
-        # Empty Enter must never interrupt anything — typing (or an
-        # accidental Enter) and speaking are independent activities.
         if not message:
             return
 
-        # Input Independence: sending while a request is thinking or
-        # speaking interrupts it and immediately starts the new one.
-        # The UI only forwards the interrupt — JarvisCore owns the
-        # policy; the stale response is discarded by the token gate and
-        # speech halts at the next chunk boundary.
         if self._busy:
             self.jarvis.stop()
             self.chat_view.hide_typing()
@@ -213,8 +228,6 @@ class MainWindow(QMainWindow):
         self._awaiting_speech_end = False
         self._speech_timer.stop()
         self.input_bar.clear()
-        # The cursor lives in the input box — always. Sending must never
-        # leave it anywhere else, regardless of how the send happened.
         self.input_bar.focus()
         self.chat_view.display_user_message(message)
         self.chat_view.show_typing()
@@ -222,12 +235,10 @@ class MainWindow(QMainWindow):
         self.sidebar.set_orb_state("thinking")
         self.input_bar.set_processing(True)
 
-        # Create worker and thread.
         thread = QThread()
         worker = ProcessWorker(self.jarvis, message, queued_at=time.perf_counter())
         worker.moveToThread(thread)
 
-        # Wire signals.
         thread.started.connect(worker.run)
         worker.finished.connect(self._on_response)
         worker.finished.connect(thread.quit)
@@ -235,9 +246,7 @@ class MainWindow(QMainWindow):
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(lambda t=thread: self._forget_job(t))
 
-        # Keep the pair alive until the thread finishes.
         self._jobs.append((thread, worker))
-
         thread.start()
 
     def _forget_job(self, thread):
@@ -258,10 +267,6 @@ class MainWindow(QMainWindow):
         Speaking: JarvisCore halts speech at the next word boundary;
         the speech-watch timer observes silence and flips to "Ready"
         via _return_to_idle.
-
-        Either way the input unlocks immediately — Jarvis really is
-        ready for a new message — while the status bar truthfully
-        tracks the dying work in the background.
         """
         self.jarvis.stop()
 
@@ -274,12 +279,7 @@ class MainWindow(QMainWindow):
 
     def _on_response(self, response):
         # None means a newer request owns the conversation (or Stop was
-        # pressed). The staleness decision was already made inside
-        # JarvisCore — the response is silently discarded. The arrival of
-        # None is also the signal that the abandoned worker has actually
-        # finished, so if nothing newer is running, close out the
-        # "Stopping..." state. If a new request is already in flight
-        # (_busy), leave its "Thinking..." status untouched.
+        # pressed). Silently discard and close out "Stopping..." if idle.
         if response is None:
             if not self._busy:
                 self.status_bar_widget.set_status("Ready")
@@ -295,18 +295,11 @@ class MainWindow(QMainWindow):
             self.close()
             return
 
-        # Remain in the processing state (Stop button visible) until
-        # speech has actually finished — observed, not assumed.
         self._awaiting_speech_end = True
         self._speech_timer.start()
 
     def _check_speech_finished(self):
-        """
-        Poll the voice state and return to Idle when speech truly ends.
-
-        If a newer request has superseded this watch, just stand down —
-        the new request manages its own lifecycle.
-        """
+        """Poll the voice state and return to Idle when speech truly ends."""
         if not self._awaiting_speech_end:
             self._speech_timer.stop()
             return
@@ -329,7 +322,10 @@ class MainWindow(QMainWindow):
         self.status_bar_widget.set_status("Listening...")
         self.input_bar.set_voice_active(True)
 
-    # Public API
+    # ------------------------------------------------------------------
+    # Public API — unchanged
+    # ------------------------------------------------------------------
+
     def display_system_message(self, message: str):
         self.chat_view.display_system_message(message)
 
