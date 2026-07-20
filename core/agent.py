@@ -428,6 +428,21 @@ class Agent:
             return response
 
         if intent == Intent.REASONING:
+            # Short referential queries ("Why?", "How so?") classified as
+            # REASONING should first check recent conversation context before
+            # delegating to the reasoning skill. Genesis-024 Sprint-002.
+            _why_triggers = frozenset({
+                "why", "why?", "how so", "how so?",
+                "what do you mean", "what do you mean?",
+            })
+            req_norm = request.strip().lower().rstrip("?.,!")
+            if req_norm in _why_triggers:
+                last_response = self.context.last_jarvis_response
+                if last_response:
+                    return Response(
+                        success=True,
+                        message=f"I said: {last_response}"
+                    )
             return self._execute_skill("reasoning", request)
 
         if intent == Intent.TOOL:
@@ -440,7 +455,166 @@ class Agent:
         if intent == Intent.ENGINEERING:
             return self._execute_skill("engineering", request)
 
-        # AI fallback — preserved unchanged.
+        # ----------------------------------------------------------------
+        # Conversation Resolution Phase (Genesis-024 Sprint-002)
+        #
+        # Before calling the AI provider, attempt to answer using
+        # conversational context. Covers referential follow-ups such as
+        # "Why?", "Who told you that?", "What did I just tell you?",
+        # "What colour is it?", "The first one..." that IntentRouter
+        # classifies as UNKNOWN but that do not require AI if context
+        # is available.
+        #
+        # Order mirrors the spec:
+        #   1. Reference resolution (already done above — hint available)
+        #   2. Dialogue state / pending questions (ConversationBehaviour)
+        #   3. Recent conversation (last turns from ConversationEngine)
+        #   4. Session context (SessionContext active slots)
+        #   5. Conversation recall / timeline
+        #   6. Knowledge lookup
+        #   7. Reasoning
+        #   8. AI fallback (last resort — below)
+        # ----------------------------------------------------------------
+
+        # 1. If a reference was resolved and the resolved value looks like
+        #    something we know about, try a memory lookup before AI.
+        if resolution and resolution.resolved and resolution.context_hint:
+            resolved_hint = resolution.context_hint
+            rec = self.knowledge.recall_memory("user", resolved_hint)
+            if rec is None:
+                # Try search
+                results = self.knowledge.search_memory(
+                    resolved_hint, subject="user"
+                )
+                canonical = [r for r in results if "derived" not in r.tags]
+                if canonical:
+                    rec = canonical[0]
+            if rec is not None:
+                return Response(
+                    success=True,
+                    message=f"Your {rec.attribute} is {rec.value}, sir."
+                )
+
+        # 2-3. Recent conversation — answer from the last turn(s).
+        # Handles: "Why?", "What did you just say?", "What did I just tell you?"
+        recent_triggers = frozenset({
+            "why", "why?", "how so", "how so?", "really", "really?",
+            "what did you just say", "what did you say",
+            "what did i just tell you", "what did i say",
+            "what was that", "repeat that", "say that again",
+            "what do you mean", "what do you mean?",
+            "who told you", "who told you that", "who told you that?",
+            "how do you know", "how do you know that",
+            "where did you get that", "where did that come from",
+        })
+        req_stripped = request.strip().lower().rstrip("?.,!")
+        if req_stripped in recent_triggers or request.strip().lower() in recent_triggers:
+            # Try last Jarvis response first
+            last_response = self.context.last_jarvis_response
+            last_message  = self.context.last_user_message
+
+            if req_stripped in {
+                "why", "how so", "really", "what do you mean",
+            }:
+                if last_response:
+                    return Response(
+                        success=True,
+                        message=f"I said: {last_response}"
+                    )
+
+            if req_stripped in {
+                "who told you", "who told you that",
+                "how do you know", "how do you know that",
+                "where did you get that", "where did that come from",
+            }:
+                # Check session context for active person
+                if self.session.active_person:
+                    person = self.session.active_person.value
+                    return Response(
+                        success=True,
+                        message=(
+                            f"You told me, sir — I store everything you "
+                            f"share with me in memory."
+                        )
+                    )
+                return Response(
+                    success=True,
+                    message=(
+                        "You told me, sir. I store what you share with me."
+                    )
+                )
+
+            if req_stripped in {
+                "what did i just tell you", "what did i say",
+                "what was that",
+            }:
+                if last_message:
+                    return Response(
+                        success=True,
+                        message=f"You just said: \"{last_message}\", sir."
+                    )
+
+        # 4. Session context — active project, person, task, topic.
+        # Handles: "What project are we on?", "Who is that?" when context is set.
+        if self.session.active_project or self.session.active_person:
+            ctx_triggers = frozenset({
+                "what project", "which project", "what are we working on",
+                "who is that", "who was that", "who are they",
+            })
+            if any(t in request.lower() for t in ctx_triggers):
+                parts = []
+                if self.session.active_project:
+                    parts.append(
+                        f"the current project is {self.session.active_project.value}"
+                    )
+                if self.session.active_person:
+                    parts.append(
+                        f"the active person is {self.session.active_person.value}"
+                    )
+                if parts:
+                    return Response(
+                        success=True,
+                        message=f"From context: {', '.join(parts)}, sir."
+                    )
+
+        # 5. Conversation recall and timeline for referential history queries.
+        if self.conversation_recall.can_answer(request):
+            recall_result = self.conversation_recall.answer(request)
+            if recall_result.found:
+                return Response(
+                    success=True, message=recall_result.answer
+                )
+
+        if self.timeline_query.can_answer(request):
+            result = self.timeline_query.answer(request)
+            if result.answered:
+                return Response(success=True, message=result.answer)
+
+        # 6. Knowledge lookup — search broadly for anything in the request.
+        # Handles: "What colour is it?" after reference resolution hint is set.
+        if resolution and resolution.resolved and resolution.context_hint:
+            results = self.knowledge.search_memory(resolution.context_hint)
+            canonical = [r for r in results if "derived" not in r.tags]
+            if canonical:
+                r = canonical[0]
+                return Response(
+                    success=True,
+                    message=f"Regarding {resolution.context_hint}: "
+                            f"{r.attribute} is {r.value}, sir."
+                )
+
+        # 7. Reasoning — attempt inference before AI.
+        reasoned = self.skills.get("reasoning").infer_attribute(
+            request.strip()
+        ) if request.strip() else None
+        if reasoned is not None:
+            return reasoned
+
+        # ----------------------------------------------------------------
+        # AI fallback — last resort.
+        # ----------------------------------------------------------------
+
+        # AI fallback — last resort after all local resolution failed.
         if self.ai is not None:
             self.context.last_skill = "ai_fallback"
             ai_request = request
