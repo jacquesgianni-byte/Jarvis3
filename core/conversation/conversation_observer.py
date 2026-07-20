@@ -134,7 +134,11 @@ class ConversationObserver:
                 value=fact.value,
                 confidence=fact.confidence,
                 source=MemorySource.INFERRED,
-                tags=[fact.fact_type.name.lower(), "auto-extracted"],
+                # "derived" tag marks observer-inferred records so the
+                # recall layer can exclude them from fuzzy fallback
+                # searches and prevent zombie matches after a canonical
+                # memory is forgotten. Genesis-024 Sprint-001 fix.
+                tags=[fact.fact_type.name.lower(), "auto-extracted", "derived"],
             )
             logger.info(
                 "[MEMORY] Stored fact: subject=%r attribute=%r value=%r (type=%s)",

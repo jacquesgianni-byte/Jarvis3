@@ -76,11 +76,44 @@ _MILESTONE_PATTERNS = [
 _PERSON_PATTERNS = [
     # "Claude is my senior engineer" → person=Claude, role=senior engineer
     re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+is\s+my\s+(.+)", re.IGNORECASE),
-    # "my senior engineer is Claude"
-    re.compile(r"\bmy\s+(.+?)\s+is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", re.IGNORECASE),
+    # "my senior engineer is Claude" — value extracted separately for proper-noun guard
+    re.compile(r"\bmy\s+(.+?)\s+is\s+(\S+(?:\s+\S+)?)", re.IGNORECASE),
     # "GPT handles specs" → person=GPT, role=handles specs
     re.compile(r"\b(GPT|ChatGPT|Claude|Anthropic|OpenAI)\s+(?:handles|manages|does|owns)\s+(.+)", re.IGNORECASE),
 ]
+
+# Words that look like proper nouns (Title Case) but are not person/place names.
+# Used by the person-pattern proper-noun guard to prevent preference values
+# such as "Blue" or "Pizza" from being misclassified as person names.
+_NON_NAME_WORDS: frozenset[str] = frozenset({
+    # colours
+    "blue", "red", "green", "yellow", "black", "white", "purple", "orange",
+    "pink", "brown", "grey", "gray", "violet", "indigo",
+    # foods / drinks
+    "pizza", "pasta", "sushi", "coffee", "tea", "water", "beer", "wine",
+    "cake", "bread", "rice", "fish", "meat", "soup",
+    # sports
+    "football", "tennis", "basketball", "cricket", "rugby", "golf",
+    "swimming", "running", "cycling",
+    # generic adjectives / values
+    "small", "large", "medium", "good", "great", "fine", "okay", "ok",
+    "true", "false", "yes", "no", "maybe",
+})
+
+_PROPER_NOUN_RE = re.compile(r"^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$")
+
+
+def _is_proper_noun(value: str) -> bool:
+    """
+    Return True if *value* looks like a person or place name.
+
+    Requires Title Case AND exclusion from the known non-name vocabulary.
+    This prevents preference values ("Blue", "Pizza") from being
+    misclassified as person names by the "my X is Y" person pattern.
+    """
+    if not _PROPER_NOUN_RE.match(value.strip()):
+        return False
+    return value.strip().lower() not in _NON_NAME_WORDS
 
 _TASK_PATTERNS = [
     re.compile(r"\bwe(?:'re| are) (?:starting|beginning|kicking off|about to start)\s+(.+)", re.IGNORECASE),
@@ -235,11 +268,20 @@ class FactExtractor:
     def _extract_people(self, text: str) -> list[ExtractedFact]:
         facts = []
         seen_roles: set[tuple[str, str]] = set()
-        for pattern in _PERSON_PATTERNS:
+        for idx, pattern in enumerate(_PERSON_PATTERNS):
             m = pattern.search(text)
             if m:
                 name = _clean_value(m.group(1))
                 role = _clean_value(m.group(2))
+
+                # Pattern 2: "my X is Y" — Y must be a proper noun.
+                # Without this guard, preference statements such as
+                # "my favourite colour is blue" match this pattern and
+                # incorrectly create person records for "blue".
+                # Genesis-024 Sprint-001 fix.
+                if idx == 1 and not _is_proper_noun(role):
+                    continue
+
                 if not _is_noise(name) and not _is_noise(role):
                     key = (name.lower(), role.lower())
                     if key in seen_roles:

@@ -197,11 +197,20 @@ class MemorySkill(Skill):
                 _SUBJECT, attribute.removeprefix("favourite ")
             )
 
-        # 3. Fuzzy search fallback.
+        # 3. Fuzzy search fallback — canonical records only.
+        # Observer-derived records (tagged "derived") are excluded so
+        # that a forgotten canonical memory cannot be resurrected by
+        # a fuzzy match against an observer artefact (zombie recall).
+        # Genesis-024 Sprint-001 fix.
         if record is None:
             results = self.engine.search_memory(attribute, subject=_SUBJECT)
-            if results:
-                record = results[0]
+            canonical = [r for r in results if "derived" not in r.tags]
+            if canonical:
+                record = canonical[0]
+            elif results:
+                # All matches are derived — treat as a miss to avoid
+                # returning stale observer artefacts.
+                record = None
 
         self._record_lookup(lookup_started, hit=record is not None)
 
