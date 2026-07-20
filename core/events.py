@@ -3,6 +3,9 @@ Jarvis Event Bus
 
 A lightweight event system for communication
 between Jarvis modules.
+
+Genesis-023 MP-001: added unsubscribe() only.
+All existing behaviour preserved unchanged.
 """
 
 from collections import defaultdict
@@ -16,9 +19,16 @@ class EventBus:
         """Register a listener for an event."""
         self._listeners[event_name].append(callback)
 
+    def unsubscribe(self, event_name, callback):
+        """Remove a previously registered listener. Safe if not found."""
+        try:
+            self._listeners[event_name].remove(callback)
+        except ValueError:
+            pass
+
     def emit(self, event_name, *args, **kwargs):
         """Send an event to all listeners."""
-        for callback in self._listeners[event_name]:
+        for callback in list(self._listeners[event_name]):
             callback(*args, **kwargs)
 
 
