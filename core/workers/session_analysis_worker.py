@@ -18,12 +18,15 @@ Design constraints:
     - Deterministic — same log → same report
     - Read-only analysis only
 
-Usage:
+Usage (library):
     worker = SessionAnalysisWorker()
     with open("session.log") as f:
         lines = f.readlines()
     report = worker.analyse_session(lines)
     print(report.formatted())
+
+Usage (CLI):
+    python -m core.workers.session_analysis_worker session.log
 """
 
 from __future__ import annotations
@@ -481,3 +484,27 @@ class SessionAnalysisWorker:
             parts.append("Session health needs improvement.")
 
         return " ".join(parts)
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m core.workers.session_analysis_worker <path/to/session.log>")
+        print("")
+        print("  Analyses a Jarvis desktop session log and prints a structured")
+        print("  engineering report with health score, successes, and issues.")
+        sys.exit(1)
+
+    log_path = sys.argv[1]
+
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        print(f"Error: log file not found: {log_path}")
+        sys.exit(1)
+
+    worker = SessionAnalysisWorker()
+    report = worker.analyse_session(lines)
+    print(report.formatted())
