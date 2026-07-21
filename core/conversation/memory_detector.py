@@ -14,6 +14,9 @@ Examples of recognised statements:
     "I drive a Ranger."
     "I work as a painter."
     "My wife's name is Catriana."
+    "I have 2 dogs."
+    "Their names are Rex and Tom."
+    "I work at Academy of Healthcare."
 """
 
 import logging
@@ -39,7 +42,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Fixed key patterns — the key is known from the pattern itself.
-# These use a lambda to derive the key rather than a capture group.
 
 _FIXED_KEY_PATTERNS: list[tuple[re.Pattern, str, int, float]] = [
     # "My name is Ludovic"
@@ -98,6 +100,13 @@ _FIXED_KEY_PATTERNS: list[tuple[re.Pattern, str, int, float]] = [
         1,
         0.90
     ),
+    # "I work at Academy of Healthcare" / "I work for Google"
+    (
+        re.compile(r"^i work (?:at|for) (.+)", re.IGNORECASE),
+        "workplace",
+        1,
+        0.90
+    ),
     # "I live in Melbourne"
     (
         re.compile(r"^i live in (.+)", re.IGNORECASE),
@@ -111,6 +120,20 @@ _FIXED_KEY_PATTERNS: list[tuple[re.Pattern, str, int, float]] = [
         "hometown",
         1,
         0.85
+    ),
+    # "I have 2 dogs" / "I have a cat" / "I've got three fish"
+    (
+        re.compile(r"^i(?:'ve| have| got|'ve got) (\d+|a|an|some|two|three|four|five) ([a-z]+s?)", re.IGNORECASE),
+        "pets",
+        0,   # special: value built from groups 1+2 in detect()
+        0.88
+    ),
+    # "Their names are Rex and Tom" / "His name is Rex"
+    (
+        re.compile(r"^(?:their|his|her|its) names? (?:is|are) (.+)", re.IGNORECASE),
+        "pet names",
+        1,
+        0.88
     ),
 ]
 
@@ -146,15 +169,6 @@ class MemoryDetector:
 
     This class has no side effects. It does not save memories, modify
     context, call AI providers, or interact with MemoryManager.
-
-    Example usage:
-        detector = MemoryDetector()
-
-        result = detector.detect("My name is Ludovic.")
-        # MemoryDetection(key="name", value="Ludovic", confidence=0.95)
-
-        result = detector.detect("What time is it?")
-        # None
     """
 
     def detect(self, message: str) -> Optional[MemoryDetection]:
@@ -164,15 +178,7 @@ class MemoryDetector:
         Tries fixed key patterns first — they are more specific and
         receive higher confidence. Falls back to dynamic key patterns
         if no fixed pattern matches.
-
-        Args:
-            message: The raw user message to analyse.
-
-        Returns:
-            A MemoryDetection if a personal fact is detected.
-            None if no memory statement is recognised.
         """
-
         if not message or not message.strip():
             return None
 
@@ -187,23 +193,16 @@ class MemoryDetector:
         return self._match_dynamic(cleaned)
 
     def _match_fixed(self, message: str) -> Optional[MemoryDetection]:
-        """
-        Attempt to match the message against fixed key patterns.
-
-        Fixed patterns know the key in advance — only the value
-        is captured from the message.
-
-        Args:
-            message: The cleaned user message.
-
-        Returns:
-            A MemoryDetection if a fixed pattern matches, or None.
-        """
-
+        """Match against fixed key patterns."""
         for pattern, key, value_group, confidence in _FIXED_KEY_PATTERNS:
             match = pattern.match(message)
             if match:
-                value = match.group(value_group).strip()
+                # Special case: pets pattern uses groups 1+2 to build value
+                if key == "pets" and value_group == 0:
+                    value = f"{match.group(1)} {match.group(2)}".strip()
+                else:
+                    value = match.group(value_group).strip()
+
                 if value:
                     detection = MemoryDetection(
                         key=key,
@@ -221,20 +220,7 @@ class MemoryDetector:
         return None
 
     def _match_dynamic(self, message: str) -> Optional[MemoryDetection]:
-        """
-        Attempt to match the message against dynamic key patterns.
-
-        Dynamic patterns capture both the key and value from the message.
-        They are less specific than fixed patterns and receive lower confidence.
-
-        Args:
-            message: The cleaned user message.
-
-        Returns:
-            A MemoryDetection if a dynamic pattern matches and confidence
-            meets the minimum threshold, or None.
-        """
-
+        """Match against dynamic key patterns."""
         for pattern, key_group, value_group, confidence in _DYNAMIC_KEY_PATTERNS:
             match = pattern.match(message)
             if match:
