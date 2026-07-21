@@ -17,6 +17,7 @@ Extraction targets:
     - Decisions:     "we decided to use Flask", "I chose to use Tavily"
     - Achievements:  "we completed 529 tests", "Genesis-019 passed"
     - Possessions:   "I have 2 dogs", "Their names are Rex and Tom"
+    - Workplace:     "I work at Academy of Healthcare"
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ class FactType(Enum):
     ACHIEVEMENT = auto()   # something completed or accomplished
     PREFERENCE  = auto()   # a stated preference or like/dislike
     PET         = auto()   # a pet or animal owned
+    WORKPLACE   = auto()   # where the user works
     UNKNOWN     = auto()   # could not be classified
 
 
@@ -85,8 +87,6 @@ _PERSON_PATTERNS = [
 ]
 
 # Words that look like proper nouns (Title Case) but are not person/place names.
-# Used by the person-pattern proper-noun guard to prevent preference values
-# such as "Blue" or "Pizza" from being misclassified as person names.
 _NON_NAME_WORDS: frozenset[str] = frozenset({
     # colours
     "blue", "red", "green", "yellow", "black", "white", "purple", "orange",
@@ -110,8 +110,6 @@ def _is_proper_noun(value: str) -> bool:
     Return True if *value* looks like a person or place name.
 
     Requires Title Case AND exclusion from the known non-name vocabulary.
-    This prevents preference values ("Blue", "Pizza") from being
-    misclassified as person names by the "my X is Y" person pattern.
     """
     if not _PROPER_NOUN_RE.match(value.strip()):
         return False
@@ -146,6 +144,15 @@ _POSSESSION_PATTERNS = [
     re.compile(r"\b(?:their|his|her|its)\s+names?\s+are?\s+(.+)", re.IGNORECASE),
 ]
 
+_WORKPLACE_PATTERNS = [
+    # "I work at Academy of Healthcare"
+    re.compile(r"\bi\s+work\s+at\s+(.+)", re.IGNORECASE),
+    # "I work for Google"
+    re.compile(r"\bi\s+work\s+for\s+(.+)", re.IGNORECASE),
+    # "I am employed at / by X"
+    re.compile(r"\bi(?:'m| am)\s+employed\s+(?:at|by)\s+(.+)", re.IGNORECASE),
+]
+
 # Noise words that indicate an extraction isn't useful
 _NOISE_VALUES = {
     "it", "that", "this", "them", "something", "anything",
@@ -177,8 +184,6 @@ class FactExtractor:
     """
 
     # Interrogative words that signal a question rather than a statement.
-    # Messages starting with these (or primarily composed of them) should
-    # not generate knowledge records. Genesis-020 MP-001.
     _QUESTION_START = re.compile(
         r"^\s*(?:what|who|where|when|why|how|which|whose|whom|is|are|do|does|"
         r"did|can|could|would|should|shall|will|have|has|had)\b",
@@ -195,19 +200,10 @@ class FactExtractor:
 
         Returns:
             A list of ExtractedFact objects. May be empty.
-
-        Note:
-            Interrogative sentences (questions) are never treated as
-            factual statements. A message that starts with a question
-            word and/or ends with '?' returns an empty list.
-            Genesis-020 MP-001.
         """
         if not text or not text.strip():
             return []
 
-        # Guard: pure questions never produce knowledge records.
-        # A message is a question if it starts with a question word
-        # OR ends with a question mark.
         stripped = text.strip()
         if self._QUESTION_END.search(stripped):
             return []
@@ -223,6 +219,7 @@ class FactExtractor:
         facts.extend(self._extract_decisions(text))
         facts.extend(self._extract_achievements(text))
         facts.extend(self._extract_possessions(text))
+        facts.extend(self._extract_workplace(text))
 
         # Deduplicate by (attribute, value)
         seen: set[tuple[str, str]] = set()
@@ -254,7 +251,7 @@ class FactExtractor:
                         confidence=0.85,
                         raw=text,
                     ))
-                    break  # one project per message
+                    break
         return facts
 
     def _extract_milestones(self, text: str) -> list[ExtractedFact]:
@@ -284,18 +281,13 @@ class FactExtractor:
                 name = _clean_value(m.group(1))
                 role = _clean_value(m.group(2))
 
-                # Pattern 2: "my X is Y" — Y must be a proper noun.
-                # Without this guard, preference statements such as
-                # "my favourite colour is blue" match this pattern and
-                # incorrectly create person records for "blue".
-                # Genesis-024 Sprint-001 fix.
                 if idx == 1 and not _is_proper_noun(role):
                     continue
 
                 if not _is_noise(name) and not _is_noise(role):
                     key = (name.lower(), role.lower())
                     if key in seen_roles:
-                        continue  # skip duplicate from overlapping patterns
+                        continue
                     seen_roles.add(key)
                     facts.append(ExtractedFact(
                         fact_type=FactType.PERSON,
@@ -399,4 +391,22 @@ class FactExtractor:
                     confidence=0.85,
                     raw=text,
                 ))
+        return facts
+
+    def _extract_workplace(self, text: str) -> list[ExtractedFact]:
+        facts = []
+        for pattern in _WORKPLACE_PATTERNS:
+            m = pattern.search(text)
+            if m:
+                value = _clean_value(m.group(1))
+                if not _is_noise(value):
+                    facts.append(ExtractedFact(
+                        fact_type=FactType.WORKPLACE,
+                        subject="user",
+                        attribute="workplace",
+                        value=value,
+                        confidence=0.85,
+                        raw=text,
+                    ))
+                    break
         return facts

@@ -10,6 +10,8 @@ Answers questions like:
     "What milestone did we complete?"
     "What is Genesis-020?"
     "Who are Rex and Tom?"
+    "Who is Sarah?" (manager)
+    "Where do I work?"
 
 All recall is deterministic — no LLM required.
 Searches the KnowledgeEngine using structured queries.
@@ -56,7 +58,7 @@ _TEMPORAL_TODAY = re.compile(
 _TEMPORAL_LAST_SESSION = re.compile(
     r"\blast\s+(?:session|time|chat|conversation)\b", re.IGNORECASE
 )
-# Fixed: matches both "who is X" and "who are X and Y"
+# Matches both "who is X" and "who are X and Y"
 _PERSON_QUERY = re.compile(
     r"\bwho\s+(?:is|are)\s+([A-Za-z][A-Za-z\s,]+?)(?:\?|$)", re.IGNORECASE
 )
@@ -76,6 +78,36 @@ _WHICH_GENESIS = re.compile(
     r"\bwhich\s+genesis\s+(?:are\s+we\s+on|are\s+we\s+doing|is\s+(?:next|current))\b",
     re.IGNORECASE,
 )
+_WORKPLACE_QUERY = re.compile(
+    r"\b(?:where\s+do\s+i\s+work|where\s+am\s+i\s+(?:employed|working)|"
+    r"what\s+(?:company|organisation|organization|workplace|place)\s+do\s+i\s+work\s+(?:at|for))\b",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Relationship answer templates
+#
+# Maps a "{relationship} role" attribute suffix to a human-readable answer
+# template. The template receives (value, relationship) as format args.
+#
+# Used by _recall_person() to compose natural answers for any stored
+# "{X} role" attribute without hardcoding each relationship type.
+# To support a new relationship, add a tag entry in the extractor and
+# optionally a template here — the fallback template handles unknowns.
+# ---------------------------------------------------------------------------
+_ROLE_ANSWER_TEMPLATES: dict[str, str] = {
+    "manager":      "{value} is your manager.",
+    "son":          "{value} is your son.",
+    "daughter":     "{value} is your daughter.",
+    "wife":         "{value} is your wife.",
+    "husband":      "{value} is your husband.",
+    "partner":      "{value} is your partner.",
+    "friend":       "{value} is your friend.",
+    "colleague":    "{value} is your colleague.",
+    "boss":         "{value} is your boss.",
+    "assistant":    "{value} is your assistant.",
+}
+_ROLE_FALLBACK_TEMPLATE = "Your {relationship} is {value}."
 
 
 @dataclass
@@ -103,9 +135,6 @@ class ConversationRecall:
     def can_answer(self, query: str) -> bool:
         """
         Return True if this class can handle the query.
-
-        Used by the MemorySkill to decide whether to route a question
-        to ConversationRecall before standard knowledge lookup.
         """
         return any([
             _PROJECT_QUERIES.search(query),
@@ -118,18 +147,17 @@ class ConversationRecall:
             _ACHIEVEMENT_QUERY.search(query),
             _GENESIS_QUERY.search(query),
             _WHICH_GENESIS.search(query),
+            _WORKPLACE_QUERY.search(query),
         ])
 
     def answer(self, query: str) -> RecallResult:
         """
         Answer a contextual/temporal memory query.
-
-        Args:
-            query: The user's natural language question.
-
-        Returns:
-            RecallResult with found=True if an answer was found.
         """
+        # Workplace query: "Where do I work?"
+        if _WORKPLACE_QUERY.search(query):
+            return self._recall_attribute("user", "workplace")
+
         # Person query: "Who is Claude?" / "Who are Rex and Tom?"
         m = _PERSON_QUERY.search(query)
         if m:
@@ -187,8 +215,26 @@ class ConversationRecall:
         return RecallResult(found=False, answer="")
 
     def _recall_person(self, name: str) -> RecallResult:
-        """Recall what we know about a named person or pet."""
+        """
+        Recall what we know about a named person, pet, or relationship.
+
+        Resolution ladder:
+            1. Direct role lookup by name (e.g. recall_memory("claude", "role"))
+            2. search_memory for the name across all records
+               a. Pet records (tagged "pet", attribute ends "names") →
+                  compose "X are your N dogs."
+               b. "{relationship} role" attributes →
+                  compose answer via _ROLE_ANSWER_TEMPLATES or fallback.
+               c. Anything else → return bare value.
+            3. Miss → not found.
+
+        This generalises GC-001 pet recall to all tagged relationships
+        without hardcoding each type. Adding a new relationship requires
+        only a new extractor pattern and optionally a template entry above.
+        """
         name_lower = name.lower().strip()
+
+        # 1. Direct role lookup
         record = self._knowledge.recall_memory(name_lower, "role")
         if record:
             return RecallResult(
@@ -197,33 +243,50 @@ class ConversationRecall:
                 attribute="role",
                 value=record.value,
             )
-        # Search all records for the name.
+
+        # 2. Search all records for the name
         results = self._knowledge.search_memory(name_lower, subject=None)
         if results:
             r = results[0]
-            # If the record is tagged as a pet and the attribute ends with
-            # "names", compose a meaningful answer rather than returning the
-            # bare stored value. Uses tags so future memory types (children's
-            # names, colleagues' names) can follow the same pattern with their
-            # own tags without adding more attribute hardcoding here.
-            # TODO: generalise to a tag-driven answer template registry.
+
+            # 2a. Pet records — tagged "pet", attribute ends with "names"
             if "pet" in (r.tags or []) and r.attribute.endswith("names"):
                 pet_type = self._knowledge.recall_memory("user", "pets")
                 animal = pet_type.value if pet_type else "pets"
                 answer = f"{r.value} are your {animal}."
-                logger.info("[RECALL] pet answer=%r", answer)
                 return RecallResult(
                     found=True,
                     answer=answer,
                     attribute=r.attribute,
                     value=r.value,
                 )
+
+            # 2b. "{relationship} role" attributes — generalised answer
+            # e.g. "manager role", "son role", "daughter role"
+            if r.attribute.endswith(" role"):
+                relationship = r.attribute[: -len(" role")].strip()
+                template = _ROLE_ANSWER_TEMPLATES.get(relationship)
+                if template:
+                    answer = template.format(value=r.value, relationship=relationship)
+                else:
+                    answer = _ROLE_FALLBACK_TEMPLATE.format(
+                        value=r.value, relationship=relationship
+                    )
+                return RecallResult(
+                    found=True,
+                    answer=answer,
+                    attribute=r.attribute,
+                    value=r.value,
+                )
+
+            # 2c. Anything else — return the bare value
             return RecallResult(
                 found=True,
                 answer=r.value,
                 attribute=r.attribute,
                 value=r.value,
             )
+
         return RecallResult(found=False, answer="")
 
     def _recall_genesis(self, name: str) -> RecallResult:
@@ -248,11 +311,7 @@ class ConversationRecall:
         return RecallResult(found=False, answer="")
 
     def _recall_journal(self, days_ago: int = 0) -> RecallResult:
-        """
-        Recall journal entries from a specific day.
-
-        Searches for system journal records tagged with the target date.
-        """
+        """Recall journal entries from a specific day."""
         target_date = (datetime.now(UTC) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
         results = self._knowledge.search_memory(
