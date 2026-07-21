@@ -9,6 +9,7 @@ Answers questions like:
     "Who is Claude?"
     "What milestone did we complete?"
     "What is Genesis-020?"
+    "Who are Rex and Tom?"
 
 All recall is deterministic — no LLM required.
 Searches the KnowledgeEngine using structured queries.
@@ -55,8 +56,9 @@ _TEMPORAL_TODAY = re.compile(
 _TEMPORAL_LAST_SESSION = re.compile(
     r"\blast\s+(?:session|time|chat|conversation)\b", re.IGNORECASE
 )
+# Fixed: matches both "who is X" and "who are X and Y"
 _PERSON_QUERY = re.compile(
-    r"\bwho\s+is\s+([A-Za-z][A-Za-z\s]+?)(?:\?|$)", re.IGNORECASE
+    r"\bwho\s+(?:is|are)\s+([A-Za-z][A-Za-z\s,]+?)(?:\?|$)", re.IGNORECASE
 )
 _TASK_QUERY = re.compile(
     r"\bwhat\s+(?:are\s+we|am\s+i)\s+(?:doing|working on|starting|building)(?:\s+now|\s+next)?\b",
@@ -128,7 +130,7 @@ class ConversationRecall:
         Returns:
             RecallResult with found=True if an answer was found.
         """
-        # Person query: "Who is Claude?"
+        # Person query: "Who is Claude?" / "Who are Rex and Tom?"
         m = _PERSON_QUERY.search(query)
         if m:
             return self._recall_person(m.group(1).strip())
@@ -185,7 +187,7 @@ class ConversationRecall:
         return RecallResult(found=False, answer="")
 
     def _recall_person(self, name: str) -> RecallResult:
-        """Recall what we know about a named person."""
+        """Recall what we know about a named person or pet."""
         name_lower = name.lower().strip()
         record = self._knowledge.recall_memory(name_lower, "role")
         if record:
@@ -195,10 +197,27 @@ class ConversationRecall:
                 attribute="role",
                 value=record.value,
             )
-        # Try searching for the name in all records
+        # Search all records for the name.
         results = self._knowledge.search_memory(name_lower, subject=None)
         if results:
             r = results[0]
+            # If the record is tagged as a pet and the attribute ends with
+            # "names", compose a meaningful answer rather than returning the
+            # bare stored value. Uses tags so future memory types (children's
+            # names, colleagues' names) can follow the same pattern with their
+            # own tags without adding more attribute hardcoding here.
+            # TODO: generalise to a tag-driven answer template registry.
+            if "pet" in (r.tags or []) and r.attribute.endswith("names"):
+                pet_type = self._knowledge.recall_memory("user", "pets")
+                animal = pet_type.value if pet_type else "pets"
+                answer = f"{r.value} are your {animal}."
+                logger.info("[RECALL] pet answer=%r", answer)
+                return RecallResult(
+                    found=True,
+                    answer=answer,
+                    attribute=r.attribute,
+                    value=r.value,
+                )
             return RecallResult(
                 found=True,
                 answer=r.value,
@@ -222,7 +241,6 @@ class ConversationRecall:
 
     def _recall_current_task(self) -> RecallResult:
         """Recall the current task or project."""
-        # Try current task first, fall back to current project
         for attribute in ("current task", "current project", "last milestone"):
             result = self._recall_attribute("user", attribute)
             if result.found:
@@ -243,7 +261,6 @@ class ConversationRecall:
             category="system",
         )
 
-        # Filter to only journal entries from the target date
         journal_entries = [
             r for r in results
             if target_date in r.tags or target_date in r.attribute
@@ -252,7 +269,6 @@ class ConversationRecall:
         if not journal_entries:
             return RecallResult(found=False, answer="")
 
-        # Return the most recent entries as a summary
         journal_entries.sort(key=lambda r: r.updated_at, reverse=True)
         summaries = [r.value for r in journal_entries[:5]]
         combined = "; ".join(summaries)

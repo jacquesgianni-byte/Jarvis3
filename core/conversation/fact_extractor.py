@@ -16,6 +16,7 @@ Extraction targets:
     - Current tasks: "we're starting Genesis-020", "I'm starting sprint 001"
     - Decisions:     "we decided to use Flask", "I chose to use Tavily"
     - Achievements:  "we completed 529 tests", "Genesis-019 passed"
+    - Possessions:   "I have 2 dogs", "Their names are Rex and Tom"
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ class FactType(Enum):
     DECISION    = auto()   # a decision made
     ACHIEVEMENT = auto()   # something completed or accomplished
     PREFERENCE  = auto()   # a stated preference or like/dislike
+    PET         = auto()   # a pet or animal owned
     UNKNOWN     = auto()   # could not be classified
 
 
@@ -137,6 +139,13 @@ _ACHIEVEMENT_PATTERNS = [
     re.compile(r"\b(\d+)\s+tests?\s+(?:are\s+)?(?:passing|passed|green)", re.IGNORECASE),
 ]
 
+_POSSESSION_PATTERNS = [
+    # "I have 2 dogs" / "I have a cat" / "I've got three fish"
+    re.compile(r"\bi(?:'ve| have| got|'ve got)\s+(\d+|a|an|some|two|three|four|five)\s+([a-z]+)", re.IGNORECASE),
+    # "Their names are Rex and Tom" / "His name is Rex"
+    re.compile(r"\b(?:their|his|her|its)\s+names?\s+are?\s+(.+)", re.IGNORECASE),
+]
+
 # Noise words that indicate an extraction isn't useful
 _NOISE_VALUES = {
     "it", "that", "this", "them", "something", "anything",
@@ -213,6 +222,7 @@ class FactExtractor:
         facts.extend(self._extract_tasks(text))
         facts.extend(self._extract_decisions(text))
         facts.extend(self._extract_achievements(text))
+        facts.extend(self._extract_possessions(text))
 
         # Deduplicate by (attribute, value)
         seen: set[tuple[str, str]] = set()
@@ -357,4 +367,36 @@ class FactExtractor:
                         raw=text,
                     ))
                     break
+        return facts
+
+    def _extract_possessions(self, text: str) -> list[ExtractedFact]:
+        facts = []
+        # "I have 2 dogs" → subject=user, attribute=pets, value="2 dogs"
+        m = _POSSESSION_PATTERNS[0].search(text)
+        if m:
+            count = m.group(1)
+            animal = _clean_value(m.group(2))
+            if not _is_noise(animal):
+                facts.append(ExtractedFact(
+                    fact_type=FactType.PET,
+                    subject="user",
+                    attribute="pets",
+                    value=f"{count} {animal}",
+                    confidence=0.85,
+                    raw=text,
+                ))
+
+        # "Their names are Rex and Tom" → subject=user, attribute=pet names, value="Rex and Tom"
+        m = _POSSESSION_PATTERNS[1].search(text)
+        if m:
+            names = _clean_value(m.group(1))
+            if not _is_noise(names):
+                facts.append(ExtractedFact(
+                    fact_type=FactType.PET,
+                    subject="user",
+                    attribute="pet names",
+                    value=names,
+                    confidence=0.85,
+                    raw=text,
+                ))
         return facts
