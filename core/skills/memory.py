@@ -42,6 +42,13 @@ _ATTRIBUTE_CANONICAL = {
     "food": "favourite food",
     "sport": "favourite sport",
     "team": "favourite team",
+    # GC-008: possessive/plural pet name phrases → canonical "pet names"
+    "dogs' names": "pet names",
+    "dogs names": "pet names",
+    "cats' names": "pet names",
+    "cats names": "pet names",
+    "pets' names": "pet names",
+    "pets names": "pet names",
 }
 
 
