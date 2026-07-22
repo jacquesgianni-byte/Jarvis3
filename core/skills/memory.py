@@ -253,6 +253,9 @@ class MemorySkill(Skill):
             candidates.add(attribute.removeprefix("favourite "))
         else:
             candidates.add(f"favourite {attribute}")
+        # Remove any legacy derived "<attribute> role" records created by
+        # earlier person extraction logic (GC-005 compatibility cleanup).
+        candidates.add(f"{attribute} role")
 
         forgotten = False
         for candidate in candidates:
