@@ -115,6 +115,22 @@ def _is_proper_noun(value: str) -> bool:
         return False
     return value.strip().lower() not in _NON_NAME_WORDS
 
+# Phrases that look like person names when extracted as subjects but are
+# actually preference attributes. Guards _extract_people() subject slot.
+# GC-003: prevents "My favourite drink is coffee" creating a person record
+# with subject="favourite drink". Uses prefix match so both "favourite X"
+# and "favorite X" spellings are covered without listing every variant.
+_PREFERENCE_SUBJECT_PREFIXES: tuple[str, ...] = (
+    "favourite ", "favorite ",
+)
+
+
+def _is_preference_subject(name: str) -> bool:
+    """Return True if name looks like a preference attribute, not a person."""
+    lower = name.lower().strip()
+    return any(lower.startswith(prefix) for prefix in _PREFERENCE_SUBJECT_PREFIXES)
+
+
 _TASK_PATTERNS = [
     re.compile(r"\bwe(?:'re| are) (?:starting|beginning|kicking off|about to start)\s+(.+)", re.IGNORECASE),
     re.compile(r"\bi(?:'m| am) (?:starting|beginning|kicking off|about to start)\s+(.+)", re.IGNORECASE),
@@ -284,7 +300,7 @@ class FactExtractor:
                 if idx == 1 and not _is_proper_noun(role):
                     continue
 
-                if not _is_noise(name) and not _is_noise(role):
+                if not _is_noise(name) and not _is_noise(role) and not _is_preference_subject(name):
                     key = (name.lower(), role.lower())
                     if key in seen_roles:
                         continue
