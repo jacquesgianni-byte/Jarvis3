@@ -434,11 +434,17 @@ class Agent:
             _why_triggers = frozenset({
                 "why", "why?", "how so", "how so?",
                 "what do you mean", "what do you mean?",
+                "how do you know", "how do you know that",
             })
             req_norm = request.strip().lower().rstrip("?.,!")
             if req_norm in _why_triggers:
                 last_response = self.context.last_jarvis_response
                 if last_response:
+                    if req_norm in {"how do you know", "how do you know that"}:
+                        return Response(
+                            success=True,
+                            message=f"You told me that earlier, sir. {last_response}"
+                        )
                     return Response(
                         success=True,
                         message=f"I said: {last_response}"
@@ -497,6 +503,9 @@ class Agent:
 
         # 2-3. Recent conversation — answer from the last turn(s).
         # Handles: "Why?", "What did you just say?", "What did I just tell you?"
+        # GC-004: "How do you know that?" now references last_jarvis_response
+        # rather than returning a hardcoded string, so Jarvis explains what
+        # specific fact it is referring to.
         recent_triggers = frozenset({
             "why", "why?", "how so", "how so?", "really", "really?",
             "what did you just say", "what did you say",
@@ -504,12 +513,11 @@ class Agent:
             "what was that", "repeat that", "say that again",
             "what do you mean", "what do you mean?",
             "who told you", "who told you that", "who told you that?",
-            "how do you know", "how do you know that",
+            "how do you know", "how do you know that", "how do you know that?",
             "where did you get that", "where did that come from",
         })
         req_stripped = request.strip().lower().rstrip("?.,!")
         if req_stripped in recent_triggers or request.strip().lower() in recent_triggers:
-            # Try last Jarvis response first
             last_response = self.context.last_jarvis_response
             last_message  = self.context.last_user_message
 
@@ -523,25 +531,18 @@ class Agent:
                     )
 
             if req_stripped in {
-                "who told you", "who told you that",
-                "how do you know", "how do you know that",
+                "who told you", "who told you that", "who told you that?",
+                "how do you know", "how do you know that", "how do you know that?",
                 "where did you get that", "where did that come from",
             }:
-                # Check session context for active person
-                if self.session.active_person:
-                    person = self.session.active_person.value
+                if last_response:
                     return Response(
                         success=True,
-                        message=(
-                            f"You told me, sir — I store everything you "
-                            f"share with me in memory."
-                        )
+                        message=f"You told me that earlier, sir. {last_response}"
                     )
                 return Response(
                     success=True,
-                    message=(
-                        "You told me, sir. I store what you share with me."
-                    )
+                    message="You told me, sir. I store what you share with me."
                 )
 
             if req_stripped in {
