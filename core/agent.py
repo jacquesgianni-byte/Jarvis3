@@ -512,6 +512,7 @@ class Agent:
             "what did i just tell you", "what did i say",
             "what was that", "repeat that", "say that again",
             "what do you mean", "what do you mean?",
+            "what did i mean", "what did i mean?",
             "who told you", "who told you that", "who told you that?",
             "how do you know", "how do you know that", "how do you know that?",
             "where did you get that", "where did that come from",
@@ -547,7 +548,7 @@ class Agent:
 
             if req_stripped in {
                 "what did i just tell you", "what did i say",
-                "what was that",
+                "what was that", "what did i mean",
             }:
                 if last_message:
                     return Response(

@@ -16,7 +16,9 @@ Examples of recognised statements:
     "My wife's name is Catriana."
     "I have 2 dogs."
     "Their names are Rex and Tom."
+    "My dogs are Rex and Tom."
     "I work at Academy of Healthcare."
+    "And my favourite food is pizza."
 """
 
 import logging
@@ -27,21 +29,19 @@ from core.conversation.memory_detection import MemoryDetection
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Leading conjunction strip
+# GC-007: statements like "And my favourite food is pizza." have a leading
+# conjunction that breaks all ^-anchored patterns. Strip them before matching.
+# ---------------------------------------------------------------------------
+_LEADING_CONJUNCTION = re.compile(
+    r"^(?:and|but|also|plus|oh and|oh|well)\s+",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Pattern definitions
-#
-# Each pattern is a tuple of:
-#   (compiled regex, key_group, value_group, confidence)
-#
-# key_group:   The regex group index that captures the memory key.
-#              Use 0 to indicate a fixed key defined in the pattern itself.
-# value_group: The regex group index that captures the memory value.
-# confidence:  A float representing pattern specificity.
-#              More specific patterns receive higher confidence.
 # ---------------------------------------------------------------------------
-
-# Fixed key patterns — the key is known from the pattern itself.
 
 _FIXED_KEY_PATTERNS: list[tuple[re.Pattern, str, int, float]] = [
     # "My name is Ludovic"
@@ -135,9 +135,16 @@ _FIXED_KEY_PATTERNS: list[tuple[re.Pattern, str, int, float]] = [
         1,
         0.88
     ),
+    # "My dogs are Rex and Tom" / "My cats are Bella and Max"
+    # GC-007: alternative phrasing for pet name assignment
+    (
+        re.compile(r"^my (?:dogs?|cats?|pets?|birds?|fish|rabbits?|hamsters?) (?:is|are) (.+)", re.IGNORECASE),
+        "pet names",
+        1,
+        0.88
+    ),
 ]
 
-# Dynamic key patterns — the key is captured from the message itself.
 _DYNAMIC_KEY_PATTERNS: list[tuple[re.Pattern, int, int, float]] = [
     # "My drink is coffee" — key = "drink", value = "coffee"
     (
@@ -155,7 +162,6 @@ _DYNAMIC_KEY_PATTERNS: list[tuple[re.Pattern, int, int, float]] = [
     ),
 ]
 
-# Minimum confidence threshold — detections below this are discarded.
 _MIN_CONFIDENCE: float = 0.70
 
 
@@ -183,6 +189,10 @@ class MemoryDetector:
             return None
 
         cleaned = message.strip().rstrip(".")
+
+        # GC-007: strip leading conjunctions so "And my favourite food is
+        # pizza." matches the same patterns as "My favourite food is pizza."
+        cleaned = _LEADING_CONJUNCTION.sub("", cleaned).strip().rstrip(".")
 
         # Try fixed key patterns first.
         result = self._match_fixed(cleaned)
