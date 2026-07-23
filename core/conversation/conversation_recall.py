@@ -81,11 +81,6 @@ _WORKPLACE_QUERY = re.compile(
 
 # ---------------------------------------------------------------------------
 # Relationship answer templates
-#
-# Maps a "{relationship} role" attribute suffix to a human-readable answer
-# template. The template receives (value, relationship) as format args.
-# Used by _recall_person() to compose natural answers for any stored
-# "{X} role" attribute without hardcoding each relationship type.
 # ---------------------------------------------------------------------------
 _ROLE_ANSWER_TEMPLATES: dict[str, str] = {
     "manager":   "{value} is your manager.",
@@ -101,9 +96,6 @@ _ROLE_ANSWER_TEMPLATES: dict[str, str] = {
 }
 _ROLE_FALLBACK_TEMPLATE = "Your {relationship} is {value}."
 
-# Attribute-level answer wrappers for _recall_attribute().
-# Keys are exact attribute names; values are format strings receiving {value}.
-# Attributes not listed here return the bare stored value (existing behaviour).
 _ATTRIBUTE_ANSWER_TEMPLATES: dict[str, str] = {
     "workplace": "You work at {value}.",
 }
@@ -196,8 +188,7 @@ class ConversationRecall:
         Recall a specific subject+attribute from the KnowledgeEngine.
 
         If an answer template exists for the attribute, wraps the value
-        in a natural sentence. Otherwise returns the bare stored value
-        (preserving existing behaviour for project, milestone, task, etc).
+        in a natural sentence. Otherwise returns the bare stored value.
         """
         record = self._knowledge.recall_memory(subject, attribute)
         if not record:
@@ -218,15 +209,14 @@ class ConversationRecall:
         Recall what we know about a named person, pet, or relationship.
 
         Resolution ladder:
-            1. Direct role lookup by name (e.g. recall_memory("claude", "role"))
-            2. search_memory for the name across all records:
-               a. Pet records (tagged "pet", attribute ends "names") →
-                  "X are your N dogs."
+            1. Direct role lookup by name
+            2. search_memory for the name across all records
+               (excluding journal/conversation records — GC-010)
+               a. Pet records → "X are your N dogs."
                b. subject != "user" and attribute == "role" →
-                  use subject as relationship: "Sarah is your manager."
-               c. "{relationship} role" attribute on any subject →
-                  compose via _ROLE_ANSWER_TEMPLATES or fallback.
-               d. Anything else → return bare value.
+                  use subject as relationship
+               c. "{relationship} role" attribute → compose via templates
+               d. Anything else → return bare value
             3. Miss → not found.
         """
         name_lower = name.lower().strip()
@@ -241,10 +231,23 @@ class ConversationRecall:
                 value=record.value,
             )
 
-        # 2. Search all records for the name
+        # 2. Search all records for the name.
+        # GC-010: exclude journal/conversation records — they survive forget
+        # and would return stale answers after a memory has been deleted.
         results = self._knowledge.search_memory(name_lower, subject=None)
+        results = [r for r in results if not r.attribute.startswith("conversation_")]
+
         if not results:
-            return RecallResult(found=False, answer="")
+            # Authoritative miss — ConversationRecall owns this query and
+            # has determined nothing is stored. Return found=True with a
+            # "not stored" message so the agent never falls through to AI
+            # for questions recall explicitly owns. GC-010.
+            return RecallResult(
+                found=True,
+                answer=f"I don't have any information about {name} stored, sir.",
+                attribute="",
+                value="",
+            )
 
         r = results[0]
 
@@ -262,7 +265,6 @@ class ConversationRecall:
 
         # 2b. subject != "user" and attribute == "role"
         # e.g. subject="son", attribute="role", value="Alex"
-        # → "Alex is your son."
         if r.attribute == "role" and r.subject not in ("user", "jarvis", ""):
             relationship = r.subject.strip()
             template = _ROLE_ANSWER_TEMPLATES.get(relationship)
