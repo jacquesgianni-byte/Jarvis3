@@ -139,8 +139,24 @@ class ConversationRecall:
             _WORKPLACE_QUERY.search(query),
         ])
 
-    def answer(self, query: str) -> RecallResult:
-        """Answer a contextual/temporal memory query."""
+    def answer(self, query: str, resolved_entity: str = "") -> RecallResult:
+        """
+        Answer a contextual/temporal memory query.
+
+        Args:
+            query:           The user's natural language question.
+            resolved_entity: Optional pre-resolved entity name from
+                             ContextResolver (GC-009). When provided,
+                             person lookup uses this value directly
+                             instead of extracting from the query text.
+                             Allows "Who are they?" to resolve via
+                             "Rex and Tom" rather than the literal "they".
+        """
+        # GC-009: if a resolved entity is provided, try person lookup first.
+        if resolved_entity:
+            result = self._recall_person(resolved_entity)
+            if result.found:
+                return result
 
         # Workplace query: "Where do I work?"
         if _WORKPLACE_QUERY.search(query):

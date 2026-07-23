@@ -580,8 +580,15 @@ class Agent:
                     )
 
         # 5. Conversation recall and timeline for referential history queries.
-        if self.conversation_recall.can_answer(request):
-            recall_result = self.conversation_recall.answer(request)
+        # GC-009: pass resolved_entity so ConversationRecall can use the
+        # context hint directly without the agent calling private methods.
+        resolved_entity = (
+            resolution.context_hint
+            if resolution and resolution.resolved and resolution.context_hint
+            else ""
+        )
+        if self.conversation_recall.can_answer(request) or resolved_entity:
+            recall_result = self.conversation_recall.answer(request, resolved_entity)
             if recall_result.found:
                 return Response(
                     success=True, message=recall_result.answer

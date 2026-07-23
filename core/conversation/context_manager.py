@@ -1,31 +1,31 @@
 """
 Jarvis Context Manager (Genesis-020 Sprint-002)
 
-Updates the SessionContext from each conversation turn.
+Updates the active SessionContext slots after each conversation turn.
 
 Responsibilities:
-    - Detect mentions of projects, milestones, tasks, people, topics.
-    - Update the appropriate SessionContext slot.
-    - Advance the turn counter on every call.
-    - Log context changes with [CONTEXT] prefix for easy tracing.
+    - Scan the user message for context signals
+    - Update SessionContext slots (project, milestone, task, person, topic)
+    - Increment the turn counter
+    - Log context changes for debugging
 
-Constitutional constraints:
-    - No AI calls. All detection is deterministic regex.
-    - No I/O. Pure in-memory.
-    - Never modifies the KnowledgeEngine directly.
-    - Errors are caught and logged — never propagated.
+Design constraints:
+    - No AI calls
+    - No external services
+    - No KnowledgeEngine writes (that is ConversationObserver's job)
+    - Pure slot-filling — does not decide how slots are used downstream
 
-Integration:
-    Called by the Agent AFTER every turn (alongside ConversationObserver).
-    Receives both the user message and Jarvis's response so it can
-    extract context from either direction.
+Architecture position:
+    Agent._post_turn()
+        └── ContextManager.update()   ← this module
+                └── SessionContext    (writes active slots)
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from core.conversation.session_context import SessionContext
 
@@ -35,34 +35,40 @@ logger = logging.getLogger(__name__)
 # Detection patterns
 # ---------------------------------------------------------------------------
 
-# Project patterns — "we're starting Genesis-020", "I'm working on Jarvis"
+# Project patterns — "I'm building Jarvis", "we're working on Genesis-020"
 _PROJECT_PATTERNS = [
     re.compile(
-        r"\b(?:starting|beginning|working on|building|developing|doing)\s+"
-        r"(genesis[- ]?[\d\.]+|jarvis[\w\s]*(?:os)?|sprint[- ]?\d+)",
+        r"\b(?:building|working on|developing|shipping|releasing)\s+"
+        r"(genesis[- ]?\d+(?:[-.]\d+)?|jarvis\s*\w*)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(genesis[- ]?[\d\.]+)\b",
+        r"\b(?:starting|beginning|kicking off)\s+"
+        r"(genesis[- ]?\d+(?:[-.]\d+)?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(genesis[- ]?\d+(?:[-.]\d+)?)\s+is\s+(?:next|current|active|live)",
         re.IGNORECASE,
     ),
 ]
 
-# Milestone patterns — "Genesis-020 is frozen", "we just froze Sprint-001"
+# Milestone patterns — "we finished Genesis-019", "Genesis-019 is frozen"
 _MILESTONE_PATTERNS = [
     re.compile(
-        r"\b(genesis[- ]?[\d\.]+(?:\s+sprint[- ]?\d+)?)\s+"
-        r"(?:is\s+)?(?:frozen|done|complete|finished|shipped)",
+        r"\b(?:finished|completed|frozen?|shipped|released|closed|done with)\s+"
+        r"(genesis[- ]?\d+(?:[-.]\d+)?(?:\s+sprint[- ]?\d+)?)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:frozen?|completed?|finished?|shipped?)\s+"
-        r"(genesis[- ]?[\d\.]+(?:\s+sprint[- ]?\d+)?)",
+        r"\b(genesis[- ]?\d+(?:[-.]\d+)?(?:\s+sprint[- ]?\d+)?)\s+"
+        r"(?:is\s+)?(?:done|complete|finished|frozen|locked|passed|closed)",
         re.IGNORECASE,
     ),
 ]
 
-# Task patterns — "implementing Sprint-002", "Claude is doing Sprint-001"
+# Task patterns — "implementing Sprint-002", "doing Sprint-002"
+# Narrow: only matches sprint identifiers to avoid matching project names
 _TASK_PATTERNS = [
     re.compile(
         r"\b(?:implement(?:ing)?|doing|building|working on|starting)\s+"
@@ -105,6 +111,23 @@ _TOPIC_PATTERNS = [
     ),
 ]
 
+# Pet patterns for GC-009 pronoun resolution
+# Enables "they/them/it" to resolve after pet statements
+_PET_PATTERNS = [
+    # "I have 2 dogs" / "I have a cat" — two capture groups (count + animal)
+    re.compile(
+        r"\bi(?:'ve| have| got|'ve got)\s+(\d+|a|an|some|two|three|four|five)\s+([a-z]+s?)",
+        re.IGNORECASE,
+    ),
+    # "Their names are Rex and Tom"
+    re.compile(r"\b(?:their|his|her|its)\s+names?\s+(?:is|are)\s+(.+)", re.IGNORECASE),
+    # "My dogs are Rex and Tom"
+    re.compile(
+        r"\bmy\s+(?:dogs?|cats?|pets?|birds?|fish|rabbits?|hamsters?)\s+(?:is|are)\s+(.+)",
+        re.IGNORECASE,
+    ),
+]
+
 # Noise values that should not be set as context
 _NOISE = {
     "it", "that", "this", "them", "something", "anything",
@@ -132,27 +155,27 @@ class ContextManager:
     def __init__(self, session: SessionContext):
         """
         Args:
-            session: The SessionContext owned by the Agent.
+            session: The SessionContext to update. Shared with the
+                     ContextResolver and ContextInspector.
         """
         self._session = session
 
     def update(self, user_message: str, jarvis_response: str = "") -> None:
         """
-        Update session context from a conversation turn.
-
-        Advances the turn counter and detects context from the
-        user message. The Jarvis response is reserved for future
-        use (e.g. detecting what Jarvis just explained).
+        Process one conversation turn and update the SessionContext.
 
         Args:
-            user_message:    The user's message.
-            jarvis_response: Jarvis's response (not currently used for detection).
+            user_message:    The raw user message for this turn.
+            jarvis_response: The response Jarvis produced (currently
+                             unused — reserved for response-based context
+                             extraction in a future sprint).
         """
-        try:
-            self._session.increment_turn()
-            self._detect_and_update(user_message)
-        except Exception:
-            logger.exception("[CONTEXT] ContextManager: error updating context.")
+        self._session.increment_turn()
+
+        if not user_message or not user_message.strip():
+            return
+
+        self._detect_and_update(user_message)
 
     def _detect_and_update(self, text: str) -> None:
         """Detect context mentions and update slots."""
@@ -164,6 +187,7 @@ class ContextManager:
         self._detect_project(text)
         self._detect_person(text)
         self._detect_topic(text)
+        self._detect_pet(text)         # GC-009: pronoun resolution for pets
 
         logger.debug("[CONTEXT] Turn %d: %s", self._session.current_turn,
                      self._session.summary())
@@ -208,8 +232,7 @@ class ContextManager:
         for pattern in _PERSON_PATTERNS:
             m = pattern.search(text)
             if m:
-                # Use the last capture group (name is always last)
-                value = _clean(m.group(m.lastindex or 1))
+                value = _clean(m.group(1))
                 if not _is_noise(value):
                     prev = self._session.active_person
                     self._session.set_person(value, raw=text)
@@ -227,4 +250,37 @@ class ContextManager:
                     self._session.set_topic(value, raw=text)
                     if not prev or prev.value.lower() != value.lower():
                         logger.info("[CONTEXT] Active topic → %r", value)
+                    return
+
+    def _detect_pet(self, text: str) -> None:
+        """
+        GC-009: Set active_topic from pet facts so generic pronouns
+        (they/them/it) resolve correctly in the next turn.
+
+        Covers:
+            "I have 2 dogs"               → topic = "2 dogs"
+            "Their names are Rex and Tom" → topic = "Rex and Tom"
+            "My dogs are Rex and Tom"     → topic = "Rex and Tom"
+        """
+        # Pattern 0: "I have 2 dogs" — two capture groups (count + animal)
+        m = _PET_PATTERNS[0].search(text)
+        if m:
+            value = _clean(f"{m.group(1)} {m.group(2)}")
+            if not _is_noise(value) and len(value) > 1:
+                prev = self._session.active_topic
+                self._session.set_topic(value, raw=text)
+                if not prev or prev.value.lower() != value.lower():
+                    logger.info("[CONTEXT] Active topic (pet) → %r", value)
+                return
+
+        # Patterns 1+: single capture group
+        for pattern in _PET_PATTERNS[1:]:
+            m = pattern.search(text)
+            if m:
+                value = _clean(m.group(1))
+                if not _is_noise(value) and len(value) > 1:
+                    prev = self._session.active_topic
+                    self._session.set_topic(value, raw=text)
+                    if not prev or prev.value.lower() != value.lower():
+                        logger.info("[CONTEXT] Active topic (pet) → %r", value)
                     return

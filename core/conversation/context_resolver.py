@@ -145,6 +145,24 @@ class ContextResolver:
     def _resolve_person_pronoun(self, request: str) -> Resolution:
         slot = self._session.fresh(self._session.active_person)
         if not slot:
+            # GC-009: fall back to active_topic for plural pronouns
+            # (they/them) referring to pets or groups when no active person.
+            topic_slot = self._session.fresh(self._session.active_topic)
+            if topic_slot and self._session.is_usable(topic_slot):
+                m = _PERSON_PRONOUNS.search(request)
+                if m:
+                    conf = min(0.90, self._session.effective_confidence(topic_slot))
+                    if conf >= MIN_RESOLUTION_CONFIDENCE:
+                        logger.info(
+                            "[CONTEXT] Resolved pronoun %r → %r (topic fallback, conf=%.2f)",
+                            m.group(1), topic_slot.value, conf,
+                        )
+                        return Resolution(
+                            resolved=True, original=request,
+                            context_hint=topic_slot.value,
+                            slot_type="topic", confidence=conf,
+                            pronoun=m.group(1),
+                        )
             return Resolution(resolved=False, original=request)
         m = _PERSON_PRONOUNS.search(request)
         if not m:
