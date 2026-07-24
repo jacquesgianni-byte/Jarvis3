@@ -78,6 +78,11 @@ _WORKPLACE_QUERY = re.compile(
     r"what\s+(?:company|organisation|organization|workplace|place)\s+do\s+i\s+work\s+(?:at|for))\b",
     re.IGNORECASE,
 )
+# Pet name queries — "What are their names?" / "What are my dogs' names?"
+_PET_NAME_QUERY = re.compile(
+    r"\bwhat\s+(?:are\s+)?(?:their|(?:my\s+)?(?:dogs?|cats?|pets?|animals?)(?:'s|s')?)\s+names?\b",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Relationship answer templates
@@ -137,6 +142,7 @@ class ConversationRecall:
             _GENESIS_QUERY.search(query),
             _WHICH_GENESIS.search(query),
             _WORKPLACE_QUERY.search(query),
+            _PET_NAME_QUERY.search(query),
         ])
 
     def answer(self, query: str, resolved_entity: str = "") -> RecallResult:
@@ -161,6 +167,10 @@ class ConversationRecall:
         # Workplace query: "Where do I work?"
         if _WORKPLACE_QUERY.search(query):
             return self._recall_attribute("user", "workplace")
+
+        # Pet name query: "What are their names?" / "What are my dogs' names?"
+        if _PET_NAME_QUERY.search(query):
+            return self._recall_pet_names()
 
         # Person query: "Who is Claude?" / "Who are Rex and Tom?"
         m = _PERSON_QUERY.search(query)
@@ -320,6 +330,35 @@ class ConversationRecall:
             answer=r.value,
             attribute=r.attribute,
             value=r.value,
+        )
+
+    def _recall_pet_names(self) -> RecallResult:
+        """
+        Recall stored pet names.
+
+        Looks up attribute="pet names" for subject="user".
+        Also retrieves the pet type (e.g. "2 dogs") to compose
+        a natural answer. Confined to this one helper so "pet names"
+        is never hardcoded in more than one place. GC-012.
+        """
+        record = self._knowledge.recall_memory("user", "pet names")
+        if not record:
+            return RecallResult(
+                found=True,
+                answer="I don't have your pets' names stored yet, sir.",
+                attribute="pet names",
+                value="",
+            )
+        pet_type = self._knowledge.recall_memory("user", "pets")
+        if pet_type:
+            answer = f"Your {pet_type.value} are named {record.value}."
+        else:
+            answer = f"Their names are {record.value}."
+        return RecallResult(
+            found=True,
+            answer=answer,
+            attribute="pet names",
+            value=record.value,
         )
 
     def _recall_genesis(self, name: str) -> RecallResult:

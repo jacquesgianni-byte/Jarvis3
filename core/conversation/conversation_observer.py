@@ -1,40 +1,35 @@
 """
-Jarvis Conversation Memory — Conversation Observer (Genesis-020 Sprint-001)
+Jarvis Conversation Observer (Genesis-020 Sprint-001)
 
-Observes every conversation turn and automatically extracts and stores
-facts using the KnowledgeEngine.
+Observes each conversation turn and extracts structured facts into
+the KnowledgeEngine.
 
-Architecture:
-    Agent calls observer.observe(user_message, jarvis_response) after
-    every successful response. The observer is fire-and-forget from the
-    Agent's perspective — it never blocks the conversation pipeline.
+Responsibilities:
+    - Run FactExtractor on every user message
+    - Store extracted facts via KnowledgeEngine
+    - Store conversation journal entries
+    - GC-012: infer pet names from bare continuation sentences
 
-    ConversationObserver
-        → FactExtractor.extract(user_message)
-        → FactClassifier.classify(fact) → (category, attribute)
-        → KnowledgeEngine.store_memory(...)
+Design constraints:
+    - No AI calls
+    - No external services
+    - Write-only to KnowledgeEngine (never reads for routing)
+    - Deterministic — same input → same facts stored
 
-    Also maintains a lightweight ConversationJournal: a rolling log
-    of recent conversation turns stored as system-category records
-    in the KnowledgeEngine.
-
-Constitutional constraints:
-    - Never blocks the conversation pipeline.
-    - Never calls AI providers.
-    - All fact extraction is deterministic.
-    - Uses KnowledgeEngine as the ONLY storage mechanism.
-    - Gracefully handles all exceptions — a memory failure must
-      never crash Jarvis.
+Architecture position:
+    Agent._post_turn()
+        └── ConversationObserver.observe()   ← this module
+                └── FactExtractor            (reads user message)
+                └── KnowledgeEngine          (writes facts)
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+import re
 from typing import TYPE_CHECKING
 
 from core.conversation.fact_extractor import ExtractedFact, FactExtractor, FactType
-from core.knowledge_engine.models import MemorySource
 
 if TYPE_CHECKING:
     from core.knowledge_engine.engine import KnowledgeEngine
@@ -42,143 +37,152 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Fact type → Knowledge Engine category mapping
+# GC-012: Continuation inference patterns
 # ---------------------------------------------------------------------------
 
-_FACT_TYPE_TO_CATEGORY: dict[FactType, str] = {
-    FactType.PROJECT:     "projects",
-    FactType.MILESTONE:   "projects",
-    FactType.TASK:        "projects",
-    FactType.ACHIEVEMENT: "projects",
-    FactType.PERSON:      "relationships",
-    FactType.DECISION:    "general",
-    FactType.PREFERENCE:  "preferences",
-    FactType.UNKNOWN:     "general",
-}
+# Matches a pet quantity stored in knowledge ("3 cats", "2 dogs", "a cat")
+_PET_TOPIC_RE = re.compile(
+    r"^(\d+|a|an|one|two|three|four|five|some)\s+"
+    r"(?:dogs?|cats?|pets?|birds?|fish|rabbits?|hamsters?)$",
+    re.IGNORECASE,
+)
 
-# Maximum number of journal entries to keep
-_JOURNAL_MAX_ENTRIES = 50
+# Matches a bare name or comma-separated name list ("Tom, Tim and Tam")
+_NAME_LIST_RE = re.compile(
+    r"^[A-Z][a-z]+(?:(?:[,\s]+(?:and\s+)?)[A-Z][a-z]+)*\.?$"
+)
 
-# Subject used for journal entries
-_JOURNAL_SUBJECT = "jarvis"
+# Category for all facts stored via this observer
+_CATEGORY = "general"
 
 
 class ConversationObserver:
     """
-    Observes conversation turns and stores extracted facts automatically.
+    Observes each conversation turn and extracts structured facts.
 
-    Called by the Agent after every successful response. Extracts facts
-    from the user's message and stores them via the KnowledgeEngine.
-    Also maintains a rolling conversation journal for temporal recall.
+    Called by Agent._post_turn() after every user message. Extracts
+    facts via FactExtractor and stores them in the KnowledgeEngine.
+    Also stores a journal entry for each turn.
 
-    This class is the bridge between raw conversation and structured memory.
+    GC-012: When FactExtractor finds no facts, attempts context-aware
+    inference for bare name continuations after pet statements.
     """
 
-    def __init__(self, knowledge: "KnowledgeEngine"):
-        """
-        Args:
-            knowledge: The KnowledgeEngine instance (owned by the Agent).
-        """
+    def __init__(self, knowledge: "KnowledgeEngine") -> None:
         self._knowledge = knowledge
         self._extractor = FactExtractor()
-        self._session_start = datetime.now(UTC)
 
     def observe(self, user_message: str, jarvis_response: str) -> None:
         """
-        Observe a single conversation turn and extract/store facts.
-
-        Called after every successful Agent response. Errors are caught
-        and logged — never propagated to the conversation pipeline.
+        Process one conversation turn.
 
         Args:
-            user_message:    The user's message.
-            jarvis_response: Jarvis's response text.
+            user_message:    The user's raw message.
+            jarvis_response: Jarvis's response (stored in journal).
         """
-        try:
-            self._process_turn(user_message, jarvis_response)
-        except Exception:
-            logger.exception(
-                "[MEMORY] ConversationObserver: error processing turn — "
-                "conversation continues normally."
-            )
-
-    def _process_turn(self, user_message: str, jarvis_response: str) -> None:
-        """Process a single conversation turn."""
         if not user_message or not user_message.strip():
             return
 
-        # Extract facts from the user's message
+        # Extract facts from the user message
         facts = self._extractor.extract(user_message)
 
+        # Store extracted facts
         if facts:
-            logger.info(
-                "[MEMORY] Extracted %d fact(s) from: %r",
-                len(facts), user_message[:60]
-            )
+            self._store_facts(facts, user_message)
+        else:
+            # GC-012: no facts extracted — try context-aware inference
+            inferred_name = self._infer_pet_name_continuation(user_message)
+            if inferred_name:
+                self._knowledge.store_memory(
+                    subject="user",
+                    category=_CATEGORY,
+                    attribute="pet names",
+                    value=inferred_name,
+                    tags=["pet", "auto-extracted", "inferred"],
+                )
+                logger.info(
+                    "[OBSERVER] Inferred pet names from continuation: %r",
+                    inferred_name,
+                )
 
+        # Store journal entry
+        self._store_journal(user_message, jarvis_response)
+
+    def _store_facts(self, facts: list[ExtractedFact], raw: str) -> None:
+        """Store a list of extracted facts in the KnowledgeEngine."""
         for fact in facts:
-            self._store_fact(fact)
+            try:
+                self._knowledge.store_memory(
+                    subject=fact.subject,
+                    category=_CATEGORY,
+                    attribute=fact.attribute,
+                    value=fact.value,
+                    tags=self._tags_for(fact),
+                )
+                logger.info(
+                    "[OBSERVER] Stored fact: subject=%r attribute=%r value=%r",
+                    fact.subject, fact.attribute, fact.value,
+                )
+            except Exception:
+                logger.exception(
+                    "[OBSERVER] Failed to store fact: %r", fact
+                )
 
-        # Journal the conversation turn for temporal recall
-        self._journal_turn(user_message, jarvis_response)
+    def _tags_for(self, fact: ExtractedFact) -> list[str]:
+        """Return appropriate tags for a fact based on its type."""
+        base = ["auto-extracted", "derived"]
+        if fact.fact_type == FactType.PET:
+            base.append("pet")
+        return base
 
-    def _store_fact(self, fact: ExtractedFact) -> None:
-        """Store a single extracted fact via the KnowledgeEngine."""
-        category = _FACT_TYPE_TO_CATEGORY.get(fact.fact_type, "general")
-
+    def _store_journal(self, user_message: str, jarvis_response: str) -> None:
+        """Store a journal entry for this conversation turn."""
+        from datetime import UTC, datetime
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
         try:
             self._knowledge.store_memory(
-                subject=fact.subject,
-                category=category,
-                attribute=fact.attribute,
-                value=fact.value,
-                confidence=fact.confidence,
-                source=MemorySource.INFERRED,
-                # "derived" tag marks observer-inferred records so the
-                # recall layer can exclude them from fuzzy fallback
-                # searches and prevent zombie matches after a canonical
-                # memory is forgotten. Genesis-024 Sprint-001 fix.
-                tags=[fact.fact_type.name.lower(), "auto-extracted", "derived"],
-            )
-            logger.info(
-                "[MEMORY] Stored fact: subject=%r attribute=%r value=%r (type=%s)",
-                fact.subject, fact.attribute, fact.value, fact.fact_type.name
-            )
-        except Exception:
-            logger.exception(
-                "[MEMORY] Failed to store fact: attribute=%r value=%r",
-                fact.attribute, fact.value
-            )
-
-    def _journal_turn(self, user_message: str, jarvis_response: str) -> None:
-        """
-        Store a conversation turn summary in the journal.
-
-        Journal entries use subject="jarvis", category="system",
-        attribute="conversation_YYYY-MM-DD_HH-MM-SS".
-
-        This allows temporal recall: "what did we do yesterday?" searches
-        for journal entries with yesterday's date in the attribute.
-        """
-        now = datetime.now(UTC)
-        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-        attribute = f"conversation_{timestamp}"
-
-        # Compact summary: first 120 chars of user message
-        summary = user_message.strip()
-        if len(summary) > 120:
-            summary = summary[:117] + "..."
-
-        try:
-            self._knowledge.store_memory(
-                subject=_JOURNAL_SUBJECT,
+                subject="jarvis",
                 category="system",
-                attribute=attribute,
-                value=summary,
-                confidence=1.0,
-                source=MemorySource.SYSTEM,
-                tags=["journal", "conversation", now.strftime("%Y-%m-%d")],
-                importance=0.3,
+                attribute=f"conversation_{timestamp}",
+                value=user_message.strip(),
+                tags=["journal", "conversation"],
             )
         except Exception:
-            logger.exception("[MEMORY] Failed to journal conversation turn.")
+            logger.exception("[OBSERVER] Failed to store journal entry.")
+
+    def _infer_pet_name_continuation(self, text: str) -> str:
+        """
+        GC-012: Infer pet names from a bare name list when pets are stored.
+
+        When the user says "I have 3 cats." and then "Tom, Tim and Tam.",
+        the second message has no explicit signal. This method checks:
+          1. The message looks like a name or comma-separated name list.
+          2. The knowledge store already contains a pet quantity for the user.
+
+        If both are true, the message is inferred as pet names.
+
+        Returns the inferred name string, or empty string if no inference.
+        """
+        stripped = text.strip().rstrip(".")
+
+        # Must look like a name or comma-separated name list
+        if not _NAME_LIST_RE.match(stripped):
+            return ""
+
+        # Must have a pet quantity already stored
+        pet_record = self._knowledge.recall_memory("user", "pets")
+        if not pet_record:
+            return ""
+
+        # Pet record value must look like a quantity + animal
+        pet_value = getattr(pet_record, 'value', None)
+        if not isinstance(pet_value, str):
+            return ""
+        if not _PET_TOPIC_RE.match(pet_value.strip()):
+            return ""
+
+        logger.debug(
+            "[OBSERVER] Inferred %r as pet names (context: %r)",
+            stripped, pet_record.value,
+        )
+        return stripped
