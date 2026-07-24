@@ -40,6 +40,23 @@ _LEADING_CONJUNCTION = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# GC-012: Context-aware continuation patterns
+# Matches a pet quantity hint from SessionContext ("3 cats", "2 dogs", etc.)
+# Used by detect_with_context() — never looked up internally.
+# ---------------------------------------------------------------------------
+_PET_CONTEXT_RE = re.compile(
+    r"^(\d+|a|an|one|two|three|four|five|some)\s+"
+    r"(?:dogs?|cats?|pets?|birds?|fish|rabbits?|hamsters?)$",
+    re.IGNORECASE,
+)
+
+# Matches a bare name or comma-separated name list ("Tom, Tim and Tam")
+_NAME_LIST_RE = re.compile(
+    r"^[A-Z][a-z]+(?:(?:[,\s]+(?:and\s+)?)[A-Z][a-z]+)*\.?$",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
 # Pattern definitions
 # ---------------------------------------------------------------------------
 
@@ -201,6 +218,54 @@ class MemoryDetector:
 
         # Fall back to dynamic key patterns.
         return self._match_dynamic(cleaned)
+
+    def detect_with_context(self, message: str, context_hint: str = "") -> Optional[MemoryDetection]:
+        """
+        Context-aware detection.
+
+        The Agent supplies a context hint; the detector classifies the
+        message. This method never performs lookups — it only uses what
+        the caller provides.
+
+        GC-012: When context_hint indicates pets ("3 cats", "2 dogs")
+        and the message looks like a bare name list ("Tom, Tim and Tam."),
+        infer it as a pet names statement.
+
+        Args:
+            message:      The user's raw message.
+            context_hint: A hint from the Agent about current context
+                          (e.g. "3 cats", "2 dogs"). Never looked up here.
+
+        Returns:
+            MemoryDetection if a fact is detected, None otherwise.
+        """
+        # Try standard detection first
+        result = self.detect(message)
+        if result:
+            return result
+
+        # GC-012: context-aware bare name list inference
+        if not context_hint:
+            return None
+
+        # Context hint must look like a pet quantity
+        if not _PET_CONTEXT_RE.match(context_hint.strip()):
+            return None
+
+        # Message must look like a name or comma-separated name list
+        stripped = message.strip().rstrip(".")
+        if not _NAME_LIST_RE.match(stripped):
+            return None
+
+        logger.debug(
+            "[DETECTOR] Inferred pet names from context %r + message %r",
+            context_hint, stripped,
+        )
+        return MemoryDetection(
+            key="pet names",
+            value=stripped,
+            confidence=0.82,
+        )
 
     def _match_fixed(self, message: str) -> Optional[MemoryDetection]:
         """Match against fixed key patterns."""

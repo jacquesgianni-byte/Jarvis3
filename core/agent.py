@@ -199,8 +199,14 @@ class Agent:
             return response
 
         # Step 4 — Check for natural memory statements.
+        # GC-012: pass active_topic so detector can infer bare name lists
+        # (e.g. "Tom, Tim and Tam.") as pet names when context supports it.
         with telemetry.stage("memory_detection"):
-            detection = self.memory_detector.detect(request)
+            active_topic = (
+                self.session.active_topic.value
+                if self.session.active_topic else ""
+            )
+            detection = self.memory_detector.detect_with_context(request, active_topic)
 
         # Step 5 — If a memory was detected, store and acknowledge.
         if detection is not None:
@@ -341,6 +347,10 @@ class Agent:
 
     def _route(self, intent: Intent, request: str, resolution=None) -> Response:
         """Route a detected intent to the appropriate skill or AI fallback."""
+
+        # Initialise resolved_entity so it is always defined regardless of
+        # which branch is taken. Set properly in step 5 if resolution exists.
+        resolved_entity = ""
 
         # Developer inspector commands
         req_lower = request.strip().lower()
@@ -578,8 +588,13 @@ class Agent:
                         success=True,
                         message=f"From context: {', '.join(parts)}, sir."
                     )
-
+                
         # 5. Conversation recall and timeline for referential history queries.
+        self.logger.info("[GC012-TRACE] can_answer=%s request=%r resolved_entity=%r",
+                    self.conversation_recall.can_answer(request), request, resolved_entity)
+        # GC-009: pass resolved_entity so ConversationRecall can use the
+        # context hint directly without the agent calling private methods.
+        
         # GC-009: pass resolved_entity so ConversationRecall can use the
         # context hint directly without the agent calling private methods.
         resolved_entity = (

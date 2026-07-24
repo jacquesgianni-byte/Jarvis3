@@ -69,7 +69,7 @@ def _canonicalise(text: str) -> str:
 # ---------------------------------------------------------------------------
 _ACK_TEMPLATES: dict[str, str] = {
     "pets":      "Okay, I'll remember that you have {value}.",
-    "pet names": "Okay, I'll remember that your dogs are named {value}.",
+    "pet names": "Okay, I'll remember that your pets are named {value}.",
     "workplace": "Okay, I'll remember that you work at {value}.",
 }
 
