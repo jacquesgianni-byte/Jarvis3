@@ -56,6 +56,7 @@ from core.conversation.timeline_event import EventType           # Genesis-020: 
 from core.conversation.conversation_engine import ConversationEngine   # Genesis-022
 from core.conversation.conversation_models import DecisionType         # Genesis-022
 from core.conversation.slot_completion_engine import SlotCompletionEngine  # Genesis-025
+from core.conversation.contextual_recall_engine import ContextualRecallEngine  # Genesis-025 S4
 
 
 class Agent:
@@ -121,6 +122,9 @@ class Agent:
 
         # Genesis-025: generic slot completion (runs before MemoryDetector)
         self.slot_completion = SlotCompletionEngine()
+
+        # Genesis-025 Sprint-004: context-aware recall (runs before ConversationRecall)
+        self.contextual_recall = ContextualRecallEngine()
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -528,6 +532,21 @@ class Agent:
                     )
 
         # 5. Conversation recall and timeline
+        # Genesis-025 Sprint-004: ContextualRecallEngine resolves anaphoric
+        # queries ("What are their names?") using SessionContext before
+        # delegating to ConversationRecall for factual lookup.
+        # Agent uses resolve() + lookup() to keep components fully decoupled.
+        # TODO (Genesis-026): Consider moving this orchestration into a
+        # dedicated recall coordinator so Agent doesn't need to know the
+        # two-step pattern.
+        recall_request = self.contextual_recall.resolve(request, self.session)
+        if recall_request:
+            ctx_result = self.conversation_recall.lookup(
+                recall_request.subject, recall_request.attribute
+            )
+            if ctx_result and ctx_result.found:
+                return Response(success=True, message=ctx_result.answer)
+
         resolved_entity = (
             resolution.context_hint
             if resolution and resolution.resolved and resolution.context_hint

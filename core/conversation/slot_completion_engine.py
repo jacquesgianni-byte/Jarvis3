@@ -206,6 +206,9 @@ class SlotCompletionEngine:
         like a name list ("Rex and Tom."), infer it as filling the next
         unfilled slot for the active kind.
         """
+       # Questions are never implicit slot fills
+        if message.strip().endswith("?"):
+            return None
         stripped = message.strip().rstrip(".")
         if not _NAME_LIST_RE.match(stripped):
             return None
