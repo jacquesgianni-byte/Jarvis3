@@ -4,8 +4,13 @@ GC-009 — Pronoun Resolution Regression Tests
 Verifies that pet-related pronouns resolve correctly after pet statements,
 using the existing ContextManager and ContextResolver architecture.
 
+Genesis-025 Sprint-003 update:
+    _detect_pet() removed from ContextManager — pet topic is now set via
+    SlotCompletionEngine → MemorySkill → active_topic (set by Agent after
+    storing the memory). Tests updated to reflect new architecture.
+
 Coverage:
-  - ContextManager sets active_topic for pet facts (I have N dogs, their names are X)
+  - SlotCompletionEngine detects pet facts (replaces ContextManager pet tests)
   - ContextResolver resolves "they/them" via active_topic after pet statements
   - Existing project/milestone/task/person resolution unchanged
   - Unrelated queries not resolved
@@ -22,6 +27,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from core.conversation.context_manager import ContextManager
 from core.conversation.context_resolver import ContextResolver
 from core.conversation.session_context import SessionContext
+from core.conversation.slot_completion_engine import SlotCompletionEngine
 
 
 def make_session() -> SessionContext:
@@ -37,45 +43,52 @@ def make_resolver(session: SessionContext) -> ContextResolver:
 
 
 # ===========================================================================
-# 1. ContextManager — PET facts set active_topic
+# 1. SlotCompletionEngine — detects pet facts (replaces ContextManager tests)
+#    Genesis-025 Sprint-003: active_topic set by Agent after SlotCompletionEngine
+#    returns a MemoryDetection, not by ContextManager directly.
 # ===========================================================================
 
-class TestContextManagerPetFacts:
+class TestSlotCompletionEnginePetFacts:
 
-    def test_i_have_dogs_sets_topic(self):
-        session = make_session()
-        manager = make_manager(session)
-        manager.update("I have 2 dogs.", "")
-        assert session.active_topic is not None
-        assert "dog" in session.active_topic.value.lower()
+    def setup_method(self):
+        self.engine = SlotCompletionEngine()
 
-    def test_their_names_sets_topic(self):
-        session = make_session()
-        manager = make_manager(session)
-        manager.update("Their names are Rex and Tom.", "")
-        assert session.active_topic is not None
-        assert "Rex" in session.active_topic.value or "Tom" in session.active_topic.value
+    def test_i_have_dogs_detected(self):
+        result = self.engine.detect("I have 2 dogs.")
+        assert result is not None
+        assert result.key == "pets"
+        assert "dog" in result.value.lower()
 
-    def test_my_dogs_are_sets_topic(self):
-        session = make_session()
-        manager = make_manager(session)
-        manager.update("My dogs are Rex and Tom.", "")
-        assert session.active_topic is not None
+    def test_their_names_detected(self):
+        result = self.engine.detect(
+            "Their names are Rex and Tom.",
+            active_kind="animal",
+        )
+        assert result is not None
+        assert result.key == "pet names"
 
-    def test_i_have_cat_sets_topic(self):
-        session = make_session()
-        manager = make_manager(session)
-        manager.update("I have a cat.", "")
-        assert session.active_topic is not None
-        assert "cat" in session.active_topic.value.lower()
+    def test_my_dogs_are_detected(self):
+        # "My dogs are Rex and Tom." is caught by MemoryDetector not
+        # SlotCompletionEngine — it has no possession signal.
+        from core.conversation.memory_detector import MemoryDetector
+        result = MemoryDetector().detect("My dogs are Rex and Tom.")
+        assert result is not None
+        assert result.key == "pet names"
 
-    def test_pet_topic_overrides_previous(self):
-        session = make_session()
-        manager = make_manager(session)
-        manager.update("I have 2 dogs.", "")
-        manager.update("Their names are Rex and Tom.", "")
-        assert session.active_topic is not None
-        assert "Rex" in session.active_topic.value or "Tom" in session.active_topic.value
+    def test_i_have_cat_detected(self):
+        result = self.engine.detect("I have a cat.")
+        assert result is not None
+        assert result.key == "pets"
+        assert "cat" in result.value.lower()
+
+    def test_implicit_names_after_cats(self):
+        result = self.engine.detect(
+            "Their names are Rex and Tom.",
+            active_topic="3 cats",
+            active_kind="animal",
+        )
+        assert result is not None
+        assert result.key == "pet names"
 
 
 # ===========================================================================
@@ -85,7 +98,6 @@ class TestContextManagerPetFacts:
 class TestContextManagerPersonFacts:
 
     def test_claude_sets_person(self):
-        """Original _PERSON_PATTERNS detects Claude by name."""
         session = make_session()
         manager = make_manager(session)
         manager.update("Claude is my senior engineer.", "")
@@ -93,7 +105,6 @@ class TestContextManagerPersonFacts:
         assert "Claude" in session.active_person.value
 
     def test_gpt_sets_person(self):
-        """Original _PERSON_PATTERNS detects GPT by name."""
         session = make_session()
         manager = make_manager(session)
         manager.update("GPT handles the specs.", "")
@@ -102,20 +113,19 @@ class TestContextManagerPersonFacts:
 
 # ===========================================================================
 # 3. ContextResolver — resolves "they/them" via active_topic
+#    active_topic must be set manually in tests (Agent does this in production)
 # ===========================================================================
 
 class TestContextResolverPronouns:
 
-    def test_they_resolves_after_pet_statement(self):
+    def test_they_resolves_when_topic_set(self):
         session = make_session()
-        manager = make_manager(session)
         resolver = make_resolver(session)
 
-        # Turn 1: store pet facts
-        manager.update("I have 2 dogs.", "")
-        manager.update("Their names are Rex and Tom.", "")
+        # Simulate Agent setting active_topic after storing pet memory
+        session.set_topic("Rex and Tom", raw="Their names are Rex and Tom.")
+        session.increment_turn()
 
-        # Turn 2: resolve "they"
         assert resolver.needs_resolution("Who are they?")
         resolution = resolver.resolve("Who are they?")
         assert resolution.resolved
@@ -124,7 +134,6 @@ class TestContextResolverPronouns:
     def test_no_resolution_without_context(self):
         session = make_session()
         resolver = make_resolver(session)
-        # No prior context set
         resolution = resolver.resolve("Who are they?")
         assert not resolution.resolved
 

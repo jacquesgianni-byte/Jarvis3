@@ -68,7 +68,6 @@ _MILESTONE_PATTERNS = [
 ]
 
 # Task patterns — "implementing Sprint-002", "doing Sprint-002"
-# Narrow: only matches sprint identifiers to avoid matching project names
 _TASK_PATTERNS = [
     re.compile(
         r"\b(?:implement(?:ing)?|doing|building|working on|starting)\s+"
@@ -87,12 +86,10 @@ _PERSON_PATTERNS = [
         r"\b(Claude|GPT|ChatGPT|Anthropic|OpenAI|Gianni|Ludovic)\b",
         re.IGNORECASE,
     ),
-    # "my engineer/architect/partner is X"
     re.compile(
         r"\bmy\s+(?:engineer|architect|partner|assistant|senior|colleague)\s+is\s+([A-Z][a-z]+)",
         re.IGNORECASE,
     ),
-    # "X is my engineer/architect"
     re.compile(
         r"\b([A-Z][a-z]+)\s+is\s+my\s+(?:engineer|architect|partner|assistant|senior|colleague)\b",
         re.IGNORECASE,
@@ -107,23 +104,6 @@ _TOPIC_PATTERNS = [
     ),
     re.compile(
         r"\b(?:explaining?|discussing?|talking about|looking at)\s+(.+?)(?:\.|$)",
-        re.IGNORECASE,
-    ),
-]
-
-# Pet patterns for GC-009 pronoun resolution
-# Enables "they/them/it" to resolve after pet statements
-_PET_PATTERNS = [
-    # "I have 2 dogs" / "I have a cat" — two capture groups (count + animal)
-    re.compile(
-        r"\bi(?:'ve| have| got|'ve got)\s+(\d+|a|an|some|two|three|four|five)\s+([a-z]+s?)",
-        re.IGNORECASE,
-    ),
-    # "Their names are Rex and Tom"
-    re.compile(r"\b(?:their|his|her|its)\s+names?\s+(?:is|are)\s+(.+)", re.IGNORECASE),
-    # "My dogs are Rex and Tom"
-    re.compile(
-        r"\bmy\s+(?:dogs?|cats?|pets?|birds?|fish|rabbits?|hamsters?)\s+(?:is|are)\s+(.+)",
         re.IGNORECASE,
     ),
 ]
@@ -150,14 +130,13 @@ class ContextManager:
 
     Called once per turn by the Agent. Detects what the conversation
     is about and updates the appropriate slots in the SessionContext.
+
+    Genesis-025 Sprint-003: _detect_pet() removed — pet topic detection
+    is now handled by SlotCompletionEngine via active_topic set from
+    MemoryDetection storage.
     """
 
     def __init__(self, session: SessionContext):
-        """
-        Args:
-            session: The SessionContext to update. Shared with the
-                     ContextResolver and ContextInspector.
-        """
         self._session = session
 
     def update(self, user_message: str, jarvis_response: str = "") -> None:
@@ -166,9 +145,7 @@ class ContextManager:
 
         Args:
             user_message:    The raw user message for this turn.
-            jarvis_response: The response Jarvis produced (currently
-                             unused — reserved for response-based context
-                             extraction in a future sprint).
+            jarvis_response: The response Jarvis produced (reserved).
         """
         self._session.increment_turn()
 
@@ -187,7 +164,6 @@ class ContextManager:
         self._detect_project(text)
         self._detect_person(text)
         self._detect_topic(text)
-        self._detect_pet(text)         # GC-009: pronoun resolution for pets
 
         logger.debug("[CONTEXT] Turn %d: %s", self._session.current_turn,
                      self._session.summary())
@@ -250,37 +226,4 @@ class ContextManager:
                     self._session.set_topic(value, raw=text)
                     if not prev or prev.value.lower() != value.lower():
                         logger.info("[CONTEXT] Active topic → %r", value)
-                    return
-
-    def _detect_pet(self, text: str) -> None:
-        """
-        GC-009: Set active_topic from pet facts so generic pronouns
-        (they/them/it) resolve correctly in the next turn.
-
-        Covers:
-            "I have 2 dogs"               → topic = "2 dogs"
-            "Their names are Rex and Tom" → topic = "Rex and Tom"
-            "My dogs are Rex and Tom"     → topic = "Rex and Tom"
-        """
-        # Pattern 0: "I have 2 dogs" — two capture groups (count + animal)
-        m = _PET_PATTERNS[0].search(text)
-        if m:
-            value = _clean(f"{m.group(1)} {m.group(2)}")
-            if not _is_noise(value) and len(value) > 1:
-                prev = self._session.active_topic
-                self._session.set_topic(value, raw=text)
-                if not prev or prev.value.lower() != value.lower():
-                    logger.info("[CONTEXT] Active topic (pet) → %r", value)
-                return
-
-        # Patterns 1+: single capture group
-        for pattern in _PET_PATTERNS[1:]:
-            m = pattern.search(text)
-            if m:
-                value = _clean(m.group(1))
-                if not _is_noise(value) and len(value) > 1:
-                    prev = self._session.active_topic
-                    self._session.set_topic(value, raw=text)
-                    if not prev or prev.value.lower() != value.lower():
-                        logger.info("[CONTEXT] Active topic (pet) → %r", value)
                     return
