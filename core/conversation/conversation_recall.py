@@ -260,8 +260,13 @@ class ConversationRecall:
         # 2. Search all records for the name.
         # GC-010: exclude journal/conversation records — they survive forget
         # and would return stale answers after a memory has been deleted.
-        results = self._knowledge.search_memory(name_lower, subject=None)
-        results = [r for r in results if not r.attribute.startswith("conversation_")]
+        results = self._knowledge.search_memory(name_lower, subject="user")
+        if not results:
+            results = self._knowledge.search_memory(name_lower, subject=None)
+            results = [
+                r for r in results
+                if not r.attribute.startswith("conversation_")
+            ]
 
         if not results:
             # Authoritative miss — ConversationRecall owns this query and

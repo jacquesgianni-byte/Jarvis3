@@ -29,13 +29,13 @@ Architecture position:
                 └── MemoryDetection         (existing model)
 
 Backward compatibility mapping:
-    group declaration  → MemoryDetection(key="pets", value="2 dogs")
+    group declaration  → MemoryDetection(key="pets", value="2 dogs", is_group_declaration=True)
     slot fill (names)  → MemoryDetection(key="pet names", value="Rex and Tom")
 
     These keys are intentionally preserved so existing MemorySkill
     acknowledgements and ConversationRecall patterns continue to work
     without modification during the Sprint-002/Sprint-003 transition.
-    They will be replaced with generic keys in Sprint-003.
+    They will be replaced with generic keys in Sprint-004.
 """
 
 from __future__ import annotations
@@ -56,11 +56,6 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Backward-compatible key mapping
-#
-# Maps (kind, slot) → MemoryDetection key used by existing MemorySkill
-# and ConversationRecall. Preserves existing behaviour during transition.
-#
-# Sprint-003 will replace these with generic keys like "group:animal:names".
 # ---------------------------------------------------------------------------
 _COMPAT_DECLARATION_KEYS: dict[str, str] = {
     "animal":     "pets",
@@ -78,7 +73,6 @@ _COMPAT_SLOT_KEYS: dict[tuple[str, str], str] = {
 }
 
 # Matches a bare name or comma-separated name list (case-insensitive)
-# Used for implicit slot fill detection
 _NAME_LIST_RE = re.compile(
     r"^[A-Za-z][a-zA-Z]+(?:(?:[,\s]+(?:and\s+)?)[A-Za-z][a-zA-Z]+)*\.?$",
     re.IGNORECASE,
@@ -136,8 +130,7 @@ class SlotCompletionEngine:
         filled = filled_slots or {}
 
         # Infer kind from active_topic if not supplied by caller.
-        # This keeps EntityGroupRegistry internal to SlotCompletionEngine —
-        # the Agent never accesses _registry directly. GC-025 Sprint-002.
+        # Keeps EntityGroupRegistry internal — Agent never accesses _registry.
         kind = active_kind or (
             self._registry.infer_kind(active_topic) if active_topic else ""
         )
@@ -166,7 +159,11 @@ class SlotCompletionEngine:
     # ------------------------------------------------------------------
 
     def _declaration_to_detection(self, declaration: GroupDeclaration) -> MemoryDetection:
-        """Convert a GroupDeclaration to a backward-compatible MemoryDetection."""
+        """Convert a GroupDeclaration to a backward-compatible MemoryDetection.
+
+        Sets is_group_declaration=True so the Agent can set active_topic
+        without enumerating entity type names. Genesis-025 Sprint-003.
+        """
         key = _COMPAT_DECLARATION_KEYS.get(declaration.kind, f"group:{declaration.kind}")
         logger.info(
             "[SLOT] Group declaration: kind=%r count=%r raw=%r → key=%r",
@@ -176,6 +173,7 @@ class SlotCompletionEngine:
             key=key,
             value=declaration.raw_value,
             confidence=declaration.confidence,
+            is_group_declaration=True,
         )
 
     def _slot_fill_to_detection(self, slot_fill: SlotFill) -> MemoryDetection:
@@ -213,8 +211,6 @@ class SlotCompletionEngine:
             return None
         if len(stripped) <= 3:
             return None
-
-        # Infer kind from active_topic if not already known
 
         # Infer kind from active_topic if not already known
         kind = active_kind or self._registry.infer_kind(active_topic)

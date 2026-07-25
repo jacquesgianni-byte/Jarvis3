@@ -310,6 +310,15 @@ class Agent:
             "Memory detected — key: %r, value: %r, confidence: %.2f",
             detection.key, detection.value, detection.confidence
         )
+        # Genesis-025 Sprint-003: set active_topic for group declarations
+        # so subsequent turns can fill slots via SlotCompletionEngine.
+        # Uses is_group_declaration signal — no entity type enumeration needed.
+        if detection.is_group_declaration:
+            self.session.set_topic(detection.value, raw=detection.value)
+            self.logger.debug(
+                "[SLOT] active_topic set to %r after group declaration",
+                detection.value,
+            )
         with telemetry.stage("skill_manager", skill="memory_store"):
             return self.skills.get("memory").remember(detection.key, detection.value)
 
