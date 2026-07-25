@@ -385,6 +385,18 @@ class Agent:
             return self._execute_skill("identity", request)
 
         if intent == Intent.MEMORY:
+            # Genesis-026: contextual recall for anaphoric memory queries
+            # ("What are my dogs called?" routes here via Intent.MEMORY).
+            # TODO (Genesis-026): Centralize contextual recall routing so
+            # both UNKNOWN and MEMORY intents use a single helper.
+            recall_request = self.contextual_recall.resolve(request, self.session)
+            if recall_request:
+                ctx_result = self.conversation_recall.lookup(
+                    recall_request.subject, recall_request.attribute
+                )
+                if ctx_result and ctx_result.found:
+                    return Response(success=True, message=ctx_result.answer)
+
             if self.summary_query.can_answer(request):
                 result = self.summary_query.answer(request)
                 if result.answered:

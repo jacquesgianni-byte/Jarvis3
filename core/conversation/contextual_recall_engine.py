@@ -7,6 +7,7 @@ before delegating to ConversationRecall for factual lookup.
 Responsibilities:
     - Resolve pronoun references (their, them, those, it, they)
     - Resolve active group context (active_topic → kind → attribute)
+    - Normalize natural paraphrases to canonical slot names
     - Rewrite contextual recall requests into explicit recall operations
     - Delegate all factual lookup to ConversationRecall
 
@@ -27,12 +28,17 @@ Architecture position:
         └── ContextualRecallEngine   ← this module
                 └── ConversationRecall
                         └── KnowledgeEngine
+
+Genesis-026 Sprint-001:
+    Expanded semantic coverage — multiple natural phrasings normalize
+    to the same RecallRequest without adding entity-specific logic.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -48,8 +54,6 @@ logger = logging.getLogger(__name__)
 # Structured recall request
 # ---------------------------------------------------------------------------
 
-from dataclasses import dataclass
-
 @dataclass(frozen=True)
 class RecallRequest:
     """
@@ -64,35 +68,164 @@ class RecallRequest:
     subject:   str    # e.g. "user"
     attribute: str    # e.g. "pet names", "group:server:roles"
 
+
 # ---------------------------------------------------------------------------
-# Contextual query patterns
+# Slot resolution patterns
 #
-# These patterns identify queries that require conversational context
-# to resolve — they cannot be answered by ConversationRecall alone.
+# Genesis-026 Sprint-001: Each pattern group maps natural paraphrases
+# to a canonical slot name. All patterns are entity-agnostic — they
+# work for any EntityGroup kind without special-casing.
+#
+# Design principle: semantic equivalence over exact wording.
+# "Who are they?" and "What are their names?" both resolve to slot="names".
 # ---------------------------------------------------------------------------
 
-# Anaphoric name queries — "What are their names?" / "What are my dogs' names?"
-_ANAPHORIC_NAMES = re.compile(
-    r"\bwhat\s+(?:are\s+)?(?:their|(?:my\s+)?(?:\w+(?:'s?)?)\s+)?names?\b",
+# NAMES slot — "What are their names?", "Who are they?", "What are they called?"
+_NAMES_PATTERNS = [
+    # Canonical: "What are their names?" / "What are my dogs' names?"
+    re.compile(
+        r"\bwhat\s+(?:are\s+)?(?:their|my\s+\w+(?:'s?)?)\s+names?\b",
+        re.IGNORECASE,
+    ),
+    # Identity: "Who are they?" / "Who are those?" / "Who are them?"
+    re.compile(
+        r"\bwho\s+(?:are|were|is)\s+(?:they|those|them)\b",
+        re.IGNORECASE,
+    ),
+    # Called/named: "What are they called?" / "What did I call them?"
+    # "What are my dogs called?" / "What did I name them?"
+    re.compile(
+        r"\bwhat\s+(?:are|were)\s+(?:they|those|my\s+\w+(?:'s?)?)\s+(?:called|named)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+did\s+(?:i|you)\s+(?:call|name)\s+(?:them|those)\b",
+        re.IGNORECASE,
+    ),
+    # Remind: "Remind me of their names" / "Remind me what they're called"
+    re.compile(
+        r"\bremind\s+me\s+(?:of\s+)?(?:their\s+names?|what\s+they(?:'re|\s+are)\s+called)\b",
+        re.IGNORECASE,
+    ),
+    # Tell: "Tell me their names" / "Tell me their names again"
+    re.compile(
+        r"\btell\s+me\s+(?:their\s+names?|what\s+they(?:'re|\s+are)\s+called)\b",
+        re.IGNORECASE,
+    ),
+    # Can you: "Can you tell me their names?" / "Can you remind me what they're called?"
+    re.compile(
+        r"\bcan\s+you\s+(?:tell|remind)\s+me\s+(?:their\s+names?|what\s+they(?:'re|\s+are)\s+called)\b",
+        re.IGNORECASE,
+    ),
+    # Which names: "Which names did I give them?" / "What names did I give them?"
+    re.compile(
+        r"\b(?:which|what)\s+names?\s+did\s+(?:i|you)\s+give\s+(?:them|those)\b",
+        re.IGNORECASE,
+    ),
+    # Again: "Tell me their names again" / "What were their names again?"
+    re.compile(
+        r"\bwhat\s+(?:are|were)\s+their\s+names?\s+again\b",
+        re.IGNORECASE,
+    ),
+]
+
+# COLOURS slot — "What colour are they?", "What do they look like?"
+_COLOURS_PATTERNS = [
+    re.compile(
+        r"\bwhat\s+colou?rs?\s+(?:are|were|is)\s+(?:they|those|them)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+colou?r\s+(?:are|is)\s+(?:they|those|it)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+(?:are\s+)?(?:their|my\s+\w+(?:'s?)?)\s+colou?rs?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+(?:do|did)\s+they\s+look\s+like\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bdescribe\s+(?:them|those|it)\b",
+        re.IGNORECASE,
+    ),
+]
+
+# AGES slot — "How old are they?", "What are their ages?"
+_AGES_PATTERNS = [
+    re.compile(
+        r"\bhow\s+old\s+(?:are|were|is)\s+(?:they|those|them|it)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+(?:are\s+)?(?:their|my\s+\w+(?:'s?)?)\s+ages?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+(?:ages?|age)\s+(?:are|were|is)\s+(?:they|those|them)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\btell\s+me\s+(?:their\s+ages?|how\s+old\s+they\s+are)\b",
+        re.IGNORECASE,
+    ),
+]
+
+# BREEDS slot — "What breed are they?", "What are their breeds?"
+_BREEDS_PATTERNS = [
+    re.compile(
+        r"\bwhat\s+breeds?\s+(?:are|were|is)\s+(?:they|those|them|it)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+(?:are\s+)?(?:their|my\s+\w+(?:'s?)?)\s+breeds?\b",
+        re.IGNORECASE,
+    ),
+]
+
+# ROLES slot — "What are their roles?", "What do they do?"
+_ROLES_PATTERNS = [
+    re.compile(
+        r"\bwhat\s+(?:are\s+)?(?:their|my\s+\w+(?:'s?)?)\s+roles?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwhat\s+(?:do|did)\s+they\s+do\b",
+        re.IGNORECASE,
+    ),
+]
+
+# Master slot → pattern list mapping
+_SLOT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
+    ("names",   _NAMES_PATTERNS),
+    ("colours", _COLOURS_PATTERNS),
+    ("ages",    _AGES_PATTERNS),
+    ("breeds",  _BREEDS_PATTERNS),
+    ("roles",   _ROLES_PATTERNS),
+]
+
+# ---------------------------------------------------------------------------
+# Anaphoric query detection for can_answer()
+# ---------------------------------------------------------------------------
+
+_ANY_CONTEXTUAL = re.compile(
+    r"\b(?:"
+    r"what\s+(?:are|were|did|do|colou?r)\s+(?:they|those|them|their|my\s+\w)"
+    r"|who\s+(?:are|were|is)\s+(?:they|those|them)\b"
+    r"|how\s+old\s+(?:are|were|is)\s+(?:they|those|them|it)"
+    r"|remind\s+me"
+    r"|tell\s+me\s+their"
+    r"|can\s+you\s+(?:tell|remind)\s+me\s+their"
+    r"|describe\s+(?:them|those|it)"
+    r"|which\s+names?\s+did\s+(?:i|you)\s+give"
+    r"|what\s+did\s+(?:i|you)\s+(?:call|name)\s+(?:them|those)"
+    r")",
     re.IGNORECASE,
 )
-
-# Anaphoric attribute queries — "What are their colours?" / "How old are they?"
-_ANAPHORIC_ATTR = re.compile(
-    r"\bwhat\s+(?:are\s+)?(?:their|my\s+\w+(?:'s?)?)\s+"
-    r"(?P<attr>colours?|colors?|breeds?|ages?|roles?|makes?|types?)\b",
-    re.IGNORECASE,
-)
-
-# Slot attribute name normalisation
-_ATTR_CANONICAL: dict[str, str] = {
-    "colour": "colours", "color": "colours", "colors": "colours",
-    "breed": "breeds", "age": "ages", "role": "roles",
-    "make": "makes", "type": "types",
-}
 
 # KnowledgeEngine attribute name for each (kind, slot) pair
-# Mirrors _COMPAT_SLOT_KEYS in SlotCompletionEngine
 _KIND_SLOT_TO_ATTR: dict[tuple[str, str], str] = {
     ("animal",  "names"):   "pet names",
     ("animal",  "colours"): "pet colours",
@@ -112,13 +245,14 @@ class ContextualRecallEngine:
     """
     Resolves conversational context before delegating to ConversationRecall.
 
-    The Agent calls can_answer() and answer() here first. If this engine
-    can resolve the query using SessionContext, it does so and returns.
-    Otherwise it returns None and the Agent falls through to ConversationRecall.
+    Genesis-026 Sprint-001: Expanded semantic coverage — multiple natural
+    phrasings now resolve to the same RecallRequest without entity-specific
+    logic. All patterns are generic and slot-agnostic where possible.
 
     Public API:
         can_answer(query, session) -> bool
-        answer(query, session, recall) -> Optional[RecallResult]
+        resolve(query, session) -> Optional[RecallRequest]
+        answer(query, session, recall) -> Optional[RecallResult]  # for tests
     """
 
     def __init__(self) -> None:
@@ -127,21 +261,12 @@ class ContextualRecallEngine:
     def can_answer(self, query: str, session: "SessionContext") -> bool:
         """
         Return True if this engine can handle the query using session context.
-
-        Only returns True when:
-        1. The query is anaphoric (uses "their", "my X's"), AND
-        2. There is an active group topic in SessionContext
         """
         if not query or not session:
             return False
-
         if not session.active_topic:
             return False
-
-        return bool(
-            _ANAPHORIC_NAMES.search(query) or
-            _ANAPHORIC_ATTR.search(query)
-        )
+        return bool(_ANY_CONTEXTUAL.search(query))
 
     def resolve(
         self,
@@ -150,17 +275,6 @@ class ContextualRecallEngine:
     ) -> "Optional[RecallRequest]":
         """
         Resolve conversational context into a structured RecallRequest.
-
-        The Agent passes the returned RecallRequest to
-        ConversationRecall.lookup() — keeping the two components
-        fully decoupled. Genesis-025 Sprint-004.
-
-        Args:
-            query:   The user's natural language question.
-            session: Current SessionContext (read-only).
-
-        Returns:
-            RecallRequest if resolved, None if context insufficient.
         """
         if not session.active_topic:
             return None
@@ -194,13 +308,10 @@ class ContextualRecallEngine:
         recall: "ConversationRecall",
     ) -> "Optional[RecallResult]":
         """
-        Resolve conversational context and delegate to ConversationRecall.
+        Convenience method for tests.
 
-        Convenience method for tests. In production, Agent should prefer
-        resolve() + recall.lookup() for cleaner separation.
-
-        # TODO (Genesis-026): Remove this method once Agent uses resolve()
-        # directly. This exists only for test compatibility during Sprint-004.
+        # TODO (Genesis-026): Agent should use resolve() + recall.lookup()
+        # directly for cleaner separation.
         """
         req = self.resolve(query, session)
         if req is None:
@@ -215,16 +326,18 @@ class ContextualRecallEngine:
         """
         Determine which slot the query is asking about.
 
+        Genesis-026 Sprint-001: Expanded from 2 patterns to full semantic
+        coverage across names, colours, ages, breeds, roles.
+        All patterns are entity-agnostic.
+
         Returns the slot name (e.g. "names", "colours") or None.
         """
-        # "What are their names?" / "What are my dogs' names?"
-        if _ANAPHORIC_NAMES.search(query):
-            return "names"
-
-        # "What are their colours?" / "What are their ages?"
-        m = _ANAPHORIC_ATTR.search(query)
-        if m:
-            raw_attr = m.group("attr").lower().rstrip("s") + "s"
-            return _ATTR_CANONICAL.get(raw_attr, raw_attr)
-
+        for slot, patterns in _SLOT_PATTERNS:
+            for pattern in patterns:
+                if pattern.search(query):
+                    logger.debug(
+                        "[CTXRECALL] Slot=%r matched by pattern %r",
+                        slot, pattern.pattern[:40],
+                    )
+                    return slot
         return None

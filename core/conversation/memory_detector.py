@@ -51,8 +51,12 @@ _PET_CONTEXT_RE = re.compile(
 )
 
 # Matches a bare name or comma-separated name list ("Tom, Tim and Tam")
+# Positive name-list grammar: tokens separated ONLY by commas or "and".
+# Bare spaces between tokens are not allowed — that would match sentences.
+# Genesis-026 Sprint-001: positive grammar replaces permissive regex.
+# TODO (Genesis-026): Consider a tokenizer for hyphenated/apostrophe names.
 _NAME_LIST_RE = re.compile(
-    r"^[A-Z][a-z]+(?:(?:[,\s]+(?:and\s+)?)[A-Z][a-z]+)*\.?$",
+    r"^[A-Za-z]+(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+)[A-Za-z]+)*\.?$",
     re.IGNORECASE,
 )
 

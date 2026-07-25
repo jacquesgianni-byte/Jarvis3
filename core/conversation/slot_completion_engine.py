@@ -72,9 +72,15 @@ _COMPAT_SLOT_KEYS: dict[tuple[str, str], str] = {
     ("vehicle", "names"): "vehicle names",
 }
 
-# Matches a bare name or comma-separated name list (case-insensitive)
+# Positive name-list grammar: tokens separated ONLY by commas or "and".
+# Bare spaces between tokens are not allowed — that would match sentences.
+# This means "rex, tom and max" matches but "tell me their names again" does not.
+# Genesis-026 Sprint-001: switched from permissive regex + blacklist to
+# positive grammar that defines what a name list IS rather than what it isn't.
+# TODO (Genesis-026): Consider a proper tokenizer for edge cases like
+# hyphenated names (O'Brien, Smith-Jones) in a future sprint.
 _NAME_LIST_RE = re.compile(
-    r"^[A-Za-z][a-zA-Z]+(?:(?:[,\s]+(?:and\s+)?)[A-Za-z][a-zA-Z]+)*\.?$",
+    r"^[A-Za-z]+(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+)[A-Za-z]+)*\.?$",
     re.IGNORECASE,
 )
 
