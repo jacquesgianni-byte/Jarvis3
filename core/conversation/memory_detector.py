@@ -19,6 +19,15 @@ Examples of recognised statements:
     "My dogs are Rex and Tom."
     "I work at Academy of Healthcare."
     "And my favourite food is pizza."
+
+Genesis-026 fix (Unknown Entity Classification):
+    - The "pets" pattern is now restricted to known animal nouns only.
+      Unknown nouns ("planes", "servers", "guitars") no longer match
+      and are not silently classified as pets.
+    - The "Their names are ..." -> "pet names" pattern has been removed.
+      SlotCompletionEngine (Genesis-025) owns all slot fill detection for
+      recognised entity kinds. For unrecognised entities the message falls
+      through to AI, which is the correct behaviour.
 """
 
 import logging
@@ -58,6 +67,18 @@ _PET_CONTEXT_RE = re.compile(
 _NAME_LIST_RE = re.compile(
     r"^[A-Za-z]+(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+)[A-Za-z]+)*\.?$",
     re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Known animal nouns — mirrors EntityGroupRegistry._KIND_PATTERNS "animal"
+# entries. Must be kept in sync when new animals are added to the registry.
+# Genesis-026 fix: used to restrict the "pets" possession pattern so that
+# unknown nouns ("planes", "servers") are never classified as pets.
+# ---------------------------------------------------------------------------
+_ANIMAL_NOUNS = (
+    r"dogs?|puppies|puppy|cats?|kittens?|kitten|birds?|parrots?|budgies?"
+    r"|fish|goldfish|tropical fish|rabbits?|bunnies|bunny"
+    r"|hamsters?|guinea pigs?|horses?|ponies|pony|pets?"
 )
 
 # ---------------------------------------------------------------------------
@@ -143,27 +164,47 @@ _FIXED_KEY_PATTERNS: list[tuple[re.Pattern, str, int, float]] = [
         0.85
     ),
     # "I have 2 dogs" / "I have a cat" / "I've got three fish"
+    #
+    # Genesis-026 fix: restricted to known animal nouns only (_ANIMAL_NOUNS).
+    # Previously matched ANY noun ("I have 2 planes" → key="pets"), which
+    # corrupted the entity schema for unrecognised entity types.
+    # SlotCompletionEngine handles all possession declarations for recognised
+    # non-animal entity kinds (vehicles, instruments, servers, etc.).
     (
-        re.compile(r"^i(?:'ve| have| got|'ve got) (\d+|a|an|some|two|three|four|five) ([a-z]+s?)", re.IGNORECASE),
+        re.compile(
+            r"^i(?:'ve| have| got|'ve got) (\d+|a|an|some|two|three|four|five)"
+            r" (" + _ANIMAL_NOUNS + r")",
+            re.IGNORECASE,
+        ),
         "pets",
         0,   # special: value built from groups 1+2 in detect()
         0.88
     ),
-    # "Their names are Rex and Tom" / "His name is Rex"
-    (
-        re.compile(r"^(?:their|his|her|its) names? (?:is|are) (.+)", re.IGNORECASE),
-        "pet names",
-        1,
-        0.88
-    ),
     # "My dogs are Rex and Tom" / "My cats are Bella and Max"
-    # GC-007: alternative phrasing for pet name assignment
+    # GC-007: alternative phrasing for pet name assignment.
+    # Retained here because it is animal-specific by construction
+    # (only matches known animal nouns in the pattern).
     (
         re.compile(r"^my (?:dogs?|cats?|pets?|birds?|fish|rabbits?|hamsters?) (?:is|are) (.+)", re.IGNORECASE),
         "pet names",
         1,
         0.88
     ),
+    # NOTE: "Their names are ..." / "His name is ..." patterns have been
+    # intentionally removed in Genesis-026.
+    #
+    # Reason: SlotCompletionEngine (Genesis-025) owns all slot fill detection
+    # for recognised entity kinds (animal, person, vehicle, instrument, etc.).
+    # It runs before MemoryDetector in agent.py Step 4 and will intercept
+    # "Their names are Rex and Tom." for any active recognised entity group.
+    #
+    # For unrecognised entities (e.g. planes), no active_kind exists, so
+    # SlotCompletionEngine returns None and the message correctly falls
+    # through to the AI fallback — which is the intended behaviour.
+    #
+    # Keeping the pattern here would cause "Their names are Jumbo and Jet."
+    # to be stored as key="pet names" even when the active topic is planes,
+    # which is exactly the ontology corruption this fix is designed to prevent.
 ]
 
 _DYNAMIC_KEY_PATTERNS: list[tuple[re.Pattern, int, int, float]] = [
