@@ -4,14 +4,17 @@ Genesis-026 Sprint-001 — Conversational Coverage Expansion Tests
 Verifies that multiple natural phrasings resolve to the same RecallRequest.
 All tests are entity-agnostic — they work for any EntityGroup kind.
 
+Genesis-026 Sprint-002 update:
+    "Who are they?" now resolves to IDENTITY (declaration attribute),
+    not NAMES. Tests updated to reflect the new design.
+
 Coverage:
-  - Names slot: canonical + 7 paraphrase variants
+  - Names slot: canonical + paraphrase variants
   - Colours slot: 5 variants
   - Ages slot: 4 variants
   - Breeds slot: 2 variants
   - Roles slot: 2 variants
-  - No entity-specific logic introduced
-  - Golden conversations unchanged
+  - Identity queries now return declaration attribute
 """
 
 import sys
@@ -42,7 +45,7 @@ def resolve(query: str, active_topic: str) -> str | None:
 
 
 # ===========================================================================
-# 1. NAMES slot — all phrasings resolve to "pet names" for animals
+# 1. NAMES slot — attribute phrasings resolve to "pet names" for animals
 # ===========================================================================
 
 class TestNamesSlot:
@@ -51,7 +54,8 @@ class TestNamesSlot:
         assert resolve("What are their names?", "2 dogs") == "pet names"
 
     def test_who_are_they(self):
-        assert resolve("Who are they?", "2 dogs") == "pet names"
+        # Sprint-002: "Who are they?" is now IDENTITY → returns declaration attr
+        assert resolve("Who are they?", "2 dogs") == "pets"
 
     def test_what_are_they_called(self):
         assert resolve("What are they called?", "2 dogs") == "pet names"
@@ -106,10 +110,12 @@ class TestNamesSlotGeneric:
         assert resolve("What are their names?", "5 servers") == "server names"
 
     def test_who_are_they_cats(self):
-        assert resolve("Who are they?", "3 cats") == "pet names"
+        # Sprint-002: IDENTITY → declaration attribute
+        assert resolve("Who are they?", "3 cats") == "pets"
 
     def test_who_are_they_employees(self):
-        assert resolve("Who are they?", "3 employees") == "people names"
+        # Sprint-002: IDENTITY → declaration attribute
+        assert resolve("Who are they?", "3 employees") == "people"
 
 
 # ===========================================================================
@@ -220,19 +226,75 @@ class TestCanAnswer:
 
 
 # ===========================================================================
-# 8. Golden conversation parity (must not regress)
+# 8. Anaphoric attribute pattern coverage
+# ===========================================================================
+
+class TestAnaphoricAttributePatterns:
+
+    def setup_method(self):
+        self.engine = ContextualRecallEngine()
+
+    def test_their_colours(self):
+        s = make_session("2 dogs")
+        assert self.engine.can_answer("What are their colours?", s)
+
+    def test_their_colors_us_spelling(self):
+        s = make_session("2 dogs")
+        assert self.engine.can_answer("What are their colors?", s)
+
+    def test_their_ages(self):
+        s = make_session("3 cats")
+        assert self.engine.can_answer("What are their ages?", s)
+
+    def test_my_dogs_colours(self):
+        s = make_session("2 dogs")
+        assert self.engine.can_answer("What are my dogs' colours?", s)
+
+    def test_my_dogs_colors_no_apostrophe(self):
+        s = make_session("2 dogs")
+        assert self.engine.can_answer("What are my dogs colors?", s)
+
+    def test_my_servers_roles(self):
+        s = make_session("5 servers")
+        assert self.engine.can_answer("What are my servers' roles?", s)
+
+    def test_colours_resolves_to_correct_attr(self):
+        s = make_session("2 dogs")
+        recall = MagicMock()
+        recall.lookup.return_value = MagicMock(found=True, answer="brown")
+        result = self.engine.answer("What are their colours?", s, recall)
+        assert result is not None
+        recall.lookup.assert_called_with("user", "pet colours")
+
+    def test_ages_resolves_to_correct_attr(self):
+        s = make_session("3 cats")
+        recall = MagicMock()
+        recall.lookup.return_value = MagicMock(found=True, answer="3 and 4")
+        result = self.engine.answer("What are their ages?", s, recall)
+        assert result is not None
+        recall.lookup.assert_called_with("user", "pet ages")
+
+    def test_server_roles_resolves_generically(self):
+        s = make_session("5 servers")
+        recall = MagicMock()
+        recall.lookup.return_value = MagicMock(found=True, answer="web and db")
+        result = self.engine.answer("What are my servers' roles?", s, recall)
+        assert result is not None
+        recall.lookup.assert_called_with("user", "group:server:roles")
+
+
+# ===========================================================================
+# 9. Golden conversation parity
 # ===========================================================================
 
 class TestGoldenConversationParity:
 
     def test_gt1_who_are_rex_and_tom_not_intercepted(self):
-        """GT1: 'Who are Rex and Tom?' should NOT go through ContextualRecallEngine."""
         engine = ContextualRecallEngine()
         s = make_session("2 dogs")
         assert not engine.can_answer("Who are Rex and Tom?", s)
 
     def test_gt2_what_are_their_names_intercepted(self):
-        """GT2: 'What are their names?' SHOULD go through ContextualRecallEngine."""
         engine = ContextualRecallEngine()
         s = make_session("3 cats")
         assert engine.can_answer("What are their names?", s)

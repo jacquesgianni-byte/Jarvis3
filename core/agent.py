@@ -385,15 +385,20 @@ class Agent:
             return self._execute_skill("identity", request)
 
         if intent == Intent.MEMORY:
-            # Genesis-026: contextual recall for anaphoric memory queries
-            # ("What are my dogs called?" routes here via Intent.MEMORY).
-            # TODO (Genesis-026): Centralize contextual recall routing so
-            # both UNKNOWN and MEMORY intents use a single helper.
+            # Genesis-026: contextual recall for anaphoric memory queries.
+            # Sprint-002: ResolutionType determines answer format.
+            # TODO (Genesis-026): Centralize contextual recall routing.
             recall_request = self.contextual_recall.resolve(request, self.session)
             if recall_request:
-                ctx_result = self.conversation_recall.lookup(
-                    recall_request.subject, recall_request.attribute
-                )
+                from core.conversation.contextual_recall_engine import ResolutionType
+                if recall_request.resolution_type == ResolutionType.IDENTITY:
+                    ctx_result = self.contextual_recall.answer(
+                        request, self.session, self.conversation_recall
+                    )
+                else:
+                    ctx_result = self.conversation_recall.lookup(
+                        recall_request.subject, recall_request.attribute
+                    )
                 if ctx_result and ctx_result.found:
                     return Response(success=True, message=ctx_result.answer)
 
@@ -543,19 +548,22 @@ class Agent:
                         message=f"From context: {', '.join(parts)}, sir."
                     )
 
-        # 5. Conversation recall and timeline
+        # 5. Conversation recall and timeline.
         # Genesis-025 Sprint-004: ContextualRecallEngine resolves anaphoric
-        # queries ("What are their names?") using SessionContext before
-        # delegating to ConversationRecall for factual lookup.
-        # Agent uses resolve() + lookup() to keep components fully decoupled.
-        # TODO (Genesis-026): Consider moving this orchestration into a
-        # dedicated recall coordinator so Agent doesn't need to know the
-        # two-step pattern.
+        # queries using SessionContext before delegating to ConversationRecall.
+        # Genesis-026 Sprint-002: ResolutionType.IDENTITY uses two-step lookup.
+        # TODO (Genesis-026): Centralize contextual recall routing.
         recall_request = self.contextual_recall.resolve(request, self.session)
         if recall_request:
-            ctx_result = self.conversation_recall.lookup(
-                recall_request.subject, recall_request.attribute
-            )
+            from core.conversation.contextual_recall_engine import ResolutionType
+            if recall_request.resolution_type == ResolutionType.IDENTITY:
+                ctx_result = self.contextual_recall.answer(
+                    request, self.session, self.conversation_recall
+                )
+            else:
+                ctx_result = self.conversation_recall.lookup(
+                    recall_request.subject, recall_request.attribute
+                )
             if ctx_result and ctx_result.found:
                 return Response(success=True, message=ctx_result.answer)
 
