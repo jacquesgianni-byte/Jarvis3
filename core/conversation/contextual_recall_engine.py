@@ -11,6 +11,7 @@ Responsibilities:
     - Distinguish attribute questions from identity questions
     - Rewrite contextual recall requests into explicit recall operations
     - Delegate all factual lookup to ConversationRecall
+    - Perform reverse member lookup ("Who is Rex?" → "Rex is one of your dogs.")
 
 Does NOT:
     - Store data
@@ -38,6 +39,13 @@ Genesis-026 Sprint-002:
     Identity vs Attribute distinction — "Who are they?" returns entity
     classification, "What are their names?" returns a property value.
     ResolutionType enum used for type safety and future extensibility.
+
+Genesis-026 Sprint-003:
+    Reverse entity lookup — "Who is Rex?" → "Rex is one of your dogs."
+    ReverseLookupRequest dataclass added. reverse_lookup() method added.
+    Parser (ReverseEntityParser) is responsible for query parsing;
+    this module is responsible only for reasoning and lookup.
+    Works for any member identifier: Rex, staging, db01, GPU-7, printer3.
 """
 
 from __future__ import annotations
@@ -92,6 +100,33 @@ class RecallRequest:
     attribute:       str             # e.g. "pet names", "group:server:roles"
     resolution_type: ResolutionType = ResolutionType.ATTRIBUTE
     kind:            str = ""        # e.g. "animal" — used for identity answers
+
+
+# ---------------------------------------------------------------------------
+# Reverse lookup request (Genesis-026 Sprint-003)
+#
+# Produced by ReverseEntityParser from raw queries like "Who is Rex?".
+# Passed to ContextualRecallEngine.reverse_lookup() for reasoning.
+# Keeps parsing entirely separate from lookup reasoning — the parser
+# evolves independently as new phrasings are added.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ReverseLookupRequest:
+    """
+    Structured request for reverse member lookup.
+
+    Created by ReverseEntityParser, consumed by
+    ContextualRecallEngine.reverse_lookup().
+
+    members: List of extracted member identifiers (e.g. ["Rex"],
+             ["Rex", "Tom"], ["staging"], ["db01", "prod"]).
+             Identifiers are preserved as extracted — no name
+             classification is applied.
+
+    Genesis-026 Sprint-003.
+    """
+    members: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +279,24 @@ _KIND_TO_DECLARATION_ATTR: dict[str, str] = {
     "project":    "projects",
 }
 
+# ---------------------------------------------------------------------------
+# Reverse lookup support (Genesis-026 Sprint-003)
+#
+# _NAMES_ATTR_TO_KIND: inverted from _KIND_SLOT_TO_ATTR for names slot only.
+# Maps KnowledgeEngine "names" attribute key → entity kind.
+# e.g. "pet names" → "animal", "server names" → "server"
+#
+# Computed at module load — no runtime cost, no duplicate state.
+# Automatically includes any new (kind, "names") entries added to
+# _KIND_SLOT_TO_ATTR in the future.
+# ---------------------------------------------------------------------------
+
+_NAMES_ATTR_TO_KIND: dict[str, str] = {
+    attr: kind
+    for (kind, slot), attr in _KIND_SLOT_TO_ATTR.items()
+    if slot == "names"
+}
+
 
 class ContextualRecallEngine:
     """
@@ -254,10 +307,16 @@ class ContextualRecallEngine:
     ResolutionType enum. The Agent formats the answer differently based
     on the resolution type.
 
+    Genesis-026 Sprint-003: Adds reverse_lookup() for member-to-group
+    resolution ("Who is Rex?" → "Rex is one of your dogs."). The parser
+    (ReverseEntityParser) is responsible for extracting member names from
+    raw queries; this engine is responsible only for reasoning and lookup.
+
     Public API:
         can_answer(query, session) -> bool
         resolve(query, session) -> Optional[RecallRequest]
-        answer(query, session, recall) -> Optional[RecallResult]  # for tests
+        answer(query, session, recall) -> Optional[RecallResult]
+        reverse_lookup(request, recall) -> Optional[RecallResult]  # Sprint-003
     """
 
     def __init__(self) -> None:
@@ -350,9 +409,149 @@ class ContextualRecallEngine:
 
         return recall.lookup(req.subject, req.attribute)
 
+    def reverse_lookup(
+        self,
+        request: ReverseLookupRequest,
+        recall: "ConversationRecall",
+    ) -> "Optional[RecallResult]":
+        """
+        Perform reverse member lookup: given member identifiers, find which
+        EntityGroup they belong to and compose a natural identity answer.
+
+        Called by the Agent after ReverseEntityParser has parsed the raw
+        query into a ReverseLookupRequest. This method contains only
+        reasoning and lookup — no query parsing.
+
+        Algorithm:
+            For each known names attribute (pet names, server names, etc.):
+                1. Look up the stored value (e.g. "Rex and Tom")
+                2. Check whether any queried member appears in that value
+                3. If found, look up the group declaration (e.g. "2 dogs")
+                4. Compose and return the answer
+
+        Handles single and multiple members generically.
+        Works for any identifier: Rex, staging, db01, GPU-7, printer3.
+
+        Args:
+            request: ReverseLookupRequest with extracted member list.
+            recall:  ConversationRecall instance for KnowledgeEngine access.
+
+        Returns:
+            RecallResult with a natural answer, or None if not found.
+
+        Genesis-026 Sprint-003.
+        """
+        from core.conversation.conversation_recall import RecallResult
+
+        if not request.members:
+            return None
+
+        members_lower = [m.lower() for m in request.members]
+
+        # Search all known names attributes for a match.
+        # _NAMES_ATTR_TO_KIND is derived from _KIND_SLOT_TO_ATTR at module
+        # load — no hardcoding, automatically covers all registered kinds.
+        for names_attr, kind in _NAMES_ATTR_TO_KIND.items():
+            names_result = recall.lookup("user", names_attr)
+            if not names_result or not names_result.found or not names_result.value:
+                continue
+
+            stored_names_lower = names_result.value.lower()
+
+            # Check whether any queried member appears in the stored value.
+            # Word-boundary check: "Rex" should not match "Rexton".
+            matched = [
+                m for m in request.members
+                if re.search(
+                    r"(?<![a-z0-9_-])" + re.escape(m.lower()) + r"(?![a-z0-9_-])",
+                    stored_names_lower,
+                )
+            ]
+
+            if not matched:
+                continue
+
+            # Found — look up the group declaration for count/noun context.
+            decl_attr = _KIND_TO_DECLARATION_ATTR.get(kind, f"group:{kind}")
+            decl_result = recall.lookup("user", decl_attr)
+            declaration = decl_result.value if decl_result and decl_result.found else None
+
+            answer = self._compose_reverse_answer(matched, kind, declaration)
+
+            logger.info(
+                "[CTXRECALL] Reverse lookup: members=%r kind=%r decl=%r → %r",
+                matched, kind, declaration, answer,
+            )
+
+            return RecallResult(
+                found=True,
+                answer=answer,
+                attribute=names_attr,
+                value=names_result.value,
+            )
+
+        logger.debug(
+            "[CTXRECALL] Reverse lookup: no match found for members=%r",
+            request.members,
+        )
+        return None
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _compose_reverse_answer(
+        self,
+        matched: list[str],
+        kind: str,
+        declaration: Optional[str],
+    ) -> str:
+        """
+        Compose a natural identity answer for a reverse lookup result.
+
+        Single member:   "Rex is one of your dogs."
+        Multiple members: "Rex and Tom are your dogs."
+
+        The noun comes from the group declaration (e.g. "2 dogs") when
+        available, or falls back to the entity kind (e.g. "animals").
+
+        Args:
+            matched:     List of matched member identifiers.
+            kind:        Entity kind string (e.g. "animal", "server").
+            declaration: Group declaration value (e.g. "2 dogs"), or None.
+
+        Returns:
+            A natural language answer string.
+        """
+        # Extract the noun from the declaration (e.g. "dogs" from "2 dogs")
+        # or fall back to kind-based noun.
+        if declaration:
+            # Take the last word of the declaration as the noun
+            # "2 dogs" → "dogs", "5 servers" → "servers", "some children" → "children"
+            noun = declaration.split()[-1]
+        else:
+            # Fallback: use the kind with a generic plural
+            _KIND_NOUNS: dict[str, str] = {
+                "animal":     "pets",
+                "person":     "people",
+                "vehicle":    "vehicles",
+                "instrument": "instruments",
+                "server":     "servers",
+                "project":    "projects",
+            }
+            noun = _KIND_NOUNS.get(kind, f"{kind}s")
+
+        if len(matched) == 1:
+            name = matched[0].capitalize()
+            return f"{name} is one of your {noun}."
+        else:
+            # Join multiple names naturally: "Rex and Tom" or "Rex, Tom and Max"
+            if len(matched) == 2:
+                names_str = f"{matched[0].capitalize()} and {matched[1].capitalize()}"
+            else:
+                caps = [m.capitalize() for m in matched]
+                names_str = ", ".join(caps[:-1]) + f" and {caps[-1]}"
+            return f"{names_str} are your {noun}."
 
     def _answer_identity(
         self,
