@@ -17,14 +17,14 @@ Design constraints:
     - No AI calls
     - No KnowledgeEngine dependency (pure data model)
     - No SessionContext dependency
-    - Deterministic — same input → same output
+    - Deterministic â€” same input â†’ same output
     - Extensible via registry data, not code changes
 
 Architecture position:
     SlotCompletionEngine (Sprint-002)
-        └── EntityGroupRegistry   ← this module
-                └── EntityGroup   (data model)
-                └── EntityGroupRecord (storage model)
+        â””â”€â”€ EntityGroupRegistry   â† this module
+                â””â”€â”€ EntityGroup   (data model)
+                â””â”€â”€ EntityGroupRecord (storage model)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from typing import Optional
 #
 # Maps natural language group declarations to a canonical kind string.
 # Each entry: (compiled regex, kind)
-# Order matters — more specific patterns first.
+# Order matters â€” more specific patterns first.
 # ---------------------------------------------------------------------------
 
 _KIND_PATTERNS: list[tuple[re.Pattern, str]] = [
@@ -85,8 +85,9 @@ _QUANTITY_PATTERN = re.compile(
 )
 
 # Words that signal possession ("I have", "I own", "I've got", etc.)
+# CV-007: added optional "also" to match "I also have X" / "I also own X"
 _POSSESSION_SIGNAL = re.compile(
-    r"\bi\s+(?:have|own|possess|keep)\b|\bi(?:'ve| have)\s+got\b",
+    r"\bi\s+(?:also\s+)?(?:have|own|possess|keep)\b|\bi(?:'ve| have)\s+(?:also\s+)?got\b",
     re.IGNORECASE,
 )
 
@@ -101,8 +102,8 @@ _WORD_TO_INT: dict[str, int] = {
 # ---------------------------------------------------------------------------
 # Slot schemas
 #
-# Maps entity kind → ordered list of expected slot names.
-# Slots are filled in order — the first unfilled slot is the default
+# Maps entity kind â†’ ordered list of expected slot names.
+# Slots are filled in order â€” the first unfilled slot is the default
 # target for bare continuations.
 #
 # Extending to a new entity type: add one entry here. No code changes.
@@ -138,8 +139,8 @@ class EntityGroup:
     Created when a user says "I have N things." Tracks which slots
     have been filled and whether the group is still open for completion.
 
-    This is a transient object — it is not persisted directly.
-    Persistence happens via EntityGroupRecord → KnowledgeEngine tags.
+    This is a transient object â€” it is not persisted directly.
+    Persistence happens via EntityGroupRecord â†’ KnowledgeEngine tags.
     """
     kind:       str                    # canonical kind ("animal", "person", etc.)
     raw_kind:   str                    # original word ("dogs", "cats", "guitars")
@@ -231,7 +232,7 @@ class EntityGroupRegistry:
     """
     Detects group declarations and slot fills in natural language.
 
-    Stateless — receives all context as arguments. No KnowledgeEngine
+    Stateless â€” receives all context as arguments. No KnowledgeEngine
     or SessionContext dependency. Pure classification logic.
 
     Public API:
@@ -377,7 +378,7 @@ class EntityGroupRegistry:
 # ---------------------------------------------------------------------------
 # Explicit slot fill patterns
 #
-# Maps slot name → regex that captures the value.
+# Maps slot name â†’ regex that captures the value.
 # Used by detect_slot_fill() for explicit forms.
 # Bare continuations (implicit fills) are handled by SlotCompletionEngine.
 # ---------------------------------------------------------------------------
