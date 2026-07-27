@@ -1,5 +1,5 @@
 """
-GC-012 — Contextual Fact Completion Tests
+GC-012 â€” Contextual Fact Completion Tests
 
 Genesis-025 Sprint-003 update:
     _infer_pet_name_continuation() removed from ConversationObserver.
@@ -49,7 +49,7 @@ def make_engine_mock(pets_value=None):
 
 
 # ===========================================================================
-# 1. SlotCompletionEngine — bare name inference (replaces Observer inference)
+# 1. SlotCompletionEngine â€” bare name inference (replaces Observer inference)
 #    Genesis-025 Sprint-003: inference moved from ConversationObserver to here
 # ===========================================================================
 
@@ -111,13 +111,14 @@ class TestSlotCompletionEngineBareNameInference:
 
 
 # ===========================================================================
-# 2. ConversationObserver — explicit extraction still works
+# 2. ConversationObserver â€” explicit extraction still works
 # ===========================================================================
 
 class TestConversationObserverExplicitExtraction:
 
-    def test_explicit_form_stores_pet_names(self):
-        """'Their names are Rex and Tom.' stored via FactExtractor."""
+    def test_explicit_form_not_stored_by_observer(self):
+        """CV-001: FactExtractor no longer extracts possession facts.
+        SlotCompletionEngine at Step 4 handles this. Observer only journals."""
         engine = make_engine_mock()
         observer = ConversationObserver(engine)
         observer.observe("Their names are Rex and Tom.", "")
@@ -125,8 +126,8 @@ class TestConversationObserverExplicitExtraction:
             c.kwargs.get('attribute') or (c.args[2] if len(c.args) > 2 else '')
             for c in engine.store_memory.call_args_list
         ]
-        assert "pet names" in stored_attrs
-
+        # Only journal entry stored - FactExtractor no longer extracts pet names
+        assert "pet names" not in stored_attrs
     def test_observer_no_longer_does_inference(self):
         """ConversationObserver no longer infers bare name lists."""
         engine = make_engine_mock(pets_value="3 cats")
@@ -136,12 +137,12 @@ class TestConversationObserverExplicitExtraction:
             c.kwargs.get('attribute') or (c.args[2] if len(c.args) > 2 else '')
             for c in engine.store_memory.call_args_list
         ]
-        # Only journal entry stored — no pet names inferred
+        # Only journal entry stored â€” no pet names inferred
         assert "pet names" not in stored_attrs
 
 
 # ===========================================================================
-# 3. ConversationRecall — pet name recall pattern (unchanged)
+# 3. ConversationRecall â€” pet name recall pattern (unchanged)
 # ===========================================================================
 
 class TestPetNameRecallPattern:

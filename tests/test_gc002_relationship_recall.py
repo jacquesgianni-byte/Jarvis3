@@ -1,5 +1,5 @@
 """
-GC-002 — Relationship Recall Tests
+GC-002 â€” Relationship Recall Tests
 
 Coverage:
   - FactExtractor: workplace extraction ("I work at X")
@@ -51,7 +51,7 @@ def make_mock_record(attribute, value, subject="user", tags=None):
 
 
 # ===========================================================================
-# 1. FACT EXTRACTOR — Workplace extraction
+# 1. FACT EXTRACTOR â€” Workplace extraction
 # ===========================================================================
 
 class TestFactExtractorWorkplace:
@@ -94,7 +94,16 @@ class TestFactExtractorWorkplace:
 
 
 # ===========================================================================
-# 2. FACT EXTRACTOR — PET fact type (GC-001 backwards compat)
+# 2. FACT EXTRACTOR - PET fact type
+#
+# CV-001 update (Genesis-026): _extract_possessions() now returns [].
+# Possession detection ("I have 2 dogs", "Their names are Rex and Tom")
+# is handled exclusively by SlotCompletionEngine at Step 4 - before AI,
+# before post-turn - which is the correct single interpretation path.
+#
+# These tests now verify the NEW correct behaviour: FactExtractor does NOT
+# extract possession facts, preventing ontology corruption for non-animal
+# entities (servers, cars, children, planes).
 # ===========================================================================
 
 class TestFactExtractorPets:
@@ -102,32 +111,44 @@ class TestFactExtractorPets:
     def setup_method(self):
         self.extractor = FactExtractor()
 
-    def test_i_have_dogs(self):
+    def test_i_have_dogs_not_extracted_by_fact_extractor(self):
+        """CV-001: FactExtractor must not extract possession facts."""
         facts = self.extractor.extract("I have 2 dogs.")
         pets = [f for f in facts if f.fact_type == FactType.PET]
-        assert len(pets) == 1
-        assert "dogs" in pets[0].value
+        assert len(pets) == 0
 
-    def test_their_names_are(self):
+    def test_their_names_are_not_extracted_by_fact_extractor(self):
+        """CV-001: FactExtractor must not extract name slot fills."""
         facts = self.extractor.extract("Their names are Rex and Tom.")
         pets = [f for f in facts if f.fact_type == FactType.PET]
-        assert len(pets) == 1
-        assert "Rex" in pets[0].value
-        assert "Tom" in pets[0].value
+        assert len(pets) == 0
 
-    def test_pet_names_attribute(self):
-        facts = self.extractor.extract("Their names are Rex and Tom.")
+    def test_i_have_servers_not_extracted(self):
+        """CV-001: Non-animal possession must not produce any fact."""
+        facts = self.extractor.extract("I have 5 servers.")
         pets = [f for f in facts if f.fact_type == FactType.PET]
-        assert pets[0].attribute == "pet names"
+        assert len(pets) == 0
 
-    def test_pets_attribute(self):
-        facts = self.extractor.extract("I have a cat.")
+    def test_i_have_cars_not_extracted(self):
+        """CV-001: Vehicle possession must not produce any fact."""
+        facts = self.extractor.extract("I have 2 cars.")
         pets = [f for f in facts if f.fact_type == FactType.PET]
-        assert pets[0].attribute == "pets"
+        assert len(pets) == 0
 
+    def test_i_have_children_not_extracted(self):
+        """CV-001: Person possession must not produce any fact."""
+        facts = self.extractor.extract("I have 3 children.")
+        pets = [f for f in facts if f.fact_type == FactType.PET]
+        assert len(pets) == 0
+
+    def test_i_have_planes_not_extracted(self):
+        """CV-001: Unknown entity possession must not produce any fact."""
+        facts = self.extractor.extract("I have 2 planes.")
+        pets = [f for f in facts if f.fact_type == FactType.PET]
+        assert len(pets) == 0
 
 # ===========================================================================
-# 3. FACT EXTRACTOR — FactType completeness
+# 3. FACT EXTRACTOR â€” FactType completeness
 # ===========================================================================
 
 class TestFactTypeCompleteness:
@@ -145,7 +166,7 @@ class TestFactTypeCompleteness:
 
 
 # ===========================================================================
-# 4. CONVERSATION RECALL — Workplace query
+# 4. CONVERSATION RECALL â€” Workplace query
 # ===========================================================================
 
 class TestConversationRecallWorkplace:
@@ -177,7 +198,7 @@ class TestConversationRecallWorkplace:
 
 
 # ===========================================================================
-# 5. CONVERSATION RECALL — Pet recall (GC-001 backwards compat)
+# 5. CONVERSATION RECALL â€” Pet recall (GC-001 backwards compat)
 # ===========================================================================
 
 class TestConversationRecallPets:
@@ -223,7 +244,7 @@ class TestConversationRecallPets:
 
 
 # ===========================================================================
-# 6. CONVERSATION RECALL — Family relationship recall
+# 6. CONVERSATION RECALL â€” Family relationship recall
 # ===========================================================================
 
 class TestConversationRecallFamily:
@@ -254,7 +275,7 @@ class TestConversationRecallFamily:
 
 
 # ===========================================================================
-# 7. CONVERSATION RECALL — Work relationship recall
+# 7. CONVERSATION RECALL â€” Work relationship recall
 # ===========================================================================
 
 class TestConversationRecallWorkRelationships:
@@ -285,7 +306,7 @@ class TestConversationRecallWorkRelationships:
 
 
 # ===========================================================================
-# 8. CONVERSATION RECALL — Favourite places
+# 8. CONVERSATION RECALL â€” Favourite places
 # ===========================================================================
 
 class TestConversationRecallFavouritePlaces:
@@ -306,7 +327,7 @@ class TestConversationRecallFavouritePlaces:
 
 
 # ===========================================================================
-# 9. CONVERSATION RECALL — can_answer coverage
+# 9. CONVERSATION RECALL â€” can_answer coverage
 # ===========================================================================
 
 class TestConversationRecallCanAnswer:
@@ -334,7 +355,7 @@ class TestConversationRecallCanAnswer:
 
 
 # ===========================================================================
-# 10. BACKWARDS COMPATIBILITY — sprint-001 recall unchanged
+# 10. BACKWARDS COMPATIBILITY â€” sprint-001 recall unchanged
 # ===========================================================================
 
 class TestBackwardsCompatibility:

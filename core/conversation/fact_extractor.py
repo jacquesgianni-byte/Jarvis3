@@ -1,5 +1,5 @@
 """
-Jarvis Conversation Memory — Fact Extractor (Genesis-020 Sprint-001)
+Jarvis Conversation Memory â€” Fact Extractor (Genesis-020 Sprint-001)
 
 Deterministic pattern-based extraction of facts from natural language.
 
@@ -49,7 +49,7 @@ class ExtractedFact:
     subject:    str          # who/what the fact is about ("user", "claude", "jarvis")
     attribute:  str          # the property ("current project", "role", "milestone")
     value:      str          # the value ("Jarvis OS", "senior engineer", "Genesis-019")
-    confidence: float = 0.8  # extraction confidence (0.0–1.0)
+    confidence: float = 0.8  # extraction confidence (0.0â€“1.0)
     raw:        str = ""     # original text that triggered extraction
     extracted_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
@@ -78,11 +78,11 @@ _MILESTONE_PATTERNS = [
 ]
 
 _PERSON_PATTERNS = [
-    # "Claude is my senior engineer" → person=Claude, role=senior engineer
+    # "Claude is my senior engineer" â†’ person=Claude, role=senior engineer
     re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+is\s+my\s+(.+)", re.IGNORECASE),
-    # "my senior engineer is Claude" — value extracted separately for proper-noun guard
+    # "my senior engineer is Claude" â€” value extracted separately for proper-noun guard
     re.compile(r"\bmy\s+(.+?)\s+is\s+(\S+(?:\s+\S+)?)", re.IGNORECASE),
-    # "GPT handles specs" → person=GPT, role=handles specs
+    # "GPT handles specs" â†’ person=GPT, role=handles specs
     re.compile(r"\b(GPT|ChatGPT|Claude|Anthropic|OpenAI)\s+(?:handles|manages|does|owns)\s+(.+)", re.IGNORECASE),
 ]
 
@@ -193,7 +193,7 @@ class FactExtractor:
     Deterministic fact extractor for natural language conversation.
 
     Applies ordered regex patterns to extract structured facts.
-    Returns a list of ExtractedFact objects — never modifies storage.
+    Returns a list of ExtractedFact objects â€” never modifies storage.
 
     Designed to be called on every user message in the conversation.
     Fast enough for synchronous use (no I/O, no LLM, pure regex).
@@ -378,36 +378,23 @@ class FactExtractor:
         return facts
 
     def _extract_possessions(self, text: str) -> list[ExtractedFact]:
-        facts = []
-        # "I have 2 dogs" → subject=user, attribute=pets, value="2 dogs"
-        m = _POSSESSION_PATTERNS[0].search(text)
-        if m:
-            count = m.group(1)
-            animal = _clean_value(m.group(2))
-            if not _is_noise(animal):
-                facts.append(ExtractedFact(
-                    fact_type=FactType.PET,
-                    subject="user",
-                    attribute="pets",
-                    value=f"{count} {animal}",
-                    confidence=0.85,
-                    raw=text,
-                ))
+        """
+        CV-001 Fix (Genesis-026): Possession extraction disabled.
 
-        # "Their names are Rex and Tom" → subject=user, attribute=pet names, value="Rex and Tom"
-        m = _POSSESSION_PATTERNS[1].search(text)
-        if m:
-            names = _clean_value(m.group(1))
-            if not _is_noise(names):
-                facts.append(ExtractedFact(
-                    fact_type=FactType.PET,
-                    subject="user",
-                    attribute="pet names",
-                    value=names,
-                    confidence=0.85,
-                    raw=text,
-                ))
-        return facts
+        Previously extracted "I have 2 dogs" -> attribute="pets" and
+        "Their names are..." -> attribute="pet names", but this caused
+        ontology corruption for non-animal entities (servers, cars, children)
+        because the patterns hardcoded "pets" regardless of noun.
+
+        SlotCompletionEngine (Genesis-025) handles all group declaration and
+        slot fill detection correctly at Step 4 before post-turn.
+        FactExtractor must not duplicate that work with legacy hardcoded keys.
+
+        Returning an empty list preserves the call site in extract() unchanged.
+        _POSSESSION_PATTERNS are retained for reference but no longer used.
+        """
+        return []
+
 
     def _extract_workplace(self, text: str) -> list[ExtractedFact]:
         facts = []
