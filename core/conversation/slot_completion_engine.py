@@ -16,21 +16,21 @@ Responsibilities:
     - Never call AI
 
 Design constraints:
-    - Stateless — all context supplied by the Agent as arguments
+    - Stateless â€” all context supplied by the Agent as arguments
     - No KnowledgeEngine dependency
     - No SessionContext dependency
-    - Deterministic — same input + same context → same output
-    - Backward compatible — existing MemoryDetection keys preserved
+    - Deterministic â€” same input + same context â†’ same output
+    - Backward compatible â€” existing MemoryDetection keys preserved
 
 Architecture position:
     Agent.process() Step 4
-        └── SlotCompletionEngine.detect()   ← this module
-                └── EntityGroupRegistry     (Sprint-001)
-                └── MemoryDetection         (existing model)
+        â””â”€â”€ SlotCompletionEngine.detect()   â† this module
+                â””â”€â”€ EntityGroupRegistry     (Sprint-001)
+                â””â”€â”€ MemoryDetection         (existing model)
 
 Backward compatibility mapping:
-    group declaration  → MemoryDetection(key="pets", value="2 dogs", is_group_declaration=True)
-    slot fill (names)  → MemoryDetection(key="pet names", value="Rex and Tom")
+    group declaration  â†’ MemoryDetection(key="pets", value="2 dogs", is_group_declaration=True)
+    slot fill (names)  â†’ MemoryDetection(key="pet names", value="Rex and Tom")
 
     These keys are intentionally preserved so existing MemorySkill
     acknowledgements and ConversationRecall patterns continue to work
@@ -67,13 +67,16 @@ _COMPAT_DECLARATION_KEYS: dict[str, str] = {
 }
 
 _COMPAT_SLOT_KEYS: dict[tuple[str, str], str] = {
-    ("animal",  "names"): "pet names",
-    ("person",  "names"): "people names",
-    ("vehicle", "names"): "vehicle names",
+    ("animal",     "names"): "pet names",
+    ("person",     "names"): "people names",
+    ("vehicle",    "names"): "vehicle names",
+    ("instrument", "names"): "instrument names",  # CV-001 fix
+    ("server",     "names"): "server names",       # CV-001 fix
+    ("project",    "names"): "project names",      # CV-001 fix
 }
 
 # Positive name-list grammar: tokens separated ONLY by commas or "and".
-# Bare spaces between tokens are not allowed — that would match sentences.
+# Bare spaces between tokens are not allowed â€” that would match sentences.
 # This means "rex, tom and max" matches but "tell me their names again" does not.
 # Genesis-026 Sprint-001: switched from permissive regex + blacklist to
 # positive grammar that defines what a name list IS rather than what it isn't.
@@ -122,7 +125,7 @@ class SlotCompletionEngine:
                           (e.g. "2 dogs", "3 cats"). Empty if not set.
             active_kind:  Optional kind hint. If empty, inferred from
                           active_topic internally. The Agent should never
-                          need to pass this — it is available for testing.
+                          need to pass this â€” it is available for testing.
             filled_slots: Slots already filled for the active group.
                           Empty dict if no group is active.
 
@@ -136,7 +139,7 @@ class SlotCompletionEngine:
         filled = filled_slots or {}
 
         # Infer kind from active_topic if not supplied by caller.
-        # Keeps EntityGroupRegistry internal — Agent never accesses _registry.
+        # Keeps EntityGroupRegistry internal â€” Agent never accesses _registry.
         kind = active_kind or (
             self._registry.infer_kind(active_topic) if active_topic else ""
         )
@@ -172,7 +175,7 @@ class SlotCompletionEngine:
         """
         key = _COMPAT_DECLARATION_KEYS.get(declaration.kind, f"group:{declaration.kind}")
         logger.info(
-            "[SLOT] Group declaration: kind=%r count=%r raw=%r → key=%r",
+            "[SLOT] Group declaration: kind=%r count=%r raw=%r â†’ key=%r",
             declaration.kind, declaration.count, declaration.raw_value, key,
         )
         return MemoryDetection(
@@ -189,7 +192,7 @@ class SlotCompletionEngine:
             f"group:{slot_fill.kind}:{slot_fill.slot}",
         )
         logger.info(
-            "[SLOT] Explicit slot fill: kind=%r slot=%r value=%r → key=%r",
+            "[SLOT] Explicit slot fill: kind=%r slot=%r value=%r â†’ key=%r",
             slot_fill.kind, slot_fill.slot, slot_fill.value, key,
         )
         return MemoryDetection(
@@ -233,7 +236,7 @@ class SlotCompletionEngine:
 
         key = _COMPAT_SLOT_KEYS.get((kind, next_slot), f"group:{kind}:{next_slot}")
         logger.info(
-            "[SLOT] Implicit slot fill: kind=%r slot=%r value=%r → key=%r",
+            "[SLOT] Implicit slot fill: kind=%r slot=%r value=%r â†’ key=%r",
             kind, next_slot, stripped, key,
         )
         return MemoryDetection(
