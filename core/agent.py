@@ -494,11 +494,7 @@ class Agent:
                 _re_cv003.IGNORECASE,
             )
             if _IDENTITY_RE.search(request):
-                # Fall through to AI routing below
-                self.logger.info(
-                    "[MEMORY] Recall miss -> falling through to AI for identity query: %r",
-                    request[:60],
-                )
+                pass  # Fall through to AI routing below
             else:
                 response = self._execute_skill("memory", request)
 
@@ -549,11 +545,6 @@ class Agent:
         # the servers declaration record and returns "Your servers is 5 servers"
         # before the identity engine can produce the proper named answer.
         _ctxrecall_can_answer = self.contextual_recall.can_answer(request, self.session)
-        self.logger.debug(
-            "[CV-002-002] can_answer=%r for %r (active_topic=%r)",
-            _ctxrecall_can_answer, request[:40],
-            self.session.active_topic.value if self.session.active_topic else None,
-        )
         if (resolution and resolution.resolved and resolution.context_hint
                 and not _ctxrecall_can_answer):
             resolved_hint = resolution.context_hint
