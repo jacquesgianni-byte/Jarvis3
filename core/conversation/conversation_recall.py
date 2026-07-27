@@ -1,5 +1,5 @@
 """
-Jarvis Conversation Memory â€” Conversation Recall (Genesis-020 Sprint-001)
+Jarvis Conversation Memory Ã¢â‚¬â€ Conversation Recall (Genesis-020 Sprint-001)
 
 Handles temporal and contextual recall queries.
 
@@ -13,7 +13,7 @@ Answers questions like:
     "Who is Sarah?" (manager)
     "Where do I work?"
 
-All recall is deterministic â€” no LLM required.
+All recall is deterministic Ã¢â‚¬â€ no LLM required.
 Searches the KnowledgeEngine using structured queries.
 
 Constitutional constraints:
@@ -54,6 +54,13 @@ _TEMPORAL_TODAY     = re.compile(r"\btoday\b",     re.IGNORECASE)
 _TEMPORAL_LAST_SESSION = re.compile(
     r"\blast\s+(?:session|time|chat|conversation)\b", re.IGNORECASE
 )
+# CV-005: Exclude current-info queries from journal recall.
+# "What's today's date?" contains "today" but asks for real-world data,
+# not conversation history. These should fall through to AI.
+_CURRENT_INFO_RE = re.compile(
+    r"\b(?:date|time|day|weather|temperature|news|score|price|stock|rate)\b",
+    re.IGNORECASE,
+)
 # Matches both "who is X" and "who are X and Y"
 _PERSON_QUERY = re.compile(
     r"\bwho\s+(?:is|are)\s+([A-Za-z][A-Za-z\s,]+?)(?:\?|$)", re.IGNORECASE
@@ -78,7 +85,7 @@ _WORKPLACE_QUERY = re.compile(
     r"what\s+(?:company|organisation|organization|workplace|place)\s+do\s+i\s+work\s+(?:at|for))\b",
     re.IGNORECASE,
 )
-# Pet name queries â€” "What are their names?" / "What are my dogs' names?"
+# Pet name queries Ã¢â‚¬â€ "What are their names?" / "What are my dogs' names?"
 _PET_NAME_QUERY = re.compile(
     r"\bwhat\s+(?:are\s+)?(?:their|(?:my\s+)?(?:dogs?|cats?|pets?|animals?)(?:'s|s')?)\s+names?\b",
     re.IGNORECASE,
@@ -122,7 +129,7 @@ class ConversationRecall:
     Sits above the KnowledgeEngine and translates natural language
     recall queries into structured knowledge lookups.
 
-    Returns RecallResult â€” callers decide how to phrase the response.
+    Returns RecallResult Ã¢â‚¬â€ callers decide how to phrase the response.
     """
 
     def __init__(self, knowledge: "KnowledgeEngine"):
@@ -134,7 +141,7 @@ class ConversationRecall:
             _PROJECT_QUERIES.search(query),
             _MILESTONE_QUERIES.search(query),
             _TEMPORAL_YESTERDAY.search(query),
-            _TEMPORAL_TODAY.search(query),
+            _TEMPORAL_TODAY.search(query) and not _CURRENT_INFO_RE.search(query),
             _TEMPORAL_LAST_SESSION.search(query),
             _PERSON_QUERY.search(query),
             _TASK_QUERY.search(query),
@@ -197,7 +204,7 @@ class ConversationRecall:
         if _TEMPORAL_YESTERDAY.search(query):
             return self._recall_journal(days_ago=1)
 
-        if _TEMPORAL_TODAY.search(query):
+        if _TEMPORAL_TODAY.search(query) and not _CURRENT_INFO_RE.search(query):
             return self._recall_journal(days_ago=0)
 
         if _TEMPORAL_LAST_SESSION.search(query):
@@ -213,7 +220,7 @@ class ConversationRecall:
         Public structured lookup by subject and attribute.
 
         Called by ContextualRecallEngine after resolving conversational
-        context. Keeps ConversationRecall unaware of SessionContext â€”
+        context. Keeps ConversationRecall unaware of SessionContext Ã¢â‚¬â€
         it receives only structured (subject, attribute) pairs.
         Genesis-025 Sprint-004.
         """
@@ -247,13 +254,13 @@ class ConversationRecall:
         Resolution ladder:
             1. Direct role lookup by name
             2. search_memory for the name across all records
-               (excluding journal/conversation records â€” GC-010)
-               a. Pet records â†’ "X are your N dogs."
-               b. subject != "user" and attribute == "role" â†’
+               (excluding journal/conversation records Ã¢â‚¬â€ GC-010)
+               a. Pet records Ã¢â€ â€™ "X are your N dogs."
+               b. subject != "user" and attribute == "role" Ã¢â€ â€™
                   use subject as relationship
-               c. "{relationship} role" attribute â†’ compose via templates
-               d. Anything else â†’ return bare value
-            3. Miss â†’ not found.
+               c. "{relationship} role" attribute Ã¢â€ â€™ compose via templates
+               d. Anything else Ã¢â€ â€™ return bare value
+            3. Miss Ã¢â€ â€™ not found.
         """
         name_lower = name.lower().strip()
 
@@ -268,7 +275,7 @@ class ConversationRecall:
             )
 
         # 2. Search all records for the name.
-        # GC-010: exclude journal/conversation records â€” they survive forget
+        # GC-010: exclude journal/conversation records Ã¢â‚¬â€ they survive forget
         # and would return stale answers after a memory has been deleted.
         results = self._knowledge.search_memory(name_lower, subject="user")
         if not results:
@@ -287,7 +294,7 @@ class ConversationRecall:
             return RecallResult(found=False, answer="")
         r = results[0]
 
-        # 2a. Pet records â€” tagged "pet", attribute ends with "names"
+        # 2a. Pet records Ã¢â‚¬â€ tagged "pet", attribute ends with "names"
         if "pet" in (r.tags or []) and r.attribute.endswith("names"):
             pet_type = self._knowledge.recall_memory("user", "pets")
             animal = pet_type.value if pet_type else "pets"
@@ -317,7 +324,7 @@ class ConversationRecall:
                 value=r.value,
             )
 
-        # 2c. "{relationship} role" attribute â€” e.g. "manager role"
+        # 2c. "{relationship} role" attribute Ã¢â‚¬â€ e.g. "manager role"
         if r.attribute.endswith(" role"):
             relationship = r.attribute[: -len(" role")].strip()
             template = _ROLE_ANSWER_TEMPLATES.get(relationship)
@@ -334,7 +341,7 @@ class ConversationRecall:
                 value=r.value,
             )
 
-        # 2d. Anything else â€” return the bare value
+        # 2d. Anything else Ã¢â‚¬â€ return the bare value
         return RecallResult(
             found=True,
             answer=r.value,
