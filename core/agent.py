@@ -58,6 +58,7 @@ from core.conversation.conversation_models import DecisionType         # Genesis
 from core.conversation.slot_completion_engine import SlotCompletionEngine  # Genesis-025
 from core.conversation.contextual_recall_engine import ContextualRecallEngine  # Genesis-025 S4
 from core.conversation.reverse_entity_parser import ReverseEntityParser         # Genesis-026 S3
+from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
 
 
 class Agent:
@@ -129,6 +130,9 @@ class Agent:
 
         # Genesis-026 Sprint-003: reverse entity lookup parser
         self.reverse_entity_parser = ReverseEntityParser()
+
+        # CV-003: conversational reference detector
+        self.conversation_reference_detector = ConversationReferenceDetector()
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -206,6 +210,27 @@ class Agent:
             self.context.last_jarvis_response = response.message
             self._post_turn(request, response.message)
             return response
+
+        # CV-003: Detect conversational reference statements before Step 4.
+        # "Earlier I mentioned my servers." / "Remember my dogs?" etc.
+        # Silently restores active_topic so the normal pipeline answers naturally.
+        _conv_ref = self.conversation_reference_detector.detect(request)
+        if _conv_ref:
+            from core.conversation.contextual_recall_engine import _KIND_TO_DECLARATION_ATTR
+            _decl_attr = _KIND_TO_DECLARATION_ATTR.get(_conv_ref.kind, f"group:{_conv_ref.kind}")
+            _decl_rec = self.knowledge.recall_memory("user", _decl_attr)
+            if _decl_rec:
+                self.session.set_topic(_decl_rec.value, raw=_decl_rec.value)
+                self.logger.info(
+                    "[CVREF] Restored active_topic=%r for kind=%r",
+                    _decl_rec.value, _conv_ref.kind,
+                )
+                # Return a minimal acknowledgement without calling AI.
+                # The user's next message is answered using the restored context.
+                _ack = Response(success=True, message="Of course, sir.")
+                self.context.last_jarvis_response = _ack.message
+                self._post_turn(request, _ack.message)
+                return _ack
 
         # Step 4 â€” Check for natural memory statements.
         # Genesis-025 Sprint-002: SlotCompletionEngine runs first (generic),
