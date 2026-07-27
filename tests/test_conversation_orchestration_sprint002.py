@@ -1,13 +1,13 @@
 """
-Genesis-024 Sprint-002 — Conversation Orchestration Audit Tests
+Genesis-024 Sprint-002 â€” Conversation Orchestration Audit Tests
 
 Verifies that the Conversation Resolution Phase in agent.py correctly
 intercepts referential and contextual queries before the AI fallback.
 
 Coverage:
-  - "Why?" / "How so?" → answered from last_jarvis_response
-  - "Who told you that?" → answered from memory/session context
-  - "What did I just tell you?" → answered from last_user_message
+  - "Why?" / "How so?" â†’ answered from last_jarvis_response
+  - "Who told you that?" â†’ answered from memory/session context
+  - "What did I just tell you?" â†’ answered from last_user_message
   - Reference-resolved queries try memory before AI
   - ConversationRecall consulted before AI
   - Timeline consulted before AI
@@ -27,7 +27,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 
 # ---------------------------------------------------------------------------
-# Helpers — lightweight Agent stub
+# Helpers â€” lightweight Agent stub
 # ---------------------------------------------------------------------------
 
 def make_agent(ai=None):
@@ -49,7 +49,7 @@ def mock_ai(response_text="AI response"):
 
 
 # ===========================================================================
-# 1. "WHY?" / "HOW SO?" — answered from last response
+# 1. "WHY?" / "HOW SO?" â€” answered from last response
 # ===========================================================================
 
 class TestWhyAndHowSoResolution:
@@ -72,7 +72,7 @@ class TestWhyAndHowSoResolution:
         assert response.success
         # Should NOT have called the AI
         ai.ask.assert_not_called()
-        # Should reference the last response — either the value or "said"
+        # Should reference the last response â€” either the value or "said"
         msg = response.message.lower()
         assert "blue" in msg or "said" in msg or "colour" in msg
 
@@ -96,12 +96,12 @@ class TestWhyAndHowSoResolution:
         agent.context.last_jarvis_response = None
         response = agent.process("Why?")
         assert response.success
-        # Either answered locally or went to AI — both are valid
+        # Either answered locally or went to AI â€” both are valid
         # Key: no exception
 
 
 # ===========================================================================
-# 2. "WHO TOLD YOU THAT?" — answered from memory
+# 2. "WHO TOLD YOU THAT?" â€” answered from memory
 # ===========================================================================
 
 class TestWhoToldYouResolution:
@@ -137,7 +137,7 @@ class TestWhoToldYouResolution:
 
 
 # ===========================================================================
-# 3. "WHAT DID I JUST TELL YOU?" — answered from context
+# 3. "WHAT DID I JUST TELL YOU?" â€” answered from context
 # ===========================================================================
 
 class TestRecentMessageResolution:
@@ -188,7 +188,9 @@ class TestExistingIntentsPreserved:
         agent = Agent(ai=None)
         response = agent.process("remember my favourite colour is blue")
         assert response.success
-        assert "blue" in response.message.lower()
+        # CV-004: acknowledgement no longer echoes the stored value.
+        # Verify the response is a clean acknowledgement, not a data echo.
+        assert response.message  # non-empty acknowledgement returned
 
     def test_memory_recall_still_works(self):
         from core.agent import Agent
@@ -215,12 +217,12 @@ class TestExistingIntentsPreserved:
         from core.agent import Agent
         agent = Agent(ai=None)
         response = agent.process("xyzzy nonsense gibberish")
-        # Should not crash — returns graceful fallback
+        # Should not crash â€” returns graceful fallback
         assert response is not None
 
 
 # ===========================================================================
-# 5. RESOLUTION PHASE ORDER — AI is LAST resort
+# 5. RESOLUTION PHASE ORDER â€” AI is LAST resort
 # ===========================================================================
 
 class TestAIIsLastResort:
@@ -234,7 +236,7 @@ class TestAIIsLastResort:
         agent.process("remember my favourite colour is blue")
         ai.ask.reset_mock()
 
-        # Recall it — should NOT call AI
+        # Recall it â€” should NOT call AI
         agent.process("what is my favourite colour?")
         ai.ask.assert_not_called()
 

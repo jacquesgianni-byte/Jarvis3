@@ -9,10 +9,11 @@ No other module should call the KnowledgeEngine directly.
 Genesis-012: this skill's backend moved from the in-memory
 MemoryManager (which never persisted anything) to the KnowledgeEngine.
 All facts are stored as structured subject/attribute/value records via
-the engine's six public methods only — storage is never touched
+the engine's six public methods only â€” storage is never touched
 directly.
 """
 
+import random
 import re
 import time
 
@@ -42,7 +43,7 @@ _ATTRIBUTE_CANONICAL = {
     "food": "favourite food",
     "sport": "favourite sport",
     "team": "favourite team",
-    # GC-008: possessive/plural pet name phrases → canonical "pet names"
+    # GC-008: possessive/plural pet name phrases â†’ canonical "pet names"
     "dogs' names": "pet names",
     "dogs names": "pet names",
     "cats' names": "pet names",
@@ -61,17 +62,17 @@ def _canonicalise(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Acknowledgement templates for new memory types.
-# Keys match the canonicalised attribute name stored by MemoryDetector.
-# Values are format strings receiving `value` as the only argument.
-# Only new types added in GC-001/GC-002 are listed here — existing types
-# continue to use the default "I'll remember that your X is Y" phrasing.
+# CV-004: Acknowledgement templates retired.
+# A single clean response is used for all memory types.
+# Echoing back "your server names is prod, staging..." is not natural.
 # ---------------------------------------------------------------------------
-_ACK_TEMPLATES: dict[str, str] = {
-    "pets":      "Okay, I'll remember that you have {value}.",
-    "pet names": "Okay, I'll remember that your pets are named {value}.",
-    "workplace": "Okay, I'll remember that you work at {value}.",
-}
+_ACK_RESPONSES = (
+    "Got it, sir.",
+    "Understood, sir.",
+    "Noted, sir.",
+    "I'll remember that, sir.",
+    "Consider it remembered, sir.",
+)
 
 # Recall-question shapes
 _RECALL_PATTERN = re.compile(r"\bmy\s+(.+?)\s*\??$", re.IGNORECASE)
@@ -163,15 +164,8 @@ class MemorySkill(Skill):
             value=value,
         )
 
-        # Use a specific acknowledgement template if one exists,
-        # otherwise fall back to the default phrasing.
-        template = _ACK_TEMPLATES.get(attribute)
-        if template:
-            message = template.format(value=value)
-        else:
-            message = f"Okay sir, I'll remember that your {attribute} is {value}."
-
-        return Response(success=True, message=message)
+        # CV-004: Acknowledge the action without echoing the stored content.
+        return Response(success=True, message=random.choice(_ACK_RESPONSES))
 
     # ------------------------------------------------------------------
     # Internals
@@ -202,7 +196,7 @@ class MemorySkill(Skill):
                 _SUBJECT, attribute.removeprefix("favourite ")
             )
 
-        # 3. Fuzzy search fallback — canonical records only.
+        # 3. Fuzzy search fallback â€” canonical records only.
         if record is None:
             results = self.engine.search_memory(attribute, subject=_SUBJECT)
             canonical = [r for r in results if "derived" not in r.tags]
