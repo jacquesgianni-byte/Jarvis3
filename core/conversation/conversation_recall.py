@@ -1,5 +1,5 @@
 """
-Jarvis Conversation Memory — Conversation Recall (Genesis-020 Sprint-001)
+Jarvis Conversation Memory â€” Conversation Recall (Genesis-020 Sprint-001)
 
 Handles temporal and contextual recall queries.
 
@@ -13,7 +13,7 @@ Answers questions like:
     "Who is Sarah?" (manager)
     "Where do I work?"
 
-All recall is deterministic — no LLM required.
+All recall is deterministic â€” no LLM required.
 Searches the KnowledgeEngine using structured queries.
 
 Constitutional constraints:
@@ -78,7 +78,7 @@ _WORKPLACE_QUERY = re.compile(
     r"what\s+(?:company|organisation|organization|workplace|place)\s+do\s+i\s+work\s+(?:at|for))\b",
     re.IGNORECASE,
 )
-# Pet name queries — "What are their names?" / "What are my dogs' names?"
+# Pet name queries â€” "What are their names?" / "What are my dogs' names?"
 _PET_NAME_QUERY = re.compile(
     r"\bwhat\s+(?:are\s+)?(?:their|(?:my\s+)?(?:dogs?|cats?|pets?|animals?)(?:'s|s')?)\s+names?\b",
     re.IGNORECASE,
@@ -122,7 +122,7 @@ class ConversationRecall:
     Sits above the KnowledgeEngine and translates natural language
     recall queries into structured knowledge lookups.
 
-    Returns RecallResult — callers decide how to phrase the response.
+    Returns RecallResult â€” callers decide how to phrase the response.
     """
 
     def __init__(self, knowledge: "KnowledgeEngine"):
@@ -208,6 +208,16 @@ class ConversationRecall:
     # ------------------------------------------------------------------
     # Recall helpers
     # ------------------------------------------------------------------
+    def lookup(self, subject: str, attribute: str) -> RecallResult:
+        """
+        Public structured lookup by subject and attribute.
+
+        Called by ContextualRecallEngine after resolving conversational
+        context. Keeps ConversationRecall unaware of SessionContext â€”
+        it receives only structured (subject, attribute) pairs.
+        Genesis-025 Sprint-004.
+        """
+        return self._recall_attribute(subject, attribute)
 
     def _recall_attribute(self, subject: str, attribute: str) -> RecallResult:
         """
@@ -237,13 +247,13 @@ class ConversationRecall:
         Resolution ladder:
             1. Direct role lookup by name
             2. search_memory for the name across all records
-               (excluding journal/conversation records — GC-010)
-               a. Pet records → "X are your N dogs."
-               b. subject != "user" and attribute == "role" →
+               (excluding journal/conversation records â€” GC-010)
+               a. Pet records â†’ "X are your N dogs."
+               b. subject != "user" and attribute == "role" â†’
                   use subject as relationship
-               c. "{relationship} role" attribute → compose via templates
-               d. Anything else → return bare value
-            3. Miss → not found.
+               c. "{relationship} role" attribute â†’ compose via templates
+               d. Anything else â†’ return bare value
+            3. Miss â†’ not found.
         """
         name_lower = name.lower().strip()
 
@@ -258,7 +268,7 @@ class ConversationRecall:
             )
 
         # 2. Search all records for the name.
-        # GC-010: exclude journal/conversation records — they survive forget
+        # GC-010: exclude journal/conversation records â€” they survive forget
         # and would return stale answers after a memory has been deleted.
         results = self._knowledge.search_memory(name_lower, subject="user")
         if not results:
@@ -269,20 +279,15 @@ class ConversationRecall:
             ]
 
         if not results:
-            # Authoritative miss — ConversationRecall owns this query and
-            # has determined nothing is stored. Return found=True with a
-            # "not stored" message so the agent never falls through to AI
-            # for questions recall explicitly owns. GC-010.
-            return RecallResult(
-                found=True,
-                answer=f"I don't have any information about {name} stored, sir.",
-                attribute="",
-                value="",
-            )
-
+            # CV-002-003: Return found=False so the agent falls through to AI.
+            # Previously returned found=True with a miss message (GC-010) to
+            # prevent AI hallucinating personal relationships. However this also
+            # blocked AI for public figures ("Who is Lionel Messi?").
+            # Correct contract: no stored match -> found=False -> AI answers.
+            return RecallResult(found=False, answer="")
         r = results[0]
 
-        # 2a. Pet records — tagged "pet", attribute ends with "names"
+        # 2a. Pet records â€” tagged "pet", attribute ends with "names"
         if "pet" in (r.tags or []) and r.attribute.endswith("names"):
             pet_type = self._knowledge.recall_memory("user", "pets")
             animal = pet_type.value if pet_type else "pets"
@@ -312,7 +317,7 @@ class ConversationRecall:
                 value=r.value,
             )
 
-        # 2c. "{relationship} role" attribute — e.g. "manager role"
+        # 2c. "{relationship} role" attribute â€” e.g. "manager role"
         if r.attribute.endswith(" role"):
             relationship = r.attribute[: -len(" role")].strip()
             template = _ROLE_ANSWER_TEMPLATES.get(relationship)
@@ -329,7 +334,7 @@ class ConversationRecall:
                 value=r.value,
             )
 
-        # 2d. Anything else — return the bare value
+        # 2d. Anything else â€” return the bare value
         return RecallResult(
             found=True,
             answer=r.value,

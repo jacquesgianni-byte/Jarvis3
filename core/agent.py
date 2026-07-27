@@ -221,6 +221,23 @@ class Agent:
                 or self.memory_detector.detect_with_context(request, active_topic)
             )
 
+
+            # CV-002-001: Clear stale active_topic after unsupported entity.
+            # If this looks like a possession declaration but SlotCompletionEngine
+            # returned None (unknown entity e.g. planes), clear active_topic so
+            # the previous group does not inherit the next slot fill.
+            import re as _re_cv002
+            _POSS_RE = _re_cv002.compile(
+                r"\bi\s+(?:have|own|possess|keep)\b|\bi(?:'ve|\s+have)\s+got\b",
+                _re_cv002.IGNORECASE,
+            )
+            if (detection is None
+                    and _POSS_RE.search(request)
+                    and self.slot_completion.detect(request) is None):
+                self.session.active_topic = None
+                self.logger.debug(
+                    "[CV-002-001] Cleared active_topic: unsupported entity declaration"
+                )
         # Step 5 â€” If a memory was detected, store and acknowledge.
         if detection is not None:
             response = self._handle_memory_detection(detection)
@@ -441,16 +458,33 @@ class Agent:
                 if recall_result.found:
                     return Response(success=True, message=recall_result.answer)
 
-            response = self._execute_skill("memory", request)
-
-            if response.data and response.data.get("memory_miss"):
-                reasoned = self.skills.get("reasoning").infer_attribute(
-                    response.data.get("attribute", "")
+            # CV-002-003: For identity queries ("Who is X?") that reach this
+            # point with no match, fall through to AI rather than returning
+            # "I don't have information stored". The memory skill miss response
+            # should only be the final word for explicit memory operations
+            # (e.g. "What is my name?"), not general identity queries.
+            import re as _re_cv003
+            _IDENTITY_RE = _re_cv003.compile(
+                r"\bwho\s+(?:is|are|was|were)\b",
+                _re_cv003.IGNORECASE,
+            )
+            if _IDENTITY_RE.search(request):
+                # Fall through to AI routing below
+                self.logger.info(
+                    "[MEMORY] Recall miss -> falling through to AI for identity query: %r",
+                    request[:60],
                 )
-                if reasoned is not None:
-                    return reasoned
+            else:
+                response = self._execute_skill("memory", request)
 
-            return response
+                if response.data and response.data.get("memory_miss"):
+                    reasoned = self.skills.get("reasoning").infer_attribute(
+                        response.data.get("attribute", "")
+                    )
+                    if reasoned is not None:
+                        return reasoned
+
+                return response
 
         if intent == Intent.REASONING:
             _why_triggers = frozenset({
@@ -484,7 +518,19 @@ class Agent:
         # ----------------------------------------------------------------
 
         # 1. Reference resolution
-        if resolution and resolution.resolved and resolution.context_hint:
+        # CV-002-002: Skip this block when ContextualRecallEngine can answer
+        # the query using session context. Without this guard, "Who are they?"
+        # after "I have 5 servers" gets intercepted here: search_memory finds
+        # the servers declaration record and returns "Your servers is 5 servers"
+        # before the identity engine can produce the proper named answer.
+        _ctxrecall_can_answer = self.contextual_recall.can_answer(request, self.session)
+        self.logger.debug(
+            "[CV-002-002] can_answer=%r for %r (active_topic=%r)",
+            _ctxrecall_can_answer, request[:40],
+            self.session.active_topic.value if self.session.active_topic else None,
+        )
+        if (resolution and resolution.resolved and resolution.context_hint
+                and not _ctxrecall_can_answer):
             resolved_hint = resolution.context_hint
             rec = self.knowledge.recall_memory("user", resolved_hint)
             if rec is None:
