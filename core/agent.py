@@ -58,6 +58,11 @@ from core.conversation.conversation_models import DecisionType         # Genesis
 from core.conversation.slot_completion_engine import SlotCompletionEngine  # Genesis-025
 from core.conversation.contextual_recall_engine import ContextualRecallEngine  # Genesis-025 S4
 from core.conversation.reverse_entity_parser import ReverseEntityParser         # Genesis-026 S3
+from core.workers.manager import WorkerManager                                   # Genesis-027
+from core.workers.orchestrator import WorkerOrchestrator                         # Genesis-027
+from core.workers.worker_factory import WorkerFactory                            # Genesis-027
+from core.workers.debug_worker import DebugWorker                                # Genesis-027
+from core.workers.test_worker import JarvisTestWorker                            # Genesis-027
 from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
 
 
@@ -166,6 +171,17 @@ class Agent:
 
         # Genesis-022: Conversation Engine
         self.conversation_engine = ConversationEngine()
+
+        # Genesis-027: Worker Operating System
+        # WorkerManager owns the registry. WorkerOrchestrator routes tasks.
+        # WorkerFactory generates new workers from blueprints (stub).
+        self.worker_manager     = WorkerManager()
+        self.worker_orchestrator = WorkerOrchestrator(self.worker_manager)
+        self.worker_factory     = WorkerFactory()
+
+        # Register initial workers
+        self.worker_manager.register(DebugWorker())
+        self.worker_manager.register(JarvisTestWorker())
 
     def process(self, request: str, token=None) -> Response:
         """
