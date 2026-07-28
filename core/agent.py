@@ -62,8 +62,9 @@ from core.workers.manager import WorkerManager                                  
 from core.workers.orchestrator import WorkerOrchestrator                         # Genesis-027
 from core.workers.worker_factory import WorkerFactory                            # Genesis-027
 from core.workers.debug_worker import DebugWorker                                # Genesis-027
-from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027                            # Genesis-027
+from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027 S3                            # Genesis-027
 from core.workers.coding_worker import CodingWorker                              # Genesis-027 S2
+from core.workers.coordinator import WorkerCoordinator                           # Genesis-027 S3
 from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
 
 
@@ -190,14 +191,27 @@ class Agent:
         self.worker_factory.register_builder(
             "coding_worker", lambda deps: CodingWorker(deps["ai"])
         )
+        self.worker_factory.register_builder(
+            "suite_runner_worker", lambda deps: SuiteRunnerWorker()
+        )
 
         # Register workers via factory (single creation path)
         self.worker_manager.register(self.worker_factory.create("debug_worker"))
-        self.worker_manager.register(self.worker_factory.create("test_worker"))
+        self.worker_manager.register(self.worker_factory.create("suite_runner_worker"))
         if self.ai is not None:
             self.worker_manager.register(
                 self.worker_factory.create("coding_worker", deps={"ai": self.ai})
             )
+
+        # Genesis-027 Sprint-003: WorkerCoordinator for multi-worker workflows
+        self.worker_coordinator = WorkerCoordinator(self.worker_manager)
+
+        # Register the engineering_review workflow:
+        # CodingWorker -> DebugWorker -> SuiteRunnerWorker
+        self.worker_coordinator.register_workflow(
+            "engineering_review",
+            ["coding_worker", "debug_worker", "suite_runner_worker"],
+        )
 
     def process(self, request: str, token=None) -> Response:
         """

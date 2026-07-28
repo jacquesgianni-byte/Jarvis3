@@ -30,7 +30,7 @@ from core.workers.models import WorkerTask, WorkerResult, WorkerStatus
 def factory():
     f = WorkerFactory()
     f.register_builder("debug_worker",  lambda deps: DebugWorker())
-    f.register_builder("test_worker",   lambda deps: SuiteRunnerWorker())
+    f.register_builder("suite_runner_worker",   lambda deps: SuiteRunnerWorker())
     f.register_builder("coding_worker", lambda deps: CodingWorker(deps["ai"]))
     return f
 
@@ -82,7 +82,7 @@ class TestWorkerFactoryBuilders:
     def test_available_worker_names(self, factory):
         names = factory.available_worker_names()
         assert "debug_worker" in names
-        assert "test_worker" in names
+        assert "suite_runner_worker" in names
         assert "coding_worker" in names
 
     def test_summary_active(self, factory):
@@ -103,9 +103,9 @@ class TestWorkerFactoryCreation:
         assert worker.name == "debug_worker"
 
     def test_create_test_worker(self, factory):
-        worker = factory.create("test_worker")
+        worker = factory.create("suite_runner_worker")
         assert isinstance(worker, SuiteRunnerWorker)
-        assert worker.name == "test_worker"
+        assert worker.name == "suite_runner_worker"
 
     def test_create_coding_worker_with_deps(self, factory, mock_ai):
         worker = factory.create("coding_worker", deps={"ai": mock_ai})
@@ -263,7 +263,7 @@ class TestAgentSprint002:
         from core.agent import Agent
         agent = Agent(ai=None)
         assert agent.worker_factory.can_create("debug_worker")
-        assert agent.worker_factory.can_create("test_worker")
+        assert agent.worker_factory.can_create("suite_runner_worker")
         assert agent.worker_factory.can_create("coding_worker")
 
     def test_workers_created_via_factory(self):

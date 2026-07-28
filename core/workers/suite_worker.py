@@ -65,7 +65,7 @@ class SuiteRunnerWorker(Worker):
 
     @property
     def name(self) -> str:
-        return "test_worker"
+        return "suite_runner_worker"
 
     @property
     def description(self) -> str:

@@ -79,7 +79,7 @@ class TestAgentWOS:
     def test_agent_test_worker_registered(self):
         from core.agent import Agent
         agent = Agent(ai=None)
-        assert agent.worker_manager.has_worker('test_worker')
+        assert agent.worker_manager.has_worker('suite_runner_worker')
 
     def test_agent_worker_count(self):
         from core.agent import Agent
@@ -187,7 +187,7 @@ class TestDebugWorkerContract:
 class TestTestWorkerContract:
 
     def test_name(self, test_worker):
-        assert test_worker.name == "test_worker"
+        assert test_worker.name == "suite_runner_worker"
 
     def test_description_non_empty(self, test_worker):
         assert len(test_worker.description) > 0
@@ -248,7 +248,7 @@ class TestWorkerManagerIntegration:
         assert manager.has_worker("debug_worker")
 
     def test_test_worker_registered(self, manager):
-        assert manager.has_worker("test_worker")
+        assert manager.has_worker("suite_runner_worker")
 
     def test_workers_for_analyse_session(self, manager):
         workers = manager.workers_for("analyse_session")
@@ -256,7 +256,7 @@ class TestWorkerManagerIntegration:
 
     def test_workers_for_run_tests(self, manager):
         workers = manager.workers_for("run_tests")
-        assert any(w.name == "test_worker" for w in workers)
+        assert any(w.name == "suite_runner_worker" for w in workers)
 
     def test_workers_for_unknown_type(self, manager):
         workers = manager.workers_for("unknown_task_type")
