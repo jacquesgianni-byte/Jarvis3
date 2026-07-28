@@ -18,7 +18,7 @@ from core.workers.orchestrator import WorkerOrchestrator
 from core.workers.registry import WorkerRegistry
 from core.workers.models import WorkerTask, WorkerResult, WorkerStatus
 from core.workers.debug_worker import DebugWorker
-from core.workers.test_worker import JarvisTestWorker as TestWorker
+from core.workers.suite_worker import SuiteRunnerWorker as TestWorker
 from core.workers.worker_factory import WorkerFactory, WorkerBlueprint
 
 
@@ -321,15 +321,11 @@ class TestWorkerFactoryStub:
         factory = WorkerFactory()
         assert factory is not None
 
-    def test_create_raises_not_implemented(self):
+    def test_create_unknown_raises_key_error(self):
+        """CV-002: WorkerFactory now active - unknown name raises KeyError."""
         factory = WorkerFactory()
-        blueprint = WorkerBlueprint(
-            name="test_worker",
-            description="test",
-            capabilities=["test"],
-        )
-        with pytest.raises(NotImplementedError):
-            factory.create(blueprint)
+        with pytest.raises(KeyError):
+            factory.create("nonexistent_worker")
 
     def test_generate_scaffold_raises_not_implemented(self):
         factory = WorkerFactory()
@@ -337,7 +333,8 @@ class TestWorkerFactoryStub:
         with pytest.raises(NotImplementedError):
             factory.generate_scaffold(blueprint)
 
-    def test_summary_returns_stub_status(self):
+    def test_summary_returns_active_status(self):
+        """Sprint-002: factory is now active, not stub."""
         factory = WorkerFactory()
         summary = factory.summary()
-        assert summary["status"] == "stub"
+        assert summary["status"] == "active"

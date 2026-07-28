@@ -62,7 +62,8 @@ from core.workers.manager import WorkerManager                                  
 from core.workers.orchestrator import WorkerOrchestrator                         # Genesis-027
 from core.workers.worker_factory import WorkerFactory                            # Genesis-027
 from core.workers.debug_worker import DebugWorker                                # Genesis-027
-from core.workers.test_worker import JarvisTestWorker                            # Genesis-027
+from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027                            # Genesis-027
+from core.workers.coding_worker import CodingWorker                              # Genesis-027 S2
 from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
 
 
@@ -174,14 +175,29 @@ class Agent:
 
         # Genesis-027: Worker Operating System
         # WorkerManager owns the registry. WorkerOrchestrator routes tasks.
-        # WorkerFactory generates new workers from blueprints (stub).
-        self.worker_manager     = WorkerManager()
+        # WorkerFactory creates workers with dependency injection.
+        self.worker_manager      = WorkerManager()
         self.worker_orchestrator = WorkerOrchestrator(self.worker_manager)
-        self.worker_factory     = WorkerFactory()
+        self.worker_factory      = WorkerFactory()
 
-        # Register initial workers
-        self.worker_manager.register(DebugWorker())
-        self.worker_manager.register(JarvisTestWorker())
+        # Register builders - lambdas only, no worker-specific logic in factory
+        self.worker_factory.register_builder(
+            "debug_worker", lambda deps: DebugWorker()
+        )
+        self.worker_factory.register_builder(
+            "test_worker", lambda deps: SuiteRunnerWorker()
+        )
+        self.worker_factory.register_builder(
+            "coding_worker", lambda deps: CodingWorker(deps["ai"])
+        )
+
+        # Register workers via factory (single creation path)
+        self.worker_manager.register(self.worker_factory.create("debug_worker"))
+        self.worker_manager.register(self.worker_factory.create("test_worker"))
+        if self.ai is not None:
+            self.worker_manager.register(
+                self.worker_factory.create("coding_worker", deps={"ai": self.ai})
+            )
 
     def process(self, request: str, token=None) -> Response:
         """

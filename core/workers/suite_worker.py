@@ -48,7 +48,7 @@ from core.workers.models import WorkerResult, WorkerTask
 logger = logging.getLogger(__name__)
 
 
-class JarvisTestWorker(Worker):
+class SuiteRunnerWorker(Worker):
     """
     Runs the Jarvis test suite and returns a structured result.
 

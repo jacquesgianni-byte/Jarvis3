@@ -1,54 +1,175 @@
 """
-Jarvis Worker Factory (Genesis-027 Sprint-001)
+Jarvis Worker Factory (Genesis-027 Sprint-002)
 
-Architecture stub for future worker generation from templates.
+Single entry point for constructing Worker instances.
 
-Current state:
-    STUB ONLY — no implementation yet.
-    The interface and template structure are defined here.
-    Implementation follows in Genesis-027 Sprint-002+.
+Responsibilities:
+    - Create workers by name
+    - Inject dependencies into workers that need them
+    - Apply common configuration
+    - Return fully initialised Worker instances
 
-Long-term vision:
-    Jarvis can say "I don't have a Robotics Worker — shall I create one?"
-    and generate a new worker from a standard blueprint automatically.
+Does NOT:
+    - Register workers (WorkerManager owns that)
+    - Execute workers (WorkerManager owns that)
+    - Route tasks (WorkerOrchestrator owns that)
+    - Manage lifecycle (WorkerManager owns that)
 
-Worker Template Blueprint:
-    Every generated worker includes:
-        - Identity (name, description, version)
-        - Capabilities (task_type list)
-        - Permissions (what the worker is allowed to do)
-        - Dependencies (other workers or services required)
-        - Tests (auto-generated test scaffold)
-        - Documentation (docstring template)
-        - Configuration (default settings)
-        - Logging (standardised log prefixes)
-        - Telemetry (timing and health metrics)
+Design:
+    Workers are registered as factory functions (callables).
+    Each factory function receives the requested dependencies
+    and returns a fully constructed Worker instance.
+    No worker-specific branches in the factory core.
+    No isinstance() checks.
+    No if/elif worker name chains.
 
-    Nothing hand-crafted. Everything consistent.
+Usage:
+    factory = WorkerFactory()
+    factory.register_builder("debug_worker", lambda deps: DebugWorker())
+    factory.register_builder("coding_worker", lambda deps: CodingWorker(deps["ai"]))
 
-Genesis-027 Sprint-001: stub only.
-Genesis-027 Sprint-002+: full template engine implementation.
+    worker = factory.create("coding_worker", deps={"ai": ai_provider})
+
+Genesis-027 Sprint-001: stub.
+Genesis-027 Sprint-002: full implementation.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Callable, Optional
+
+from core.workers.base import Worker
 
 logger = logging.getLogger(__name__)
 
+WorkerBuilder = Callable[[dict[str, Any]], Worker]
+
+
+class WorkerFactory:
+    """
+    Creates Worker instances from registered builder functions.
+
+    Each worker type is associated with a builder - a callable that
+    receives a dependency dict and returns a fully initialised Worker.
+
+    No worker-specific logic lives here. Adding Worker #100 is identical
+    to adding Worker #3.
+
+    Public API:
+        register_builder(name, builder)   - register a worker builder
+        create(name, deps)                - create a worker instance
+        can_create(name)                  - True if builder registered
+        available_worker_names()          - list of buildable worker names
+        summary()                         - debug dict
+    """
+
+    def __init__(self) -> None:
+        self._builders: dict[str, WorkerBuilder] = {}
+        logger.info("[WORKER_FACTORY] Initialised.")
+
+    def register_builder(self, name: str, builder: WorkerBuilder) -> None:
+        """
+        Register a builder function for a named worker type.
+
+        Args:
+            name:    The worker name this builder creates.
+            builder: Callable receiving deps dict, returning Worker instance.
+
+        Raises:
+            ValueError: If a builder for this name is already registered.
+        """
+        if name in self._builders:
+            raise ValueError(
+                f"WorkerFactory: builder for {name!r} already registered. "
+                f"Use replace_builder() to replace it."
+            )
+        self._builders[name] = builder
+        logger.info("[WORKER_FACTORY] Registered builder for %r.", name)
+
+    def replace_builder(self, name: str, builder: WorkerBuilder) -> None:
+        """Replace an existing builder (or register if not present)."""
+        self._builders[name] = builder
+        logger.info("[WORKER_FACTORY] Replaced builder for %r.", name)
+
+    def create(self, name: str, deps: Optional[dict[str, Any]] = None) -> Worker:
+        """
+        Create and return a fully initialised Worker instance.
+
+        Args:
+            name: The registered worker name.
+            deps: Optional dependency dict passed to the builder.
+
+        Returns:
+            A fully initialised Worker instance.
+
+        Raises:
+            KeyError: If no builder is registered for this name.
+        """
+        if name not in self._builders:
+            available = list(self._builders.keys())
+            raise KeyError(
+                f"WorkerFactory: no builder registered for {name!r}. "
+                f"Available: {available}"
+            )
+        resolved_deps = deps or {}
+        logger.info(
+            "[WORKER_FACTORY] Creating worker %r with deps=%s.",
+            name, list(resolved_deps.keys()),
+        )
+        worker = self._builders[name](resolved_deps)
+        logger.info(
+            "[WORKER_FACTORY] Created %r (class=%s).",
+            name, type(worker).__name__,
+        )
+        return worker
+
+    def can_create(self, name: str) -> bool:
+        """Return True if a builder is registered for this worker name."""
+        return name in self._builders
+
+    def available_worker_names(self) -> list[str]:
+        """Return the names of all registered worker builders."""
+        return list(self._builders.keys())
+
+    def generate_scaffold(self, blueprint: "WorkerBlueprint") -> str:
+        """
+        Generate Python source code for a new Worker from a blueprint.
+
+        NOT YET IMPLEMENTED. Scheduled for Genesis-027 Sprint-003.
+
+        Raises:
+            NotImplementedError: Always, until Sprint-003.
+        """
+        raise NotImplementedError(
+            "WorkerFactory.generate_scaffold() is not yet implemented. "
+            "Scheduled for Genesis-027 Sprint-003."
+        )
+
+    def summary(self) -> dict:
+        """Human-readable factory summary for debugging."""
+        return {
+            "status":                 "active",
+            "registered_builders":    len(self._builders),
+            "available_worker_names": self.available_worker_names(),
+        }
+
 
 # ---------------------------------------------------------------------------
-# Worker blueprint dataclass
+# WorkerBlueprint — retained for Sprint-001 tests and future template engine
 # ---------------------------------------------------------------------------
+
+from dataclasses import dataclass, field as _field
+
 
 @dataclass
 class WorkerBlueprint:
     """
     Specification for generating a new Worker from a template.
 
-    Passed to WorkerFactory.create() in future sprints.
+    Used by the future template engine (Genesis-027 Sprint-003+).
+    Retained here so Sprint-001 tests and future code can import it
+    from the same module as WorkerFactory.
 
     Attributes:
         name:          Unique worker name (e.g. "coding_worker")
@@ -61,77 +182,10 @@ class WorkerBlueprint:
         metadata:      Additional configuration
     """
     name:         str
-    description:  str
-    capabilities: list[str]                = field(default_factory=list)
-    permissions:  list[str]                = field(default_factory=list)
-    dependencies: list[str]                = field(default_factory=list)
+    description:  str                      = ""
+    capabilities: list                     = _field(default_factory=list)
+    permissions:  list                     = _field(default_factory=list)
+    dependencies: list                     = _field(default_factory=list)
     version:      str                      = "0.1.0"
     author:       str                      = "jarvis"
-    metadata:     dict                     = field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# WorkerFactory stub
-# ---------------------------------------------------------------------------
-
-class WorkerFactory:
-    """
-    Generates new Worker implementations from standard blueprints.
-
-    STUB — not yet implemented.
-
-    Future public API:
-        create(blueprint)          -> Worker instance
-        generate_scaffold(blueprint) -> str (Python source)
-        register_template(name, fn)  -> None
-        available_templates()        -> list[str]
-
-    Genesis-027 Sprint-002+.
-    """
-
-    def __init__(self) -> None:
-        self._templates: dict[str, object] = {}
-        logger.info("[WORKER_FACTORY] Initialised (stub).")
-
-    def create(self, blueprint: WorkerBlueprint) -> None:
-        """
-        Generate and return a Worker instance from a blueprint.
-
-        NOT YET IMPLEMENTED.
-
-        Args:
-            blueprint: WorkerBlueprint describing the desired worker.
-
-        Raises:
-            NotImplementedError: Always, until Sprint-002.
-        """
-        raise NotImplementedError(
-            "WorkerFactory.create() is not yet implemented. "
-            "Scheduled for Genesis-027 Sprint-002."
-        )
-
-    def generate_scaffold(self, blueprint: WorkerBlueprint) -> str:
-        """
-        Generate Python source code for a new Worker from a blueprint.
-
-        NOT YET IMPLEMENTED.
-
-        Returns:
-            Python source string for the new Worker class.
-        """
-        raise NotImplementedError(
-            "WorkerFactory.generate_scaffold() is not yet implemented. "
-            "Scheduled for Genesis-027 Sprint-002."
-        )
-
-    def available_templates(self) -> list[str]:
-        """Return the names of available worker templates."""
-        return list(self._templates.keys())
-
-    def summary(self) -> dict:
-        """Human-readable factory summary."""
-        return {
-            "status":             "stub",
-            "available_templates": self.available_templates(),
-            "scheduled_sprint":   "Genesis-027 Sprint-002",
-        }
+    metadata:     dict                     = _field(default_factory=dict)
