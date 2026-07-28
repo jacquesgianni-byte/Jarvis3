@@ -58,6 +58,7 @@ from core.conversation.conversation_models import DecisionType         # Genesis
 from core.conversation.slot_completion_engine import SlotCompletionEngine  # Genesis-025
 from core.conversation.contextual_recall_engine import ContextualRecallEngine  # Genesis-025 S4
 from core.conversation.reverse_entity_parser import ReverseEntityParser         # Genesis-026 S3
+from core.workers.models import WorkerTask
 from core.workers.manager import WorkerManager                                   # Genesis-027
 from core.workers.orchestrator import WorkerOrchestrator                         # Genesis-027
 from core.workers.worker_factory import WorkerFactory                            # Genesis-027
@@ -65,6 +66,8 @@ from core.workers.debug_worker import DebugWorker                               
 from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027 S3                            # Genesis-027
 from core.workers.coding_worker import CodingWorker                              # Genesis-027 S2
 from core.workers.coordinator import WorkerCoordinator                           # Genesis-027 S3
+from core.workers.task_planner import TaskPlanner, WorkerPlan                   # Genesis-027 S4
+from core.workers.engineering_intent_detector import EngineeringIntentDetector  # Genesis-027 S4
 from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
 
 
@@ -212,6 +215,10 @@ class Agent:
             "engineering_review",
             ["coding_worker", "debug_worker", "suite_runner_worker"],
         )
+
+        # Genesis-027 Sprint-004: TaskPlanner + EngineeringIntentDetector
+        self.task_planner = TaskPlanner(self.worker_manager)
+        self.engineering_intent_detector = EngineeringIntentDetector()
 
     def process(self, request: str, token=None) -> Response:
         """
@@ -732,6 +739,38 @@ class Agent:
         ) if request.strip() else None
         if reasoned is not None:
             return reasoned
+
+        # 7.5 Engineering intent routing (Genesis-027 Sprint-004)
+        _eng_intent = self.engineering_intent_detector.detect(request)
+        if _eng_intent.is_engineering and self.worker_manager.worker_count() > 0:
+            _plan = self.task_planner.plan(
+                request,
+                payload={
+                    "description": request,
+                    "log_lines": [],
+                    "paths": ["tests/"],
+                    "context": "",
+                },
+            )
+            if not _plan.is_empty:
+                _wf_name = f"dynamic_{id(_plan)}"
+                _worker_names = [t.requester for t in _plan.tasks]
+                self.worker_coordinator.register_workflow(_wf_name, _worker_names)
+                _wf_task = WorkerTask(
+                    task_type=_wf_name,
+                    payload=dict(_plan.tasks[0].payload),
+                    requester="agent",
+                )
+                _wf_result = self.worker_coordinator.run(_wf_task)
+                if _wf_result.success:
+                    _steps = _wf_result.data.get("workers_executed", [])
+                    _n = len(_steps)
+                    _msg = (
+                        f"I've reviewed your request and coordinated {_n} "
+                        f"specialist worker" + ("s" if _n != 1 else "") +
+                        " to handle it. The plan is ready for your review, sir."
+                    )
+                    return Response(success=True, message=_msg)
 
         # 8. AI fallback
         if self.ai is not None:
