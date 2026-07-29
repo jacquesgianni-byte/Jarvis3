@@ -63,12 +63,14 @@ from core.workers.manager import WorkerManager                                  
 from core.workers.orchestrator import WorkerOrchestrator                         # Genesis-027
 from core.workers.worker_factory import WorkerFactory                            # Genesis-027
 from core.workers.debug_worker import DebugWorker                                # Genesis-027
-from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027 S3                            # Genesis-027
+from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027 S3
 from core.workers.coding_worker import CodingWorker                              # Genesis-027 S2
 from core.workers.coordinator import WorkerCoordinator                           # Genesis-027 S3
 from core.workers.task_planner import TaskPlanner, WorkerPlan                   # Genesis-027 S4
 from core.workers.engineering_intent_detector import EngineeringIntentDetector  # Genesis-027 S4
 from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
+from core.conversation.property_assigner import PropertyAssigner                # Genesis-028
+from core.conversation.property_recall_engine import PropertyRecallEngine       # Genesis-028
 
 
 class Agent:
@@ -76,29 +78,31 @@ class Agent:
     The central decision maker for Jarvis.
 
     Owns one each of:
-        ConversationContext         â€” current conversation state
-        ConversationIntelligence    â€” message classification
-        ConversationBehaviour       â€” pending interaction handling
-        MemoryDetector              â€” natural memory statement detection
-        SlotCompletionEngine        â€” generic slot completion (Genesis-025)
-        ConversationObserver        â€” automatic fact extraction (S1)
-        ConversationRecall          â€” contextual/temporal recall (S1)
-        SessionContext              â€” in-memory working memory (S2)
-        ContextManager              â€” updates working memory each turn (S2)
-        ContextResolver             â€” resolves pronouns/references (S2)
-        ContextInspector            â€” developer context snapshot (S2)
-        ConversationTimeline        â€” append-only event history (S3)
-        TimelineQueryEngine         â€” answers history questions (S3)
-        TimelineInspector           â€” developer timeline snapshot (S3)
-        DecisionEngine              â€” records and explains decisions (S4)
-        DecisionQueryEngine         â€” answers decision questions (S4)
-        DecisionInspector           â€” developer decision snapshot (S4)
-        GoalEngine                  â€” tracks goals as Projection (S5)
-        GoalQueryEngine             â€” answers goal questions (S5)
-        GoalInspector               â€” developer goal snapshot (S5)
-        SessionSummaryEngine        â€” deterministic session summary (S6)
-        SessionSummaryQueryEngine   â€” answers session questions (S6)
-        SessionSummaryInspector     â€” developer summary snapshot (S6)
+        ConversationContext         — current conversation state
+        ConversationIntelligence    — message classification
+        ConversationBehaviour       — pending interaction handling
+        MemoryDetector              — natural memory statement detection
+        SlotCompletionEngine        — generic slot completion (Genesis-025)
+        ConversationObserver        — automatic fact extraction (S1)
+        ConversationRecall          — contextual/temporal recall (S1)
+        SessionContext              — in-memory working memory (S2)
+        ContextManager              — updates working memory each turn (S2)
+        ContextResolver             — resolves pronouns/references (S2)
+        ContextInspector            — developer context snapshot (S2)
+        ConversationTimeline        — append-only event history (S3)
+        TimelineQueryEngine         — answers history questions (S3)
+        TimelineInspector           — developer timeline snapshot (S3)
+        DecisionEngine              — records and explains decisions (S4)
+        DecisionQueryEngine         — answers decision questions (S4)
+        DecisionInspector           — developer decision snapshot (S4)
+        GoalEngine                  — tracks goals as Projection (S5)
+        GoalQueryEngine             — answers goal questions (S5)
+        GoalInspector               — developer goal snapshot (S5)
+        SessionSummaryEngine        — deterministic session summary (S6)
+        SessionSummaryQueryEngine   — answers session questions (S6)
+        SessionSummaryInspector     — developer summary snapshot (S6)
+        PropertyAssigner            — generic entity property detection (Genesis-028)
+        PropertyRecallEngine        — entity property storage/retrieval (Genesis-028)
 
     Args:
         ai: Optional AI provider. Used as fallback when no intent is matched.
@@ -143,6 +147,10 @@ class Agent:
 
         # CV-003: conversational reference detector
         self.conversation_reference_detector = ConversationReferenceDetector()
+
+        # Genesis-028: generic property assignment
+        self.property_assigner = PropertyAssigner()
+        self.property_recall = PropertyRecallEngine(self.knowledge)
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -228,7 +236,7 @@ class Agent:
             request: The user's message.
             token:   Opaque conversation-ownership context supplied by
                      JarvisCore. The Agent never inspects it and never
-                     decides whether a response is stale â€” that is the
+                     decides whether a response is stale — that is the
                      Conversation layer's job.
 
         Flow:
@@ -236,7 +244,7 @@ class Agent:
             2.  Evaluate for pending interactions via ConversationBehaviour.
             3.  If handled, translate ConversationDecision to Response.
             4.  Check for memory statements via SlotCompletionEngine (generic)
-                then MemoryDetector (explicit patterns) â€” Genesis-025.
+                then MemoryDetector (explicit patterns) — Genesis-025.
             5.  If detected, store via MemorySkill and acknowledge.
             6.  Resolve ambiguous references via ContextResolver (S2).
             7.  Proceed with normal intent routing.
@@ -248,16 +256,16 @@ class Agent:
         pipeline_start = time.perf_counter()
         self.context.last_user_message = request
 
-        # Step 1 â€” Classify.
+        # Step 1 — Classify.
         with telemetry.stage("classification"):
             category = self.intelligence.classify(request, self.context)
         self.logger.debug(f"Message category: {category.name}")
 
-        # Step 2 â€” Evaluate for pending interaction.
+        # Step 2 — Evaluate for pending interaction.
         with telemetry.stage("behaviour"):
             decision = self.behaviour.handle(category, self.context)
 
-        # Step 3 â€” If handled, translate decision to Response.
+        # Step 3 — If handled, translate decision to Response.
         if decision is not None and decision.handled:
             response = self._respond_to_decision(decision)
             self.context.last_jarvis_response = response.message
@@ -278,17 +286,15 @@ class Agent:
                     "[CVREF] Restored active_topic=%r for kind=%r",
                     _decl_rec.value, _conv_ref.kind,
                 )
-                # Return a minimal acknowledgement without calling AI.
-                # The user's next message is answered using the restored context.
                 _ack = Response(success=True, message="Of course, sir.")
                 self.context.last_jarvis_response = _ack.message
                 self._post_turn(request, _ack.message)
                 return _ack
 
-        # Step 4 â€” Check for natural memory statements.
+        # Step 4 — Check for natural memory statements.
         # Genesis-025 Sprint-002: SlotCompletionEngine runs first (generic),
         # then falls back to MemoryDetector (explicit patterns).
-        # SlotCompletionEngine is pure detection â€” same inputs â†’ same output.
+        # SlotCompletionEngine is pure detection — same inputs → same output.
         with telemetry.stage("memory_detection"):
             active_topic = (
                 self.session.active_topic.value
@@ -298,7 +304,6 @@ class Agent:
                 self.slot_completion.detect(request, active_topic)
                 or self.memory_detector.detect_with_context(request, active_topic)
             )
-
 
             # CV-002-001: Clear stale active_topic after unsupported entity.
             # If this looks like a possession declaration but SlotCompletionEngine
@@ -316,7 +321,8 @@ class Agent:
                 self.logger.debug(
                     "[CV-002-001] Cleared active_topic: unsupported entity declaration"
                 )
-        # Step 5 â€” If a memory was detected, store and acknowledge.
+
+        # Step 5 — If a memory was detected, store and acknowledge.
         if detection is not None:
             response = self._handle_memory_detection(detection)
             self.context.last_skill = "memory"
@@ -324,28 +330,28 @@ class Agent:
             self._post_turn(request, response.message)
             return response
 
-        # Step 6 â€” Genesis-020 S2: Resolve ambiguous references.
+        # Step 6 — Genesis-020 S2: Resolve ambiguous references.
         resolution = None
         if self.context_resolver.needs_resolution(request):
             resolution = self.context_resolver.resolve(request)
             if resolution.resolved:
                 self.logger.info(
-                    "[CONTEXT] Resolved %r â†’ hint=%r (slot=%s, conf=%.2f)",
+                    "[CONTEXT] Resolved %r → hint=%r (slot=%s, conf=%.2f)",
                     resolution.pronoun, resolution.context_hint,
                     resolution.slot_type, resolution.confidence,
                 )
 
-        # Step 7 â€” Normal intent routing.
+        # Step 7 — Normal intent routing.
         with telemetry.stage("intent_routing"):
             intent = self.router.detect(request)
         telemetry.log_since("agent_pipeline", pipeline_start)
         response = self._route(intent, request, resolution)
 
-        # Step 8 â€” Update context.
+        # Step 8 — Update context.
         self.context.last_intent = intent.name if intent else None
         self.context.last_jarvis_response = response.message
 
-        # Step 9 â€” Post-turn processing.
+        # Step 9 — Post-turn processing.
         self._post_turn(request, response.message)
 
         return response
@@ -354,12 +360,12 @@ class Agent:
         """
         Fire-and-forget post-turn processing. Errors never propagate.
 
-        S1: ConversationObserver   â€” extract facts â†’ KnowledgeEngine
-        S2: ContextManager         â€” update SessionContext working memory
-        S3: Timeline               â€” publish new events from extracted facts
-        S4: DecisionEngine         â€” apply DECISION_* events
-        S5: GoalEngine             â€” apply GOAL_* events
-        S6: SessionSummaryEngine   â€” apply all events for summary
+        S1: ConversationObserver   — extract facts → KnowledgeEngine
+        S2: ContextManager         — update SessionContext working memory
+        S3: Timeline               — publish new events from extracted facts
+        S4: DecisionEngine         — apply DECISION_* events
+        S5: GoalEngine             — apply GOAL_* events
+        S6: SessionSummaryEngine   — apply all events for summary
         """
         try:
             facts = FactExtractor().extract(request)
@@ -410,12 +416,12 @@ class Agent:
     def _handle_memory_detection(self, detection: MemoryDetection) -> Response:
         """Store a detected memory via MemorySkill and return acknowledgement."""
         self.logger.debug(
-            "Memory detected â€” key: %r, value: %r, confidence: %.2f",
+            "Memory detected — key: %r, value: %r, confidence: %.2f",
             detection.key, detection.value, detection.confidence
         )
         # Genesis-025 Sprint-003: set active_topic for group declarations
         # so subsequent turns can fill slots via SlotCompletionEngine.
-        # Uses is_group_declaration signal â€” no entity type enumeration needed.
+        # Uses is_group_declaration signal — no entity type enumeration needed.
         if detection.is_group_declaration:
             self.session.set_topic(detection.value, raw=detection.value)
             self.logger.debug(
@@ -439,7 +445,7 @@ class Agent:
         if decision.outcome == ConversationOutcome.CONTINUATION:
             pending = decision.pending_question or decision.pending_action
             if pending:
-                return Response(success=True, message=f"Of course, sir. To confirm â€” {pending}")
+                return Response(success=True, message=f"Of course, sir. To confirm — {pending}")
             return Response(success=True, message="Please go ahead, sir.")
         return Response(success=False, message="I'm not sure how to proceed, sir.")
 
@@ -475,7 +481,7 @@ class Agent:
                     self.skills.get("memory").remember(slot_name, slot_value)
                 return Response(success=True, message=f"Got it, sir. I've noted {slot_value!r}.")
         except Exception:
-            self.logger.exception("[CONV] ConversationEngine error â€” continuing with intent routing.")
+            self.logger.exception("[CONV] ConversationEngine error — continuing with intent routing.")
 
         if intent == Intent.GREETING:
             return self._execute_skill("greeting", request)
@@ -496,7 +502,6 @@ class Agent:
 
             # Genesis-026: contextual recall for anaphoric memory queries.
             # Sprint-002: ResolutionType determines answer format.
-            # TODO (Genesis-026): Centralize contextual recall routing.
             recall_request = self.contextual_recall.resolve(request, self.session)
             if recall_request:
                 from core.conversation.contextual_recall_engine import ResolutionType
@@ -538,9 +543,7 @@ class Agent:
 
             # CV-002-003: For identity queries ("Who is X?") that reach this
             # point with no match, fall through to AI rather than returning
-            # "I don't have information stored". The memory skill miss response
-            # should only be the final word for explicit memory operations
-            # (e.g. "What is my name?"), not general identity queries.
+            # "I don't have information stored".
             import re as _re_cv003
             _IDENTITY_RE = _re_cv003.compile(
                 r"\bwho\s+(?:is|are|was|were)\b",
@@ -593,10 +596,7 @@ class Agent:
 
         # 1. Reference resolution
         # CV-002-002: Skip this block when ContextualRecallEngine can answer
-        # the query using session context. Without this guard, "Who are they?"
-        # after "I have 5 servers" gets intercepted here: search_memory finds
-        # the servers declaration record and returns "Your servers is 5 servers"
-        # before the identity engine can produce the proper named answer.
+        # the query using session context.
         _ctxrecall_can_answer = self.contextual_recall.can_answer(request, self.session)
         if (resolution and resolution.resolved and resolution.context_hint
                 and not _ctxrecall_can_answer):
@@ -678,7 +678,6 @@ class Agent:
                     )
 
         # Genesis-026 Sprint-003: Reverse entity lookup (member to group).
-        # "Who is Rex?" / "Who are Rex and Tom?" / "What is staging?"
         reverse_request = self.reverse_entity_parser.parse(request)
         if reverse_request:
             reverse_result = self.contextual_recall.reverse_lookup(
@@ -688,10 +687,6 @@ class Agent:
                 return Response(success=True, message=reverse_result.answer)
 
         # 5. Conversation recall and timeline.
-        # Genesis-025 Sprint-004: ContextualRecallEngine resolves anaphoric
-        # queries using SessionContext before delegating to ConversationRecall.
-        # Genesis-026 Sprint-002: ResolutionType.IDENTITY uses two-step lookup.
-        # TODO (Genesis-026): Centralize contextual recall routing.
         recall_request = self.contextual_recall.resolve(request, self.session)
         if recall_request:
             from core.conversation.contextual_recall_engine import ResolutionType
@@ -732,6 +727,30 @@ class Agent:
                     message=f"Regarding {resolution.context_hint}: "
                             f"{r.attribute} is {r.value}, sir."
                 )
+
+        # 6.5 Generic property assignment / query (Genesis-028 Sprint-001)
+
+        # --- Group-property query first: "Which printer is offline?" ---
+        _gq = self.property_assigner.detect_group_query(request)
+        if _gq is not None:
+            _all_members = self._collect_all_entity_members()
+            _scan = self.property_recall.scan_group(_gq, _all_members)
+            return Response(success=True, message=_scan.message)
+
+        # --- Direct property query: "How old is Leo?" ---
+        _pq = self.property_assigner.detect_query(request)
+        if _pq is not None:
+            _result = self.property_recall.retrieve(_pq)
+            if _result.found:
+                return Response(success=True, message=_result.message)
+            # Not found — fall through to AI fallback
+
+        # --- Property assignment: "Lucas is 14." ---
+        _pa = self.property_assigner.detect_assignment(request)
+        if _pa is not None:
+            _store = self.property_recall.store(_pa)
+            if _store.success:
+                return Response(success=True, message=_store.message)
 
         # 7. Reasoning
         reasoned = self.skills.get("reasoning").infer_attribute(
@@ -790,6 +809,38 @@ class Agent:
             success=False,
             message="I'm still learning, but I'll be able to help with that soon."
         )
+
+    def _collect_all_entity_members(self) -> list[str]:
+        """
+        Collect all known entity member names from KnowledgeEngine.
+
+        Searches group slot records for names and entity_property subjects.
+        Used by scan_group() for "Which printer is offline?" style queries.
+        """
+        import re as _re
+        members: list[str] = []
+
+        # Pull names from group slot records
+        slot_records = self.knowledge.search_memory("group_slot", limit=50)
+        for r in slot_records:
+            if "names" in r.attribute:
+                parts = _re.split(
+                    r"\s*,\s*(?:and\s+)?|\s+and\s+",
+                    r.value,
+                    flags=_re.IGNORECASE,
+                )
+                for p in parts:
+                    name = p.strip().rstrip(".")
+                    if name and name not in members:
+                        members.append(name)
+
+        # Also include subjects from entity_property records
+        prop_records = self.knowledge.list_memories(category="entity_property")
+        for r in prop_records:
+            if r.subject not in [m.lower() for m in members]:
+                members.append(r.subject)
+
+        return members
 
     def _execute_skill(self, name: str, request: str) -> Response:
         """Execute a skill with telemetry."""
