@@ -72,6 +72,9 @@ from core.conversation.conversation_reference_detector import ConversationRefere
 from core.conversation.property_assigner import PropertyAssigner                # Genesis-028
 from core.conversation.property_recall_engine import PropertyRecallEngine       # Genesis-028
 from core.conversation.conversation_state_engine import ConversationStateEngine # Genesis-029
+from core.conversation.clarification_engine import (                             # Genesis-029 S3
+    ClarificationEngine, PendingClarification,
+)
 
 
 class Agent:
@@ -155,6 +158,11 @@ class Agent:
 
         # Genesis-029: Conversation State Engine
         self.conversation_state = ConversationStateEngine()
+
+        # Genesis-029 Sprint-003: Clarification Engine
+        self.clarification_engine = ClarificationEngine()
+        self._pending_clarification: PendingClarification | None = None
+        self._recent_entities: list[str] = []  # rolling list of recent entity names
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -290,10 +298,61 @@ class Agent:
                     "[CVREF] Restored active_topic=%r for kind=%r",
                     _decl_rec.value, _conv_ref.kind,
                 )
-                _ack = Response(success=True, message="Of course, sir.")
+                _ack = Response(success=True, message="Of course.")
                 self.context.last_jarvis_response = _ack.message
                 self._post_turn(request, _ack.message)
                 return _ack
+
+        # Genesis-029 Sprint-003: Clarification checks BEFORE Step 4 (memory detection)
+        # so pronoun questions don't get swallowed by the MemoryDetector.
+
+        # 3a. If user is replying to a pending clarification, handle it now.
+        if self._pending_clarification is not None:
+            _clf_res = self.clarification_engine.try_resolve(request, self._pending_clarification)
+            if _clf_res.resolved:
+                self.conversation_state.update_entity(_clf_res.entity, self.session)
+                self._pending_clarification = None
+                _rewritten = _clf_res.rewritten
+                _pq2 = self.property_assigner.detect_query(_rewritten)
+                if _pq2 is not None:
+                    _r2 = self.property_recall.retrieve(_pq2)
+                    if _r2.found:
+                        self.context.last_jarvis_response = _r2.message
+                        self._post_turn(request, _r2.message)
+                        return Response(success=True, message=_r2.message)
+                _pa2 = self.property_assigner.detect_assignment(_rewritten)
+                if _pa2 is not None:
+                    _s2 = self.property_recall.store(_pa2)
+                    if _s2.success:
+                        self.context.last_jarvis_response = _s2.message
+                        self._post_turn(request, _s2.message)
+                        return Response(success=True, message=_s2.message)
+            else:
+                _q = self._pending_clarification.question
+                self.context.last_jarvis_response = _q
+                self._post_turn(request, _q)
+                return Response(success=True, message=_q)
+
+        # 3b. Check for ambiguous pronoun — only when multiple entities are recent.
+        self.logger.debug("[CLARIFY] recent_entities=%r", self._recent_entities)
+        if len(self._recent_entities) >= 2:
+            _focus_check = self.conversation_state.detect_focus_change(request)
+            _clarify = self.clarification_engine.check(
+                request,
+                self._recent_entities,
+                self.session,
+                explicit_focus=_focus_check.detected,
+            )
+            if _clarify is not None:
+                self._pending_clarification = PendingClarification(
+                    candidates=_clarify.candidates,
+                    original_request=_clarify.original_request,
+                    pronoun=_clarify.pronoun,
+                    question=_clarify.question,
+                )
+                self.context.last_jarvis_response = _clarify.question
+                self._post_turn(request, _clarify.question)
+                return Response(success=True, message=_clarify.question)
 
         # Step 4 — Check for natural memory statements.
         # Genesis-025 Sprint-002: SlotCompletionEngine runs first (generic),
@@ -334,7 +393,7 @@ class Agent:
             self._post_turn(request, response.message)
             return response
 
-        # Step 6 — Genesis-020 S2: Resolve ambiguous references.
+        # Step 6b — Genesis-020 S2: Resolve ambiguous references.
         resolution = None
         if self.context_resolver.needs_resolution(request):
             resolution = self.context_resolver.resolve(request)
@@ -479,16 +538,15 @@ class Agent:
         # BEFORE ConversationEngine so queries like "what does he like?"
         # are not intercepted as slot fills.
 
-
         # Genesis-029 Sprint-002: detect explicit focus change BEFORE pronoun resolution
         _focus = self.conversation_state.detect_focus_change(request)
         if _focus.detected:
             self.conversation_state.apply_focus_change(_focus, self.session)
-            # Acknowledge the focus change immediately — no AI needed.
-            # If the entity has stored properties, summarise them; otherwise
-            # give a simple acknowledgement so the user can ask follow-up questions.
+            # Genesis-029 Sprint-003: reset recent entities to just this one
+            # so subsequent pronouns don't trigger ambiguity clarification.
             if not _focus.is_group:
-                from core.conversation.property_assigner import PropertyQuery
+                self._recent_entities = [_focus.entity.title()]
+            if not _focus.is_group:
                 _props = self.property_recall.retrieve_all_properties(_focus.entity)
                 _display = _focus.entity.upper() if len(_focus.entity) <= 2 else _focus.entity.title()
                 if _props:
@@ -500,7 +558,7 @@ class Agent:
                 _summary = f"Focusing on {_focus.entity}."
             return Response(success=True, message=_summary)
 
-        # Resolve pronouns first
+        # Resolve pronouns
         _pronoun_res = self.conversation_state.resolve_pronoun(request, self.session)
         _effective_request = (
             self.conversation_state.rewrite_with_entity(request, _pronoun_res)
@@ -529,6 +587,12 @@ class Agent:
             _store = self.property_recall.store(_pa)
             # Update active entity in conversation state
             self.conversation_state.update_entity(_pa.subject.title(), self.session)
+            # Genesis-029 Sprint-003: track recent entities for clarification
+            _entity_name = _pa.subject.title()
+            if _entity_name not in self._recent_entities:
+                self._recent_entities.append(_entity_name)
+            if len(self._recent_entities) > 5:
+                self._recent_entities.pop(0)
             if _store.success:
                 return Response(success=True, message=_store.message)
 
