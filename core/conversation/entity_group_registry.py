@@ -75,6 +75,7 @@ _KIND_PATTERNS: list[tuple[re.Pattern, str]] = [
 
     # Servers / tech
     (re.compile(r"\b(?:servers?|machines?|nodes?|instances?)\b", re.IGNORECASE), "server"),
+    (re.compile(r"\b(?:printers?|scanners?)\b", re.IGNORECASE), "printer"),
     (re.compile(r"\b(?:projects?|repos?|repositories)\b", re.IGNORECASE), "project"),
 ]
 
@@ -114,6 +115,7 @@ SLOT_SCHEMAS: dict[str, list[str]] = {
     "person":     ["names", "roles", "ages"],
     "vehicle":    ["names", "colours", "makes", "plates"],
     "instrument": ["names", "types", "colours"],
+    "printer":    ["names", "statuses", "locations"],
     "server":     ["names", "roles", "ips"],
     "project":    ["names", "statuses", "owners"],
 }
