@@ -123,7 +123,7 @@ class PropertyRecallEngine:
             )
             msg = (
                 f"Got it — {assignment.subject.title()} "
-                f"{self._verb_for(assignment.property_key)} {assignment.value}, sir."
+                f"{self._verb_for(assignment.property_key)} {assignment.value}."
             )
             logger.info(
                 "[PROPERTY_ENGINE] Stored: subject=%r attr=%r value=%r",
@@ -146,7 +146,7 @@ class PropertyRecallEngine:
                 subject=assignment.subject,
                 property_key=assignment.property_key,
                 value=assignment.value,
-                message="I wasn't able to store that property, sir.",
+                message="I wasn't able to store that property.",
             )
 
     def retrieve(self, query: PropertyQuery) -> RetrieveResult:
@@ -176,7 +176,7 @@ class PropertyRecallEngine:
                 subject=query.subject,
                 property_key=query.property_key,
                 value=None,
-                message=f"I don't have {query.property_key} information for {query.subject.title()}, sir.",
+                message=f"I don't have {query.property_key} information for {query.subject.title()}.",
             )
 
         msg = self._format_retrieve_response(query.subject, query.property_key, record.value)
@@ -235,9 +235,9 @@ class PropertyRecallEngine:
 
         if matches:
             names = ", ".join(m.title() for m in matches)
-            msg = f"{names} {'is' if len(matches) == 1 else 'are'} {group_query.value}, sir."
+            msg = f"{names} {'is' if len(matches) == 1 else 'are'} {group_query.value}."
         else:
-            msg = f"I don't have any {group_query.kind_hint} recorded as {group_query.value}, sir."
+            msg = f"I don't have any {group_query.kind_hint} recorded as {group_query.value}."
 
         logger.info(
             "[PROPERTY_ENGINE] Group scan: kind=%r key=%r value=%r matches=%r",
@@ -290,8 +290,9 @@ class PropertyRecallEngine:
             "status":   "is",
             "location": "is located in",
             "priority": "has priority",
+            "interest": "likes",
         }
-        return _VERBS.get(property_key, "has property")
+        return _VERBS.get(property_key, "is")
 
     def _format_retrieve_response(
         self,
@@ -309,5 +310,6 @@ class PropertyRecallEngine:
             "status":   f"{name} is {value}.",
             "location": f"{name} is located in {value}.",
             "priority": f"{name} has {value} priority.",
+            "interest": f"{name} likes {value}.",
         }
-        return _TEMPLATES.get(property_key, f"{name}'s {property_key} is {value}.")
+        return _TEMPLATES.get(property_key, f"{name} is {value}.")

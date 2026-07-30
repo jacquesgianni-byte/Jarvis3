@@ -71,6 +71,7 @@ from core.workers.engineering_intent_detector import EngineeringIntentDetector  
 from core.conversation.conversation_reference_detector import ConversationReferenceDetector  # CV-003
 from core.conversation.property_assigner import PropertyAssigner                # Genesis-028
 from core.conversation.property_recall_engine import PropertyRecallEngine       # Genesis-028
+from core.conversation.conversation_state_engine import ConversationStateEngine # Genesis-029
 
 
 class Agent:
@@ -151,6 +152,9 @@ class Agent:
         # Genesis-028: generic property assignment
         self.property_assigner = PropertyAssigner()
         self.property_recall = PropertyRecallEngine(self.knowledge)
+
+        # Genesis-029: Conversation State Engine
+        self.conversation_state = ConversationStateEngine()
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -286,7 +290,7 @@ class Agent:
                     "[CVREF] Restored active_topic=%r for kind=%r",
                     _decl_rec.value, _conv_ref.kind,
                 )
-                _ack = Response(success=True, message="Of course.")
+                _ack = Response(success=True, message="Of course, sir.")
                 self.context.last_jarvis_response = _ack.message
                 self._post_turn(request, _ack.message)
                 return _ack
@@ -428,26 +432,28 @@ class Agent:
                 "[SLOT] active_topic set to %r after group declaration",
                 detection.value,
             )
+            # Genesis-029: also update conversation state group
+            self.conversation_state.update_group(detection.value, self.session)
         with telemetry.stage("skill_manager", skill="memory_store"):
             return self.skills.get("memory").remember(detection.key, detection.value)
 
     def _respond_to_decision(self, decision: ConversationDecision) -> Response:
         """Translate a ConversationDecision into a user-facing Response."""
         if decision.outcome == ConversationOutcome.CONFIRMED:
-            return Response(success=True, message="Understood. I will proceed.")
+            return Response(success=True, message="Understood, sir. I will proceed.")
         if decision.outcome == ConversationOutcome.DENIED:
-            return Response(success=True, message="Understood. I will stand by.")
+            return Response(success=True, message="Understood, sir. I will stand by.")
         if decision.outcome == ConversationOutcome.CLARIFICATION:
             pending = decision.pending_question or decision.pending_action
             if pending:
-                return Response(success=True, message=f"Of course. I was asking: {pending}")
-            return Response(success=True, message="I apologise for the confusion. Please go ahead.")
+                return Response(success=True, message=f"Of course, sir. I was asking: {pending}")
+            return Response(success=True, message="I apologise for the confusion, sir. Please go ahead.")
         if decision.outcome == ConversationOutcome.CONTINUATION:
             pending = decision.pending_question or decision.pending_action
             if pending:
-                return Response(success=True, message=f"Of course. To confirm — {pending}")
-            return Response(success=True, message="Please go ahead.")
-        return Response(success=False, message="I'm not sure how to proceed.")
+                return Response(success=True, message=f"Of course, sir. To confirm — {pending}")
+            return Response(success=True, message="Please go ahead, sir.")
+        return Response(success=False, message="I'm not sure how to proceed, sir.")
 
     def _route(self, intent: Intent, request: str, resolution=None) -> Response:
         """Route a detected intent to the appropriate skill or AI fallback."""
@@ -469,11 +475,47 @@ class Agent:
         if req_lower in ("/summary", "show summary", "inspect summary", "summary"):
             return Response(success=True, message=self.summary_inspector.inspect())
 
+        # Genesis-028/029: Resolve pronouns and handle property operations
+        # BEFORE ConversationEngine so queries like "what does he like?"
+        # are not intercepted as slot fills.
+
+        # Resolve pronouns first
+        _pronoun_res = self.conversation_state.resolve_pronoun(request, self.session)
+        _effective_request = (
+            self.conversation_state.rewrite_with_entity(request, _pronoun_res)
+            if _pronoun_res.resolved
+            else request
+        )
+
+        # --- Group-property query first: "Which printer is offline?" ---
+        _gq = self.property_assigner.detect_group_query(_effective_request)
+        if _gq is not None:
+            _all_members = self._collect_all_entity_members()
+            _scan = self.property_recall.scan_group(_gq, _all_members)
+            return Response(success=True, message=_scan.message)
+
+        # --- Direct property query: "How old is Leo?" / "What does he like?" ---
+        _pq = self.property_assigner.detect_query(_effective_request)
+        if _pq is not None:
+            _result = self.property_recall.retrieve(_pq)
+            if _result.found:
+                return Response(success=True, message=_result.message)
+            # Not found — fall through
+
+        # --- Property assignment: "Lucas is 14." / "Leo likes football." ---
+        _pa = self.property_assigner.detect_assignment(_effective_request)
+        if _pa is not None:
+            _store = self.property_recall.store(_pa)
+            # Update active entity in conversation state
+            self.conversation_state.update_entity(_pa.subject.title(), self.session)
+            if _store.success:
+                return Response(success=True, message=_store.message)
+
         # Genesis-022: Run Conversation Engine pipeline for enriched context.
         try:
             conv_decision = self.conversation_engine.process(request)
             if conv_decision.decision_type == DecisionType.RECOVERY:
-                return Response(success=True, message="Understood. I've cleared that.")
+                return Response(success=True, message="Understood, I've cleared that.")
             if conv_decision.decision_type == DecisionType.SLOT_FILLED:
                 slot_name  = conv_decision.payload.get("slot_name", "")
                 slot_value = conv_decision.payload.get("slot_value", "")
@@ -576,7 +618,7 @@ class Agent:
                     if req_norm in {"how do you know", "how do you know that"}:
                         return Response(
                             success=True,
-                            message=f"You told me that earlier. {last_response}"
+                            message=f"You told me that earlier, sir. {last_response}"
                         )
                     return Response(success=True, message=f"I said: {last_response}")
             return self._execute_skill("reasoning", request)
@@ -610,7 +652,7 @@ class Agent:
             if rec is not None:
                 return Response(
                     success=True,
-                    message=f"Your {rec.attribute} is {rec.value}."
+                    message=f"Your {rec.attribute} is {rec.value}, sir."
                 )
 
         # 2-3. Recent conversation
@@ -642,11 +684,11 @@ class Agent:
                 if last_response:
                     return Response(
                         success=True,
-                        message=f"You told me that earlier. {last_response}"
+                        message=f"You told me that earlier, sir. {last_response}"
                     )
                 return Response(
                     success=True,
-                    message="You told me. I store what you share with me."
+                    message="You told me, sir. I store what you share with me."
                 )
 
             if req_stripped in {
@@ -656,7 +698,7 @@ class Agent:
                 if last_message:
                     return Response(
                         success=True,
-                        message=f"You just said: \"{last_message}\"."
+                        message=f"You just said: \"{last_message}\", sir."
                     )
 
         # 4. Session context
@@ -674,7 +716,7 @@ class Agent:
                 if parts:
                     return Response(
                         success=True,
-                        message=f"From context: {', '.join(parts)}."
+                        message=f"From context: {', '.join(parts)}, sir."
                     )
 
         # Genesis-026 Sprint-003: Reverse entity lookup (member to group).
@@ -725,32 +767,8 @@ class Agent:
                 return Response(
                     success=True,
                     message=f"Regarding {resolution.context_hint}: "
-                            f"{r.attribute} is {r.value}."
+                            f"{r.attribute} is {r.value}, sir."
                 )
-
-        # 6.5 Generic property assignment / query (Genesis-028 Sprint-001)
-
-        # --- Group-property query first: "Which printer is offline?" ---
-        _gq = self.property_assigner.detect_group_query(request)
-        if _gq is not None:
-            _all_members = self._collect_all_entity_members()
-            _scan = self.property_recall.scan_group(_gq, _all_members)
-            return Response(success=True, message=_scan.message)
-
-        # --- Direct property query: "How old is Leo?" ---
-        _pq = self.property_assigner.detect_query(request)
-        if _pq is not None:
-            _result = self.property_recall.retrieve(_pq)
-            if _result.found:
-                return Response(success=True, message=_result.message)
-            # Not found — fall through to AI fallback
-
-        # --- Property assignment: "Lucas is 14." ---
-        _pa = self.property_assigner.detect_assignment(request)
-        if _pa is not None:
-            _store = self.property_recall.store(_pa)
-            if _store.success:
-                return Response(success=True, message=_store.message)
 
         # 7. Reasoning
         reasoned = self.skills.get("reasoning").infer_attribute(
@@ -787,7 +805,7 @@ class Agent:
                     _msg = (
                         f"I've reviewed your request and coordinated {_n} "
                         f"specialist worker" + ("s" if _n != 1 else "") +
-                        " to handle it. The plan is ready for your review."
+                        " to handle it. The plan is ready for your review, sir."
                     )
                     return Response(success=True, message=_msg)
 

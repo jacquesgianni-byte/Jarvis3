@@ -57,6 +57,12 @@ _ASSIGNMENT_PATTERNS: list[tuple[re.Pattern, Optional[str]]] = [
         re.IGNORECASE,
     ), "weight"),
 
+    # "Leo likes football." / "Rex enjoys running." / "Lucas plays guitar."
+    (re.compile(
+        r"^(.+?)\s+(?:likes?|enjoys?|loves?|plays?|hates?|prefers?)\s+(.+?)\.?$",
+        re.IGNORECASE,
+    ), "interest"),
+
     # "Lucas is 14" / "Rex is brown" / "Voron is offline"
     # Generic — must come after more specific "is located in" pattern.
     (re.compile(
@@ -115,8 +121,10 @@ _ATTRIBUTE_QUERY_PATTERNS: list[tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"\bwhat\s+does\s+([A-Za-z][\w\-]*)\s+weigh\b", re.IGNORECASE), "weight"),
     # "Where is Voron?" / "Where is Server Alpha?"
     (re.compile(r"\bwhere\s+is\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE), "location"),
-    # "What is Voron's status?" / generic "What is X's Y?"
-    (re.compile(r"\bwhat(?:'s|\s+is)\s+([A-Za-z][\w\-]*)'?s?\s+(\w+)\b", re.IGNORECASE), None),
+    # "What does Leo like?" / "What does Rex enjoy?"
+    (re.compile(r"\bwhat\s+does\s+([A-Za-z][\w\-]*)\s+(?:like|enjoy|love|play|prefer)\b.*\?", re.IGNORECASE), "interest"),
+    # Without question mark too
+    (re.compile(r"\bwhat\s+does\s+([A-Za-z][\w\-]*)\s+(?:like|enjoy|love|play|prefer)\b", re.IGNORECASE), "interest"),
     # "Is Voron online?" / "Is Voron offline?"
     (re.compile(r"\bis\s+([A-Za-z][\w\-]*)\s+(online|offline|active|inactive|running|stopped)\b", re.IGNORECASE), "status"),
 ]
@@ -252,6 +260,11 @@ class PropertyAssigner:
 
             # Reject stop subjects
             if subject_raw.lower() in _STOP_SUBJECTS:
+                continue
+
+            # Reject subjects containing possessive words
+            _subject_words = set(subject_raw.lower().split())
+            if _subject_words & {"my", "your", "his", "her", "their", "our", "its"}:
                 continue
 
             # Reject multi-word subjects that look like sentences
