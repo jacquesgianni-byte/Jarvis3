@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Session Summary Query Engine (Genesis-020 Sprint-006)
 
 Answers natural language questions about the current session.
@@ -95,7 +95,7 @@ class SessionSummaryQueryEngine:
 
         if e.is_empty():
             return SummaryQueryResult.empty(query,
-                "The session has just started — nothing to summarise yet, sir.")
+                "The session has just started — nothing to summarise yet.")
 
         summary = e.current_summary()
 
@@ -114,7 +114,7 @@ class SessionSummaryQueryEngine:
                 answered=True, question=query,
                 answer=(
                     f"{n} goal{'s' if n != 1 else ''} "
-                    f"{'were' if n != 1 else 'was'} completed this session, sir."
+                    f"{'were' if n != 1 else 'was'} completed this session."
                 ),
             )
 
@@ -125,7 +125,7 @@ class SessionSummaryQueryEngine:
                 answered=True, question=query,
                 answer=(
                     f"{n} architectural decision{'s' if n != 1 else ''} "
-                    f"{'were' if n != 1 else 'was'} recorded this session, sir."
+                    f"{'were' if n != 1 else 'was'} recorded this session."
                 ),
             )
 
@@ -133,7 +133,7 @@ class SessionSummaryQueryEngine:
         if _HOW_LONG.search(query):
             return SummaryQueryResult(
                 answered=True, question=query,
-                answer=f"This session has been running for {summary.duration_str}, sir.",
+                answer=f"This session has been running for {summary.duration_str}.",
             )
 
         # "How many turns?"
@@ -141,7 +141,7 @@ class SessionSummaryQueryEngine:
             n = summary.turn_count
             return SummaryQueryResult(
                 answered=True, question=query,
-                answer=f"We have had {n} conversation turn{'s' if n != 1 else ''} so far, sir.",
+                answer=f"We have had {n} conversation turn{'s' if n != 1 else ''} so far.",
             )
 
         # "Session stats"
@@ -164,7 +164,7 @@ class SessionSummaryQueryEngine:
             events = e.important_events()
             if not events:
                 return SummaryQueryResult.empty(query,
-                    "No key events recorded yet, sir.")
+                    "No key events recorded yet.")
             lines = ["Key Events:"] + [f"  • {ev}" for ev in events]
             return SummaryQueryResult(
                 answered=True, question=query,

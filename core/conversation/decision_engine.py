@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Decision Engine (Genesis-020 Sprint-004)
 
 Records, manages, and explains architectural decisions.
@@ -281,7 +281,7 @@ class DecisionEngine(Projection):
         """
         decision = self._decisions.get(decision_id)
         if not decision:
-            return f"No decision found with ID {decision_id!r}, sir."
+            return f"No decision found with ID {decision_id!r}."
         return decision.explain()
 
     def latest(self, n: int = 5) -> list[ArchitecturalDecision]:

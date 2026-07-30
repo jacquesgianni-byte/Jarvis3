@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Engineering Skill (Genesis-019.5)
 
 The gateway between natural language engineering questions and the
@@ -312,7 +312,7 @@ class EngineeringSkill(Skill):
             success=True,
             message=(
                 "That's an engineering topic I don't have a specific "
-                "Academy entry for yet, sir. Try asking about a specific "
+                "Academy entry for yet. Try asking about a specific "
                 "pattern, principle, or anti-pattern by name."
             ),
         )
@@ -377,7 +377,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"I know {total} engineering principles, sir. "
+                f"I know {total} engineering principles. "
                 f"Here are some: {names}. "
                 f"Ask me about any specific one for a full explanation."
             ),
@@ -394,7 +394,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"I know {total} design patterns, sir: {names}. "
+                f"I know {total} design patterns: {names}. "
                 f"Ask me to explain any of them."
             ),
         )
@@ -410,7 +410,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"I know {total} anti-patterns, sir: {names}. "
+                f"I know {total} anti-patterns: {names}. "
                 f"Ask me to explain any of them."
             ),
         )
@@ -426,7 +426,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"I know {total} architecture patterns, sir: {names}. "
+                f"I know {total} architecture patterns: {names}. "
                 f"Ask me to explain any of them."
             ),
         )
@@ -442,7 +442,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"I know {total} engineering best practices, sir. "
+                f"I know {total} engineering best practices. "
                 f"Some include: {names}. "
                 f"Ask me about any specific one."
             ),
@@ -459,7 +459,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"I have {total} engineering decision frameworks, sir. "
+                f"I have {total} engineering decision frameworks. "
                 f"Some include: {names}. "
                 f"Ask me about any specific one."
             ),
@@ -548,7 +548,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"The {p.name} pattern, sir. {p.intent} "
+                f"The {p.name} pattern. {p.intent} "
                 f"{p.solution} "
                 f"Use it when: {p.when_to_use[0] if p.when_to_use else ''}."
             ),
@@ -569,7 +569,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"The {ap.name} anti-pattern, sir. {ap.description} "
+                f"The {ap.name} anti-pattern. {ap.description} "
                 f"A key symptom is: {symptom}. "
                 f"The solution: {solution}"
             ),
@@ -589,7 +589,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"The {ap.name} architecture, sir. {ap.intent} "
+                f"The {ap.name} architecture. {ap.intent} "
                 f"{ap.description} "
                 f"Use it when: {use_when}."
             ),
@@ -608,7 +608,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"{p.name}, sir. {p.summary} "
+                f"{p.name}. {p.summary} "
                 f"{p.rationale} "
                 f"Guidance: {p.guidance}"
             ),
@@ -628,7 +628,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"{bp.name}, sir. {bp.description} "
+                f"{bp.name}. {bp.description} "
                 f"{bp.rationale} "
                 f"Key guidance: {guidance}"
             ),
@@ -648,7 +648,7 @@ class EngineeringSkill(Skill):
         return Response(
             success=True,
             message=(
-                f"{d.name}, sir. {d.situation} "
+                f"{d.name}. {d.situation} "
                 f"Recommended approach: {d.recommended_action} "
                 f"Key question to ask: {question}"
             ),

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Timeline Query Engine (Genesis-020 Sprint-003)
 
 Answers natural language questions about conversation history
@@ -129,7 +129,7 @@ class TimelineQueryEngine:
             events = tl.today_events()
             if not events:
                 return QueryResult(answered=True, question=query,
-                    answer="Nothing was recorded in the timeline today yet, sir.",
+                    answer="Nothing was recorded in the timeline today yet.",
                     events=tuple(events))
             return self._summarise_events("Today", events, query)
 
@@ -137,7 +137,7 @@ class TimelineQueryEngine:
             events = tl.yesterday_events()
             if not events:
                 return QueryResult(answered=True, question=query,
-                    answer="Nothing was recorded in the timeline yesterday, sir.",
+                    answer="Nothing was recorded in the timeline yesterday.",
                     events=tuple(events))
             return self._summarise_events("Yesterday", events, query)
 
@@ -166,7 +166,7 @@ class TimelineQueryEngine:
                 parts.append(f"working on {sprint.value}")
             if project and (not sprint or project.turn > sprint.turn):
                 parts.append(f"building {project.value}")
-            answer = "Currently " + " and ".join(parts) + ", sir."
+            answer = "Currently " + " and ".join(parts) + "."
             events = [e for e in [sprint, project] if e]
             return QueryResult(answered=True, question=query, answer=answer,
                                events=tuple(events))
@@ -182,7 +182,7 @@ class TimelineQueryEngine:
                 return QueryResult.miss(query)
             genesis_events.sort(key=lambda e: e.turn)
             latest = genesis_events[-1]
-            answer = f"The latest Genesis milestone recorded is {latest.value}, sir."
+            answer = f"The latest Genesis milestone recorded is {latest.value}."
             return QueryResult(answered=True, question=query, answer=answer,
                                events=(latest,))
 
@@ -198,14 +198,14 @@ class TimelineQueryEngine:
                 if matching:
                     e = matching[-1]
                     answer = (f"{e.value} was frozen at turn {e.turn}"
-                              f" on {e.date_str()}, sir.")
+                              f" on {e.date_str()}.")
                     return QueryResult(answered=True, question=query,
                                        answer=answer, events=(e,))
             # Fall back to most recent freeze
             if freeze_events:
                 freeze_events.sort(key=lambda e: e.turn)
                 e = freeze_events[-1]
-                answer = f"The most recent freeze was {e.value} at turn {e.turn}, sir."
+                answer = f"The most recent freeze was {e.value} at turn {e.turn}."
                 return QueryResult(answered=True, question=query,
                                    answer=answer, events=(e,))
             return QueryResult.miss(query)
@@ -227,7 +227,7 @@ class TimelineQueryEngine:
             before = tl.query(until_turn=ref_turn - 1)
             if not before:
                 return QueryResult(answered=True, question=query,
-                    answer=f"Nothing was recorded before {value_match.group(1)}, sir.",
+                    answer=f"Nothing was recorded before {value_match.group(1)}.",
                     events=tuple())
             return self._summarise_events(
                 f"Before {value_match.group(1)}", before[-5:], query)
@@ -236,7 +236,7 @@ class TimelineQueryEngine:
             events = tl.events_of_type(EventType.DECISION)
             if not events:
                 return QueryResult(answered=True, question=query,
-                    answer="No decisions have been recorded in the timeline yet, sir.",
+                    answer="No decisions have been recorded in the timeline yet.",
                     events=tuple())
             values = [e.value for e in events[-5:]]
             answer = f"Decisions recorded: {'; '.join(values)}."
@@ -251,7 +251,7 @@ class TimelineQueryEngine:
             if not events:
                 return QueryResult.miss(query)
             values = [e.value for e in events[-5:]]
-            answer = f"Started: {'; '.join(values)}, sir."
+            answer = f"Started: {'; '.join(values)}."
             return QueryResult(answered=True, question=query, answer=answer,
                                events=tuple(events))
 
@@ -259,10 +259,10 @@ class TimelineQueryEngine:
             events = tl.events_of_type(EventType.PERSON)
             if not events:
                 return QueryResult(answered=True, question=query,
-                    answer="No people have been recorded in the timeline yet, sir.",
+                    answer="No people have been recorded in the timeline yet.",
                     events=tuple())
             names = list(dict.fromkeys(e.value for e in events))  # unique, ordered
-            answer = f"People mentioned: {', '.join(names)}, sir."
+            answer = f"People mentioned: {', '.join(names)}."
             return QueryResult(answered=True, question=query, answer=answer,
                                events=tuple(events))
 
@@ -283,7 +283,7 @@ class TimelineQueryEngine:
         events = self._timeline.all_events()
         if not events:
             return QueryResult(answered=True, question=query,
-                answer="The timeline is empty, sir.", events=tuple())
+                answer="The timeline is empty.", events=tuple())
         lines = ["Timeline:"]
         for e in events:
             lines.append(f"  Turn {e.turn:>3} — {e.event_type.label():<16} {e.value}")

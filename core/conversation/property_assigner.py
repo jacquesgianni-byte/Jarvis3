@@ -247,6 +247,8 @@ class PropertyAssigner:
 
             subject_raw = m.group(1).strip()
             value_raw = m.group(2).strip().rstrip(".")
+            # Strip update qualifiers ("now", "currently") before key inference
+            value_raw = re.sub(r"^(?:now|currently)\s+", "", value_raw, flags=re.IGNORECASE)
 
             # Reject stop subjects
             if subject_raw.lower() in _STOP_SUBJECTS:

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Reasoning Skill (Genesis-013 Task 002).
 
 The gateway between natural language and the Reasoning Engine.
@@ -104,12 +104,12 @@ class ReasoningSkill(Skill):
                 return Response(
                     success=True,
                     message=f"I can't work out your {attribute} from what "
-                            "I know yet, sir."
+                            "I know yet."
                 )
 
         return Response(
             success=True,
-            message="I'm not sure what you'd like me to work out, sir. "
+            message="I'm not sure what you'd like me to work out. "
                     "You can ask what I can conclude about you."
         )
 
@@ -142,14 +142,14 @@ class ReasoningSkill(Skill):
 
         if inference.outcome.value == "asserted":
             message = (
-                f"Your {inference.attribute} is {inference.value}, sir — "
+                f"Your {inference.attribute} is {inference.value} — "
                 f"I worked that out from your {premise.attribute} "
                 f"being {premise.value}."
             )
         else:  # hedged
             message = (
                 f"I believe your {inference.attribute} is {inference.value}, "
-                f"sir, though I'm inferring that from your "
+                f"though I'm inferring that from your "
                 f"{premise.attribute} being {premise.value}."
             )
 
@@ -174,7 +174,7 @@ class ReasoningSkill(Skill):
             return Response(
                 success=True,
                 message="I haven't concluded anything recently to "
-                        "explain, sir."
+                        "explain."
             )
 
         explanation = self.engine.explain(self._last_inference)
@@ -204,7 +204,7 @@ class ReasoningSkill(Skill):
             return Response(
                 success=True,
                 message="I don't have enough stored facts to conclude "
-                        "anything new yet, sir."
+                        "anything new yet."
             )
 
         conclusions.sort(key=lambda i: i.confidence, reverse=True)
@@ -216,7 +216,7 @@ class ReasoningSkill(Skill):
         )
         message = (
             f"From what I know, I can work out {len(conclusions)} "
-            f"thing{'s' if len(conclusions) != 1 else ''}: {spoken}, sir."
+            f"thing{'s' if len(conclusions) != 1 else ''}: {spoken}."
         )
         return Response(success=True, message=message)
 

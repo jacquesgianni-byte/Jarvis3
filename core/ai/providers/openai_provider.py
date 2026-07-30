@@ -1,4 +1,4 @@
-"""
+﻿"""
 OpenAI Provider
 
 Implements the AIProvider interface using the OpenAI API.
@@ -116,38 +116,38 @@ class OpenAIProvider(AIProvider):
             except APITimeoutError as e:
                 return self._fail(
                     "timeout", e,
-                    "Sorry sir, the AI service is taking too long to "
+                    "Sorry the AI service is taking too long to "
                     "respond. Please try again."
                 )
             except APIConnectionError as e:
                 return self._fail(
                     "connection", e,
-                    "Sorry sir, I'm having trouble contacting the AI "
+                    "Sorry I'm having trouble contacting the AI "
                     "service right now."
                 )
             except AuthenticationError as e:
                 return self._fail(
                     "authentication", e,
-                    "Sir, my OpenAI API key appears to be invalid or "
+                    "my OpenAI API key appears to be invalid or "
                     "rejected. Please check the key configuration."
                 )
             except RateLimitError as e:
                 return self._fail(
                     "rate_limit", e,
-                    "Sir, we've hit the AI service rate limit. Give it a "
+                    "we've hit the AI service rate limit. Give it a "
                     "moment and try again."
                 )
             except APIStatusError as e:
                 return self._fail(
                     "api_status", e,
-                    "Sorry sir, the AI service reported an error. Please "
+                    "Sorry the AI service reported an error. Please "
                     "try again shortly."
                 )
             except Exception as e:  # noqa: BLE001 — final safety net
                 self.logger.exception("OpenAIProvider: unexpected failure.")
                 return self._fail(
                     "unexpected", e,
-                    "Sorry sir, something unexpected went wrong while "
+                    "Sorry something unexpected went wrong while "
                     "contacting the AI service."
                 )
 
@@ -171,7 +171,7 @@ class OpenAIProvider(AIProvider):
                     )
                     return Response(
                         success=False,
-                        message="Sorry sir, the AI service returned an "
+                        message="Sorry the AI service returned an "
                                 "empty response. Please try again.",
                         data={
                             "error_kind": "empty_completion",

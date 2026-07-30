@@ -1,4 +1,4 @@
-"""
+﻿"""
 Anthropic Provider (Genesis-015 Task 001)
 
 Implements the AIProvider interface using the Anthropic Python SDK.
@@ -79,7 +79,7 @@ class AnthropicProvider(AIProvider):
         if not self.settings.anthropic_api_key:
             return Response(
                 success=False,
-                message="Anthropic API key has not been configured, sir.",
+                message="Anthropic API key has not been configured.",
             )
 
         fields = {
@@ -106,38 +106,38 @@ class AnthropicProvider(AIProvider):
             except APITimeoutError as e:
                 return self._fail(
                     "timeout", e,
-                    "Sorry sir, Claude is taking too long to respond. "
+                    "Sorry Claude is taking too long to respond. "
                     "Please try again.",
                 )
             except AuthenticationError as e:
                 return self._fail(
                     "auth", e,
-                    "Sorry sir, the Anthropic API key appears to be "
+                    "Sorry the Anthropic API key appears to be "
                     "invalid. Please check your configuration.",
                 )
             except RateLimitError as e:
                 return self._fail(
                     "rate_limit", e,
-                    "Sorry sir, the Anthropic rate limit has been reached. "
+                    "Sorry the Anthropic rate limit has been reached. "
                     "Please try again in a moment.",
                 )
             except APIConnectionError as e:
                 return self._fail(
                     "connection", e,
-                    "Sorry sir, I cannot reach the Anthropic service. "
+                    "Sorry I cannot reach the Anthropic service. "
                     "Please check your internet connection.",
                 )
             except APIStatusError as e:
                 return self._fail(
                     "api_status", e,
-                    "Sorry sir, the Anthropic service reported an error. "
+                    "Sorry the Anthropic service reported an error. "
                     "Please try again shortly.",
                 )
             except Exception as e:  # noqa: BLE001 — final safety net
                 self.logger.exception("AnthropicProvider: unexpected failure.")
                 return self._fail(
                     "unexpected", e,
-                    "Sorry sir, something unexpected went wrong while "
+                    "Sorry something unexpected went wrong while "
                     "contacting Claude.",
                 )
 
@@ -162,7 +162,7 @@ class AnthropicProvider(AIProvider):
                     )
                     return Response(
                         success=False,
-                        message="Sorry sir, Claude returned an empty "
+                        message="Sorry Claude returned an empty "
                                 "response. Please try again.",
                         data={
                             "error_kind": "empty_completion",

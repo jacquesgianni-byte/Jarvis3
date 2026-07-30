@@ -1,4 +1,4 @@
-"""
+﻿"""
 Conversation State
 
 Defines the possible states of a Jarvis conversation at any point in time.
@@ -23,17 +23,17 @@ class ConversationState(Enum):
         WAITING_FOR_CONFIRMATION:
             Jarvis has proposed an action and is waiting for the user
             to confirm or deny it.
-            Example: "Shall I build and install JarvisApp, sir?"
+            Example: "Shall I build and install JarvisApp?"
 
         WAITING_FOR_INFORMATION:
             Jarvis has asked a question and needs the user to provide
             specific information before proceeding.
-            Example: "Which project would you like me to open, sir?"
+            Example: "Which project would you like me to open?"
 
         WAITING_FOR_SELECTION:
             Jarvis has presented multiple options and is waiting for
             the user to choose one.
-            Example: "I found three matches. Which one did you mean, sir?"
+            Example: "I found three matches. Which one did you mean?"
 
         EXECUTING:
             Jarvis is currently performing a task. The user's input

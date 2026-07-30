@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Goal Query Engine (Genesis-020 Sprint-005)
 
 Answers natural language questions about goals.
@@ -115,7 +115,7 @@ class GoalQueryEngine:
             return GoalQueryResult(
                 answered=True, question=query,
                 answer=(
-                    f"We have {total} goal{'s' if total != 1 else ''} recorded, sir. "
+                    f"We have {total} goal{'s' if total != 1 else ''} recorded. "
                     f"{active} {'are' if active != 1 else 'is'} currently active."
                 ),
                 goals=tuple(e.all_goals()),
@@ -129,7 +129,7 @@ class GoalQueryEngine:
                 goal = e.next_goal()
                 if not goal:
                     return GoalQueryResult.empty(query,
-                        "No active goals recorded yet, sir.")
+                        "No active goals recorded yet.")
                 return GoalQueryResult(
                     answered=True, question=query,
                     answer=f"No active goals, but the next planned goal is: {goal.title}.",
@@ -146,7 +146,7 @@ class GoalQueryEngine:
             goal = e.next_goal() or e.current_goal()
             if not goal:
                 return GoalQueryResult.empty(query,
-                    "No planned or active goals to suggest, sir.")
+                    "No planned or active goals to suggest.")
             return GoalQueryResult(
                 answered=True, question=query,
                 answer=f"Next up: {goal.title} [{goal.priority.label()} priority]. {goal.description}".strip(),
@@ -157,7 +157,7 @@ class GoalQueryEngine:
         if _WHICH_COMPLETED.search(query):
             goals = e.completed()
             if not goals:
-                return GoalQueryResult.empty(query, "No completed goals yet, sir.")
+                return GoalQueryResult.empty(query, "No completed goals yet.")
             titles = [g.title for g in goals]
             return GoalQueryResult(
                 answered=True, question=query,
@@ -169,7 +169,7 @@ class GoalQueryEngine:
         if _WHICH_BLOCKED.search(query):
             goals = e.blocked()
             if not goals:
-                return GoalQueryResult.empty(query, "No blocked goals, sir.")
+                return GoalQueryResult.empty(query, "No blocked goals.")
             parts = [f"{g.title} (blocked by: {g.blocked_by or 'unknown'})" for g in goals]
             return GoalQueryResult(
                 answered=True, question=query,
@@ -181,7 +181,7 @@ class GoalQueryEngine:
         if _WHAT_GOALS.search(query) or _ACTIVE_GOALS.search(query):
             goals = e.open_goals()
             if not goals:
-                return GoalQueryResult.empty(query, "No open goals recorded, sir.")
+                return GoalQueryResult.empty(query, "No open goals recorded.")
             titles = [f"{g.title} [{g.status.label()}]" for g in goals]
             return GoalQueryResult(
                 answered=True, question=query,
@@ -192,7 +192,7 @@ class GoalQueryEngine:
         if _PLANNED_GOALS.search(query):
             goals = e.planned()
             if not goals:
-                return GoalQueryResult.empty(query, "No planned goals, sir.")
+                return GoalQueryResult.empty(query, "No planned goals.")
             titles = [g.title for g in goals]
             return GoalQueryResult(
                 answered=True, question=query,
@@ -226,13 +226,13 @@ class GoalQueryEngine:
                 answered=True, question=query,
                 answer=goal.explain(), goals=(goal,)
             )
-        return GoalQueryResult.empty(query, "No goal found to explain, sir.")
+        return GoalQueryResult.empty(query, "No goal found to explain.")
 
     def _show_all(self, query: str) -> GoalQueryResult:
         """Full goal list for the inspector."""
         goals = self._engine.all_goals()
         if not goals:
-            return GoalQueryResult.empty(query, "No goals recorded yet, sir.")
+            return GoalQueryResult.empty(query, "No goals recorded yet.")
         lines = ["Goals:"]
         for g in goals:
             lines.append(f"  [{g.status.label():<10}] [{g.priority.label():<8}] {g.title}")

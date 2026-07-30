@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Decision Inspector (Genesis-020 Sprint-004)
 
 Developer tool for inspecting the active Decision Engine.
@@ -65,7 +65,7 @@ class DecisionInspector:
         """Return the full explanation of the most recent decision."""
         decisions = self._engine.latest(1)
         if not decisions:
-            return "No decisions recorded yet, sir."
+            return "No decisions recorded yet."
         return decisions[0].explain()
 
     def is_empty(self) -> bool:

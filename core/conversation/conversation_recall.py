@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Conversation Memory Ã¢â‚¬â€ Conversation Recall (Genesis-020 Sprint-001)
 
 Handles temporal and contextual recall queries.
@@ -362,7 +362,7 @@ class ConversationRecall:
         if not record:
             return RecallResult(
                 found=True,
-                answer="I don't have your pets' names stored yet, sir.",
+                answer="I don't have your pets' names stored yet.",
                 attribute="pet names",
                 value="",
             )

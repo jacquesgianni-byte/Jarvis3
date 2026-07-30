@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Memory Skill
 
 Handles remembering and recalling information.
@@ -67,11 +67,11 @@ def _canonicalise(text: str) -> str:
 # Echoing back "your server names is prod, staging..." is not natural.
 # ---------------------------------------------------------------------------
 _ACK_RESPONSES = (
-    "Got it, sir.",
-    "Understood, sir.",
-    "Noted, sir.",
-    "I'll remember that, sir.",
-    "Consider it remembered, sir.",
+    "Got it.",
+    "Understood.",
+    "Noted.",
+    "I'll remember that.",
+    "Consider it remembered.",
 )
 
 # Recall-question shapes
@@ -138,7 +138,7 @@ class MemorySkill(Skill):
 
         return Response(
             success=True,
-            message="I'm not sure what you want me to remember, sir. "
+            message="I'm not sure what you want me to remember. "
                     "Try: remember my favourite colour is blue."
         )
 
@@ -210,13 +210,13 @@ class MemorySkill(Skill):
         if record is None:
             return Response(
                 success=True,
-                message=f"I don't have your {attribute} stored yet, sir.",
+                message=f"I don't have your {attribute} stored yet.",
                 data={"memory_miss": True, "attribute": attribute},
             )
 
         return Response(
             success=True,
-            message=f"Your {record.attribute} is {record.value}, sir."
+            message=f"Your {record.attribute} is {record.value}."
         )
 
     def _record_lookup(self, started: float, hit: bool) -> None:
@@ -266,10 +266,10 @@ class MemorySkill(Skill):
         if forgotten:
             return Response(
                 success=True,
-                message=f"Understood, sir. I've forgotten your {attribute}."
+                message=f"Understood. I've forgotten your {attribute}."
             )
 
         return Response(
             success=True,
-            message=f"I don't have your {attribute} stored, sir."
+            message=f"I don't have your {attribute} stored."
         )

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Decision Query Engine (Genesis-020 Sprint-004)
 
 Answers natural language questions about architectural decisions.
@@ -117,7 +117,7 @@ class DecisionQueryEngine:
                 answered=True, question=query,
                 answer=(
                     f"We have recorded {total} architectural decision"
-                    f"{'s' if total != 1 else ''}, sir. "
+                    f"{'s' if total != 1 else ''}. "
                     f"{active} {'are' if active != 1 else 'is'} currently active."
                 ),
                 decisions=tuple(e.all_decisions()),
@@ -128,7 +128,7 @@ class DecisionQueryEngine:
             decisions = e.all_decisions()
             if not decisions:
                 return DecisionQueryResult.empty(query,
-                    "No architectural decisions have been recorded yet, sir.")
+                    "No architectural decisions have been recorded yet.")
             titles = [f"{d.title} [{d.status.label()}]" for d in decisions]
             answer = f"Architectural decisions recorded: {'; '.join(titles)}."
             return DecisionQueryResult(answered=True, question=query,
@@ -139,7 +139,7 @@ class DecisionQueryEngine:
             decisions = e.active()
             if not decisions:
                 return DecisionQueryResult.empty(query,
-                    "No active decisions recorded yet, sir.")
+                    "No active decisions recorded yet.")
             titles = [d.title for d in decisions]
             answer = f"Active decisions: {'; '.join(titles)}."
             return DecisionQueryResult(answered=True, question=query,
@@ -150,7 +150,7 @@ class DecisionQueryEngine:
             decisions = e.superseded()
             if not decisions:
                 return DecisionQueryResult.empty(query,
-                    "No decisions have been superseded yet, sir.")
+                    "No decisions have been superseded yet.")
             titles = [d.title for d in decisions]
             answer = f"Superseded decisions: {'; '.join(titles)}."
             return DecisionQueryResult(answered=True, question=query,
@@ -165,7 +165,7 @@ class DecisionQueryEngine:
             decisions = e.rejected()
             if not decisions:
                 return DecisionQueryResult.empty(query,
-                    "No rejected decisions have been recorded, sir.")
+                    "No rejected decisions have been recorded.")
             latest = decisions[-1]
             answer = (
                 f"The most recently rejected decision was {latest.title!r}. "
@@ -209,7 +209,7 @@ class DecisionQueryEngine:
             )
 
         return DecisionQueryResult.empty(query,
-            "No matching decision found, sir.")
+            "No matching decision found.")
 
     def _answer_temporal(self, query: str) -> DecisionQueryResult:
         """Answer 'what did we decide today/yesterday?'"""
@@ -224,7 +224,7 @@ class DecisionQueryEngine:
 
         if not decisions:
             return DecisionQueryResult.empty(query,
-                f"{label} no decisions were recorded, sir.")
+                f"{label} no decisions were recorded.")
 
         titles = [d.title for d in decisions]
         answer = f"{label}'s decisions: {'; '.join(titles)}."
@@ -236,7 +236,7 @@ class DecisionQueryEngine:
         decisions = self._engine.all_decisions()
         if not decisions:
             return DecisionQueryResult.empty(query,
-                "No decisions recorded yet, sir.")
+                "No decisions recorded yet.")
         lines = ["Architectural Decisions:"]
         for d in decisions:
             lines.append(f"  [{d.status.label():<12}] {d.title}")

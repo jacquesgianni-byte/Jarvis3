@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis AI Manager
 
 Coordinates all AI providers.
@@ -100,7 +100,7 @@ class AIManager:
             self.logger.error("AIManager.ask() called with no provider configured.")
             return Response(
                 success=False,
-                message="Sorry sir, no AI provider is configured.",
+                message="Sorry no AI provider is configured.",
             )
 
         try:
@@ -110,7 +110,7 @@ class AIManager:
             self.logger.exception("AIManager: provider raised unexpectedly.")
             return Response(
                 success=False,
-                message="Sorry sir, something unexpected went wrong while "
+                message="Sorry something unexpected went wrong while "
                         "contacting the AI service.",
                 data={"error": str(e), "error_kind": "provider_crash"},
             )

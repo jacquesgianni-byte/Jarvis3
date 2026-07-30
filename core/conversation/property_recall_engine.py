@@ -1,4 +1,4 @@
-"""
+﻿"""
 Property Recall Engine (Genesis-028 Sprint-001)
 
 Resolves property queries and assignments against KnowledgeEngine.
@@ -310,4 +310,4 @@ class PropertyRecallEngine:
             "location": f"{name} is located in {value}.",
             "priority": f"{name} has {value} priority.",
         }
-        return _TEMPLATES.get(property_key, f"{name}'s {property_key} is {value}.") + " Sir."
+        return _TEMPLATES.get(property_key, f"{name}'s {property_key} is {value}.")

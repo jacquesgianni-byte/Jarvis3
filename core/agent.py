@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Agent
 
 The central decision maker for Jarvis.
@@ -286,7 +286,7 @@ class Agent:
                     "[CVREF] Restored active_topic=%r for kind=%r",
                     _decl_rec.value, _conv_ref.kind,
                 )
-                _ack = Response(success=True, message="Of course, sir.")
+                _ack = Response(success=True, message="Of course.")
                 self.context.last_jarvis_response = _ack.message
                 self._post_turn(request, _ack.message)
                 return _ack
@@ -434,20 +434,20 @@ class Agent:
     def _respond_to_decision(self, decision: ConversationDecision) -> Response:
         """Translate a ConversationDecision into a user-facing Response."""
         if decision.outcome == ConversationOutcome.CONFIRMED:
-            return Response(success=True, message="Understood, sir. I will proceed.")
+            return Response(success=True, message="Understood. I will proceed.")
         if decision.outcome == ConversationOutcome.DENIED:
-            return Response(success=True, message="Understood, sir. I will stand by.")
+            return Response(success=True, message="Understood. I will stand by.")
         if decision.outcome == ConversationOutcome.CLARIFICATION:
             pending = decision.pending_question or decision.pending_action
             if pending:
-                return Response(success=True, message=f"Of course, sir. I was asking: {pending}")
-            return Response(success=True, message="I apologise for the confusion, sir. Please go ahead.")
+                return Response(success=True, message=f"Of course. I was asking: {pending}")
+            return Response(success=True, message="I apologise for the confusion. Please go ahead.")
         if decision.outcome == ConversationOutcome.CONTINUATION:
             pending = decision.pending_question or decision.pending_action
             if pending:
-                return Response(success=True, message=f"Of course, sir. To confirm — {pending}")
-            return Response(success=True, message="Please go ahead, sir.")
-        return Response(success=False, message="I'm not sure how to proceed, sir.")
+                return Response(success=True, message=f"Of course. To confirm — {pending}")
+            return Response(success=True, message="Please go ahead.")
+        return Response(success=False, message="I'm not sure how to proceed.")
 
     def _route(self, intent: Intent, request: str, resolution=None) -> Response:
         """Route a detected intent to the appropriate skill or AI fallback."""
@@ -473,13 +473,13 @@ class Agent:
         try:
             conv_decision = self.conversation_engine.process(request)
             if conv_decision.decision_type == DecisionType.RECOVERY:
-                return Response(success=True, message="Understood, sir. I've cleared that.")
+                return Response(success=True, message="Understood. I've cleared that.")
             if conv_decision.decision_type == DecisionType.SLOT_FILLED:
                 slot_name  = conv_decision.payload.get("slot_name", "")
                 slot_value = conv_decision.payload.get("slot_value", "")
                 if slot_name and slot_value:
                     self.skills.get("memory").remember(slot_name, slot_value)
-                return Response(success=True, message=f"Got it, sir. I've noted {slot_value!r}.")
+                return Response(success=True, message=f"Got it. I've noted {slot_value!r}.")
         except Exception:
             self.logger.exception("[CONV] ConversationEngine error — continuing with intent routing.")
 
@@ -576,7 +576,7 @@ class Agent:
                     if req_norm in {"how do you know", "how do you know that"}:
                         return Response(
                             success=True,
-                            message=f"You told me that earlier, sir. {last_response}"
+                            message=f"You told me that earlier. {last_response}"
                         )
                     return Response(success=True, message=f"I said: {last_response}")
             return self._execute_skill("reasoning", request)
@@ -610,7 +610,7 @@ class Agent:
             if rec is not None:
                 return Response(
                     success=True,
-                    message=f"Your {rec.attribute} is {rec.value}, sir."
+                    message=f"Your {rec.attribute} is {rec.value}."
                 )
 
         # 2-3. Recent conversation
@@ -642,11 +642,11 @@ class Agent:
                 if last_response:
                     return Response(
                         success=True,
-                        message=f"You told me that earlier, sir. {last_response}"
+                        message=f"You told me that earlier. {last_response}"
                     )
                 return Response(
                     success=True,
-                    message="You told me, sir. I store what you share with me."
+                    message="You told me. I store what you share with me."
                 )
 
             if req_stripped in {
@@ -656,7 +656,7 @@ class Agent:
                 if last_message:
                     return Response(
                         success=True,
-                        message=f"You just said: \"{last_message}\", sir."
+                        message=f"You just said: \"{last_message}\"."
                     )
 
         # 4. Session context
@@ -674,7 +674,7 @@ class Agent:
                 if parts:
                     return Response(
                         success=True,
-                        message=f"From context: {', '.join(parts)}, sir."
+                        message=f"From context: {', '.join(parts)}."
                     )
 
         # Genesis-026 Sprint-003: Reverse entity lookup (member to group).
@@ -725,7 +725,7 @@ class Agent:
                 return Response(
                     success=True,
                     message=f"Regarding {resolution.context_hint}: "
-                            f"{r.attribute} is {r.value}, sir."
+                            f"{r.attribute} is {r.value}."
                 )
 
         # 6.5 Generic property assignment / query (Genesis-028 Sprint-001)
@@ -787,7 +787,7 @@ class Agent:
                     _msg = (
                         f"I've reviewed your request and coordinated {_n} "
                         f"specialist worker" + ("s" if _n != 1 else "") +
-                        " to handle it. The plan is ready for your review, sir."
+                        " to handle it. The plan is ready for your review."
                     )
                     return Response(success=True, message=_msg)
 
