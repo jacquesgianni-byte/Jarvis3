@@ -28,6 +28,11 @@ Genesis-023 MP-004 Sprint-006 — DesktopShell Integration:
     TODO (Genesis-023 Sprint-008): Replace SidebarWidget compatibility
     layer with PresenceController + OrbController, then remove
     SidebarWidget completely.
+
+Genesis-030 Sprint-001 — Responsive Conversation Framework:
+    * ProcessWorker emits 'acknowledged' signal before calling Agent.
+    * ResponseCoordinator classifies requests as FAST/MEDIUM/LONG.
+    * MEDIUM/LONG requests show an immediate acknowledgement in the chat.
 """
 
 import time
@@ -43,17 +48,24 @@ from apps.desktop.widgets.sidebar import SidebarWidget
 from apps.desktop.widgets.status_bar import StatusBar
 from apps.desktop.shell.desktop_shell import DesktopShell
 from apps.desktop.controller.desktop_controller import DesktopController
+from core.response_coordinator import ResponseCoordinator  # Genesis-030
 
 
 class ProcessWorker(QObject):
     """
     Runs jarvis.process() on a background thread so the UI never blocks.
 
+    Genesis-030 Sprint-001: emits 'acknowledged' signal with an immediate
+    acknowledgement string before the main processing begins. The UI
+    displays this instantly so the user sees a response within ~50ms
+    even for long AI operations.
+
     The emitted result may be None — JarvisCore returns None when a newer
     request took ownership of the conversation while this one was being
     processed. The UI must silently discard None results.
     """
 
+    acknowledged = Signal(str)   # Genesis-030: fires before processing
     finished = Signal(object)
 
     def __init__(self, jarvis, message: str, queued_at: float = None):
@@ -61,9 +73,16 @@ class ProcessWorker(QObject):
         self._jarvis = jarvis
         self._message = message
         self._queued_at = queued_at if queued_at is not None else time.perf_counter()
+        self._coordinator = ResponseCoordinator()
 
     def run(self):
         telemetry.begin_request(queued_at=self._queued_at)
+
+        # Genesis-030 Sprint-001: classify and emit acknowledgement immediately.
+        classification = self._coordinator.classify(self._message)
+        if classification.needs_ack:
+            self.acknowledged.emit(classification.acknowledgement)
+
         response = self._jarvis.process(self._message)
         telemetry.end_request()
         self.finished.emit(response)
@@ -139,9 +158,6 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self._shell, stretch=1)
 
         # SidebarWidget — hidden compatibility shim.
-        # Retains set_orb_state() calls without visible presence.
-        # TODO (Genesis-023 Sprint-007): Replace with PresenceController
-        # + OrbController and remove SidebarWidget completely.
         self.sidebar = SidebarWidget()
         self.sidebar.setVisible(False)
 
@@ -199,16 +215,10 @@ class MainWindow(QMainWindow):
         return self._shell.chat_page.input_bar
 
     # ------------------------------------------------------------------
-    # Message handling — unchanged from pre-Sprint-006
+    # Message handling
     # ------------------------------------------------------------------
 
     def _on_action_button(self):
-        """
-        Dispatch the send/stop button based on the input bar state.
-
-        Idle       -> send the typed message.
-        Processing -> stop the active request.
-        """
         if self.input_bar.is_processing:
             self._stop_request()
         else:
@@ -240,6 +250,7 @@ class MainWindow(QMainWindow):
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
+        worker.acknowledged.connect(self._on_acknowledgement)   # Genesis-030
         worker.finished.connect(self._on_response)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
@@ -254,22 +265,7 @@ class MainWindow(QMainWindow):
         self._jobs = [(t, w) for (t, w) in self._jobs if t is not thread]
 
     def _stop_request(self):
-        """
-        Stop the active request.
-
-        The UI only forwards the request — JarvisCore owns all interrupt
-        logic. Works in both phases:
-
-        Thinking: ownership is released instantly; the abandoned worker
-        keeps running and its discarded None result (arriving at
-        _on_response) flips the status from "Stopping..." to "Ready".
-
-        Speaking: JarvisCore halts speech at the next word boundary;
-        the speech-watch timer observes silence and flips to "Ready"
-        via _return_to_idle.
-        """
         self.jarvis.stop()
-
         self.chat_view.hide_typing()
         self.status_bar_widget.set_status("Stopping...")
         self.sidebar.set_orb_state("idle")
@@ -277,9 +273,19 @@ class MainWindow(QMainWindow):
         self.input_bar.set_processing(False)
         self.input_bar.focus()
 
+    def _on_acknowledgement(self, text: str):
+        """
+        Genesis-030 Sprint-001: display immediate acknowledgement while
+        the full response is being processed in the background.
+        """
+        if not text:
+            return
+        self.chat_view.hide_typing()
+        self.chat_view.display_jarvis_message(text)
+        self.chat_view.show_typing()
+        self.status_bar_widget.set_status("Working...")
+
     def _on_response(self, response):
-        # None means a newer request owns the conversation (or Stop was
-        # pressed). Silently discard and close out "Stopping..." if idle.
         if response is None:
             if not self._busy:
                 self.status_bar_widget.set_status("Ready")
