@@ -1,5 +1,5 @@
 """
-Conversation State Engine (Genesis-029 Sprint-001)
+Conversation State Engine (Genesis-029 Sprint-002)
 
 Maintains short-lived conversational context so users don't have to
 repeat entity names within a dialogue.
@@ -7,6 +7,7 @@ repeat entity names within a dialogue.
 Responsibilities:
     - Track the active entity (last explicitly named subject)
     - Track the active entity group (last declared group)
+    - Detect explicit conversation focus changes ("Tell me about X", "What about X")
     - Resolve pronouns (he, she, it, they, their) deterministically
     - Expire stale context naturally via SessionContext decay
 
@@ -20,8 +21,9 @@ Design constraints:
 
 Architecture position:
     Agent._route()
-        └── ConversationStateEngine.resolve_pronouns()  ← before property ops
-        └── ConversationStateEngine.update_from_text()  ← after each turn
+        └── ConversationStateEngine.detect_focus_change()  ← Sprint-002: topic switching
+        └── ConversationStateEngine.resolve_pronoun()      ← before property ops
+        └── ConversationStateEngine.update_entity()        ← after property assignment
 
     SessionContext owns the live state slots.
     ConversationStateEngine reads and writes them.
@@ -31,7 +33,8 @@ Three-layer model:
     Conversation State → SessionContext  (in-memory, short-lived)   ← this module
     Reasoning          → ReasoningEngine (derives from both)
 
-Genesis-029 Sprint-001.
+Genesis-029 Sprint-001: pronoun resolution
+Genesis-029 Sprint-002: focus change detection
 """
 
 from __future__ import annotations
@@ -66,32 +69,22 @@ _ALL_PRONOUNS: frozenset[str] = _SINGULAR_PRONOUNS | _PLURAL_PRONOUNS
 
 # ---------------------------------------------------------------------------
 # Entity detection patterns
-#
-# Detects the subject of a statement so we can track the active entity.
-# Intentionally broad — we want to catch property assignments, introductions,
-# and bare declarations.
 # ---------------------------------------------------------------------------
 
-# "Rex is brown." / "Leo is 9." / "Canon is offline."
 _SUBJECT_IS_PATTERN = re.compile(
     r"^([A-Z][a-zA-Z\-]*)(?:\s+\w+)*\s+is\b",
     re.IGNORECASE,
 )
 
-# "Leo is now 9." / "Rex is now online."
 _SUBJECT_IS_NOW_PATTERN = re.compile(
     r"^([A-Z][a-zA-Z\-]*)\s+is\s+now\b",
     re.IGNORECASE,
 )
 
-# "Rex weighs 35 kg."
 _SUBJECT_WEIGHS_PATTERN = re.compile(
     r"^([A-Z][a-zA-Z\-]*)\s+weighs?\b",
     re.IGNORECASE,
 )
-
-# "He likes football." / "She plays piano." — after pronoun resolution
-# Used to detect subject from a resolved sentence, not needed here.
 
 # Stop words — never treat these as entity names
 _STOP_SUBJECTS: frozenset[str] = frozenset({
@@ -104,24 +97,80 @@ _STOP_SUBJECTS: frozenset[str] = frozenset({
     "how", "which", "is", "are", "was", "were",
 })
 
-# Minimum entity name length
 _MIN_ENTITY_LEN = 2
+
+# ---------------------------------------------------------------------------
+# Focus change patterns (Genesis-029 Sprint-002)
+#
+# Detect explicit topic/entity switches. Each pattern captures:
+#   group 1 = the entity or group name the user is switching to.
+#
+# Rules:
+#   - Only fire on deterministic signals — never guess.
+#   - If the capture is a stop word, ignore it.
+#   - Group-level switches (my printers, my children) update active_topic.
+#   - Entity-level switches (Lucas, Canon, HP) update active_person.
+# ---------------------------------------------------------------------------
+
+_FOCUS_ENTITY_PATTERNS: list[re.Pattern] = [
+    # "Tell me about Lucas." / "Tell me about Canon."
+    re.compile(r"\btell\s+me\s+about\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+    # "What about Chase?" / "What about HP?"
+    re.compile(r"\bwhat\s+about\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+    # "Let's talk about Rex." / "Let's focus on Canon."
+    re.compile(r"\blet'?s?\s+(?:talk|focus|go)\s+(?:about|on)\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+    # "Back to Lucas." / "Back to HP."
+    re.compile(r"\bback\s+to\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+    # "Speaking of Rex." / "Speaking of Canon."
+    re.compile(r"\bspeaking\s+of\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+    # "Now, Lucas." / "Now Rex." — bare "now + name" as a topic signal
+    re.compile(r"^now[,\s]+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+    # "Focus on HP." / "Switch to Lucas."
+    re.compile(r"\b(?:focus|switch)\s+(?:on|to)\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
+]
+
+_FOCUS_GROUP_PATTERNS: list[re.Pattern] = [
+    # "Let's talk about my printers." / "Now let's talk about my children."
+    re.compile(
+        r"\blet'?s?\s+(?:talk|focus|go)\s+(?:about|on)\s+my\s+(\w+)\b",
+        re.IGNORECASE,
+    ),
+    # "Tell me about my dogs." / "Tell me about my children."
+    re.compile(
+        r"\btell\s+me\s+about\s+my\s+(\w+)\b",
+        re.IGNORECASE,
+    ),
+    # "What about my printers?"
+    re.compile(
+        r"\bwhat\s+about\s+my\s+(\w+)\b",
+        re.IGNORECASE,
+    ),
+    # "Back to my children." / "Now my printers."
+    re.compile(
+        r"\b(?:back\s+to|now)\s+my\s+(\w+)\b",
+        re.IGNORECASE,
+    ),
+    # "Speaking of my dogs."
+    re.compile(
+        r"\bspeaking\s+of\s+my\s+(\w+)\b",
+        re.IGNORECASE,
+    ),
+]
+
+# Stop group words — generic words that aren't meaningful group names
+_STOP_GROUPS: frozenset[str] = frozenset({
+    "other", "another", "thing", "stuff", "things", "it", "that", "this",
+})
 
 
 # ---------------------------------------------------------------------------
-# Result dataclass
+# Result dataclasses
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class PronounResolution:
     """
     Result of resolving a pronoun in a user message.
-
-    resolved:       True if the pronoun was successfully resolved.
-    pronoun:        The original pronoun that was found ("he", "it", etc.)
-    entity:         The resolved entity name (e.g. "Leo", "Canon")
-    is_plural:      True if pronoun refers to a group
-    confidence:     How confident we are in the resolution
     """
     resolved:   bool
     pronoun:    str       = ""
@@ -134,6 +183,26 @@ class PronounResolution:
         return cls(resolved=False)
 
 
+@dataclass(frozen=True)
+class FocusChange:
+    """
+    Result of detecting a conversation focus change.
+
+    detected:    True if a focus change signal was found.
+    entity:      The entity or group name to focus on.
+    is_group:    True if this is a group-level switch (my printers).
+    confidence:  How confident we are in the detection.
+    """
+    detected:   bool
+    entity:     str   = ""
+    is_group:   bool  = False
+    confidence: float = 0.0
+
+    @classmethod
+    def not_found(cls) -> "FocusChange":
+        return cls(detected=False)
+
+
 # ---------------------------------------------------------------------------
 # ConversationStateEngine
 # ---------------------------------------------------------------------------
@@ -143,14 +212,109 @@ class ConversationStateEngine:
     Maintains conversational context and resolves pronouns deterministically.
 
     Reads from and writes to SessionContext. Does not own state itself.
-    Injected with SessionContext at construction time.
 
     Public API:
+        detect_focus_change(text)             — Sprint-002: detect topic switch
+        apply_focus_change(change, session)   — Sprint-002: update session state
         update_entity(name, session)          — call after detecting a named entity
         update_group(group_name, session)     — call after detecting a group declaration
         resolve_pronoun(text, session)        — returns PronounResolution
         extract_entity_from_text(text)        — returns entity name or None
+        rewrite_with_entity(text, resolution) — replace pronoun with entity name
     """
+
+    # ------------------------------------------------------------------
+    # Sprint-002: Focus change detection
+    # ------------------------------------------------------------------
+
+    def detect_focus_change(self, text: str) -> FocusChange:
+        """
+        Detect an explicit conversation focus change signal.
+
+        Matches patterns like:
+            "Tell me about Lucas."
+            "What about Chase?"
+            "Let's talk about my printers."
+            "Back to HP."
+            "Speaking of Rex."
+
+        Args:
+            text: The user's raw message.
+
+        Returns:
+            FocusChange — detected=True if a focus change was found.
+        """
+        if not text or not text.strip():
+            return FocusChange.not_found()
+
+        text = text.strip()
+
+        # Check group patterns first (more specific — "my X")
+        for pattern in _FOCUS_GROUP_PATTERNS:
+            m = pattern.search(text)
+            if not m:
+                continue
+            group_name = m.group(1).strip().lower()
+            if group_name in _STOP_GROUPS:
+                continue
+            if len(group_name) < _MIN_ENTITY_LEN:
+                continue
+            logger.info("[STATE] Focus change (group) → %r", group_name)
+            return FocusChange(
+                detected=True,
+                entity=group_name,
+                is_group=True,
+                confidence=0.92,
+            )
+
+        # Check entity patterns
+        for pattern in _FOCUS_ENTITY_PATTERNS:
+            m = pattern.search(text)
+            if not m:
+                continue
+            entity_name = m.group(1).strip()
+            if entity_name.lower() in _STOP_SUBJECTS:
+                continue
+            if len(entity_name) < _MIN_ENTITY_LEN:
+                continue
+            logger.info("[STATE] Focus change (entity) → %r", entity_name)
+            return FocusChange(
+                detected=True,
+                entity=entity_name,
+                is_group=False,
+                confidence=0.92,
+            )
+
+        return FocusChange.not_found()
+
+    def apply_focus_change(
+        self,
+        change: FocusChange,
+        session: "SessionContext",
+    ) -> None:
+        """
+        Apply a detected focus change to the SessionContext.
+
+        Group changes update active_topic with high confidence.
+        Entity changes update active_person with high confidence.
+
+        Args:
+            change:  A detected FocusChange.
+            session: The current SessionContext.
+        """
+        if not change.detected:
+            return
+
+        if change.is_group:
+            session.set_topic(change.entity, raw=change.entity, confidence=change.confidence)
+            logger.info("[STATE] Focus → group %r", change.entity)
+        else:
+            session.set_person(change.entity, raw=change.entity, confidence=change.confidence)
+            logger.info("[STATE] Focus → entity %r", change.entity)
+
+    # ------------------------------------------------------------------
+    # Sprint-001: Entity / group tracking
+    # ------------------------------------------------------------------
 
     def update_entity(self, name: str, session: "SessionContext") -> None:
         """
@@ -158,10 +322,6 @@ class ConversationStateEngine:
 
         Called whenever a named entity is explicitly mentioned as the
         subject of a statement (property assignment, introduction, etc.)
-
-        Args:
-            name:    The entity name (e.g. "Leo", "Rex", "Canon")
-            session: The current SessionContext
         """
         if not name or name.lower() in _STOP_SUBJECTS:
             return
@@ -180,10 +340,6 @@ class ConversationStateEngine:
 
         Called after a group declaration ("I have 3 dogs.") so that
         plural pronouns ("they", "their") resolve correctly.
-
-        Args:
-            group_name: The group description (e.g. "3 dogs", "2 children")
-            session:    The current SessionContext
         """
         if not group_name:
             return
@@ -193,6 +349,10 @@ class ConversationStateEngine:
 
         if not prev or prev.value.lower() != group_name.lower():
             logger.info("[STATE] Active group → %r", group_name)
+
+    # ------------------------------------------------------------------
+    # Sprint-001: Pronoun resolution
+    # ------------------------------------------------------------------
 
     def resolve_pronoun(
         self,
@@ -204,14 +364,6 @@ class ConversationStateEngine:
 
         Checks for singular pronouns (he/she/it) → active_person
         Checks for plural pronouns (they/their) → active_topic
-
-        Args:
-            text:    The user's raw message.
-            session: The current SessionContext.
-
-        Returns:
-            PronounResolution — resolved=True if a pronoun was found and
-            an entity could be determined.
         """
         if not text or not text.strip():
             return PronounResolution.not_found()
@@ -263,17 +415,10 @@ class ConversationStateEngine:
 
         Detects the named subject of "X is Y", "X weighs Y" etc.
         Returns None if no valid entity name found.
-
-        Args:
-            text: The user's raw message.
-
-        Returns:
-            Entity name string or None.
         """
         if not text or not text.strip():
             return None
 
-        # Questions never introduce a new subject
         if text.strip().endswith("?"):
             return None
 
@@ -297,27 +442,16 @@ class ConversationStateEngine:
 
         Used to rewrite "What colour is he?" → "What colour is Rex?"
         before passing to PropertyAssigner or PropertyRecallEngine.
-
-        Args:
-            text:       The original user message.
-            resolution: A successful PronounResolution.
-
-        Returns:
-            Rewritten text with pronoun replaced by entity name.
         """
         if not resolution.resolved:
             return text
 
-        # Replace pronoun with entity name (case-insensitive, whole word)
         pattern = re.compile(
             rf"\b{re.escape(resolution.pronoun)}\b",
             re.IGNORECASE,
         )
         rewritten = pattern.sub(resolution.entity, text, count=1)
-        logger.debug(
-            "[STATE] Rewritten: %r → %r",
-            text, rewritten,
-        )
+        logger.debug("[STATE] Rewritten: %r → %r", text, rewritten)
         return rewritten
 
     # ------------------------------------------------------------------

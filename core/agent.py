@@ -479,6 +479,27 @@ class Agent:
         # BEFORE ConversationEngine so queries like "what does he like?"
         # are not intercepted as slot fills.
 
+
+        # Genesis-029 Sprint-002: detect explicit focus change BEFORE pronoun resolution
+        _focus = self.conversation_state.detect_focus_change(request)
+        if _focus.detected:
+            self.conversation_state.apply_focus_change(_focus, self.session)
+            # Acknowledge the focus change immediately — no AI needed.
+            # If the entity has stored properties, summarise them; otherwise
+            # give a simple acknowledgement so the user can ask follow-up questions.
+            if not _focus.is_group:
+                from core.conversation.property_assigner import PropertyQuery
+                _props = self.property_recall.retrieve_all_properties(_focus.entity)
+                _display = _focus.entity.upper() if len(_focus.entity) <= 2 else _focus.entity.title()
+                if _props:
+                    _parts = [f"{k}: {v}" for k, v in _props.items()]
+                    _summary = f"{_display} — {', '.join(_parts)}."
+                else:
+                    _summary = f"Focusing on {_display}."
+            else:
+                _summary = f"Focusing on {_focus.entity}."
+            return Response(success=True, message=_summary)
+
         # Resolve pronouns first
         _pronoun_res = self.conversation_state.resolve_pronoun(request, self.session)
         _effective_request = (

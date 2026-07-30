@@ -121,8 +121,9 @@ class PropertyRecallEngine:
                 value=assignment.value,
                 tags=["entity_property", f"prop_key:{assignment.property_key}"],
             )
+            _name = assignment.subject.upper() if len(assignment.subject) <= 2 else assignment.subject.title()
             msg = (
-                f"Got it — {assignment.subject.title()} "
+                f"Got it — {_name} "
                 f"{self._verb_for(assignment.property_key)} {assignment.value}."
             )
             logger.info(
@@ -301,7 +302,7 @@ class PropertyRecallEngine:
         value: str,
     ) -> str:
         """Format a natural response for a property retrieval."""
-        name = subject.title()
+        name = subject.upper() if len(subject) <= 2 else subject.title()
         _TEMPLATES = {
             "age":      f"{name} is {value}.",
             "colour":   f"{name} is {value}.",
