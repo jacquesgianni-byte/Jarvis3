@@ -1,5 +1,5 @@
 """
-Jarvis Core
+Jarvis Core (Genesis-030 Sprint-002)
 
 The central container for all Jarvis subsystems.
 
@@ -9,20 +9,22 @@ Conversation ownership (Genesis-011 Task 002):
     opaque context; JarvisCore alone decides whether the finished
     response is still current and may be delivered. Stale responses
     are silently discarded (process() returns None).
+
+Genesis-030 Sprint-002:
+    Added process_stream() alongside the existing process().
+    Streaming is used when the active AI provider supports it.
+    Falls back to process() automatically when not supported.
 """
 
 from core.agent import Agent
-
 from core import telemetry
-
 from core.conversation import InterruptManager
-
 from core.voice.manager import VoiceManager
 from core.voice.providers.system_tts import SystemTTSProvider
-
 from core.ai.manager import AIManager
 from core.ai.providers.openai_provider import OpenAIProvider
 from core.ai.providers.anthropic_provider import AnthropicProvider
+from core.ai.streaming import StreamCallbacks
 from core.settings.settings import Settings
 
 
@@ -32,18 +34,16 @@ class JarvisCore:
     """
 
     def __init__(self) -> None:
-
         # Conversation ownership
         self.interrupts = InterruptManager()
 
-        # AI — both providers registered; Settings selects the active brain.
-        # Change DEFAULT_AI_PROVIDER in .env and restart to switch.
+        # AI -- both providers registered; Settings selects the active brain.
         _settings = Settings()
         self.ai = AIManager()
         self.ai.register_provider("openai",    OpenAIProvider())
         self.ai.register_provider("anthropic", AnthropicProvider())
         if not self.ai.activate(_settings.default_ai_provider):
-            self.ai.activate("openai")  # safe fallback
+            self.ai.activate("openai")
 
         # Agent
         self.agent = Agent(ai=self.ai)
@@ -54,64 +54,82 @@ class JarvisCore:
 
     def process(self, request: str):
         """
-        Process a user request.
+        Process a user request (blocking).
 
-        Returns the Response if it is still current, or None if a newer
-        request arrived while this one was being processed. Callers must
-        treat None as "silently discard — do nothing".
+        Returns the Response if still current, or None if a newer
+        request arrived while this one was being processed.
         """
-
         token = self.interrupts.new_request()
         telemetry.bind(token)
 
         with telemetry.stage("agent_total"):
             response = self.agent.process(request, token=token)
 
-        # Delivery gate: atomically checks the token is still current
-        # and marks it COMPLETED. If a newer request took ownership
-        # while the Agent was working, discard this response.
         if not self.interrupts.complete(token):
             return None
 
-        # NOTE: if VoiceManager queues speech asynchronously, this
-        # measures dispatch time, not actual speaking time. True
-        # synthesis timing belongs inside the voice layer.
         with telemetry.stage("voice_synthesis"):
             self.voice.speak(response.message)
 
         return response
 
+    def process_stream(self, request: str, callbacks: StreamCallbacks):
+        """
+        Process a user request with streaming (Genesis-030 Sprint-002).
+
+        If the active AI provider supports streaming, tokens are emitted
+        via callbacks.on_token() as they arrive from the provider.
+
+        If the provider does not support streaming, falls back to the
+        blocking process() path automatically -- callbacks.on_token()
+        receives the complete message as a single chunk.
+
+        Returns the Response if still current, or None if interrupted.
+
+        Args:
+            request:   The user's message.
+            callbacks: StreamCallbacks for on_token / on_complete / on_error.
+        """
+        token = self.interrupts.new_request()
+        telemetry.bind(token)
+
+        # Check if the active provider supports streaming
+        active = self.ai.active_provider
+        if active and active.supports_streaming:
+            # Route through Agent for conversation handling,
+            # then call ask_stream for the AI fallback layer.
+            # Agent handles memory, skills, and routing first.
+            with telemetry.stage("agent_total"):
+                response = self.agent.process_stream(request, callbacks, token=token)
+        else:
+            # Non-streaming fallback -- wrap blocking response as single token
+            with telemetry.stage("agent_total"):
+                response = self.agent.process(request, token=token)
+            if response and response.success:
+                callbacks.emit_token(response.message)
+                callbacks.emit_complete(response.message)
+            elif response:
+                callbacks.emit_error(Exception(response.message))
+
+        if not self.interrupts.complete(token):
+            return None
+
+        if response:
+            with telemetry.stage("voice_synthesis"):
+                self.voice.speak(response.message)
+
+        return response
+
     def stop(self) -> None:
         """
-        Stop the active request AND any active speech (Stop button).
-
-        Two independent effects, both safe no-ops when not applicable:
-          * interrupt_all() — a still-processing request's response will
-            be silently discarded when it finishes.
-          * voice.stop()    — speech already underway halts at the next
-            word boundary.
-
-        This is the expansion of stop() anticipated in Task 002 Part 2 —
-        the Desktop's call site is unchanged.
+        Stop the active request AND any active speech.
         """
-
         self.interrupts.interrupt_all()
         self.voice.stop()
 
     @property
     def is_speaking(self) -> bool:
-        """
-        True while Jarvis is speaking (or about to speak).
-
-        Facade over VoiceManager so interfaces observe voice state
-        through JarvisCore rather than reaching into subsystems.
-        """
-
         return self.voice.is_speaking
 
     def shutdown(self) -> None:
-        """
-        Shut down all Jarvis services cleanly.
-        """
-
         self.voice.shutdown()

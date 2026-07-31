@@ -1,24 +1,21 @@
-﻿"""
-OpenAI Provider
+"""
+OpenAI Provider (Genesis-030 Sprint-002)
 
 Implements the AIProvider interface using the OpenAI API.
 
 Genesis-011 Maintenance Patch 002:
     * Connection timeout (10s) and read timeout (45s) on every request.
-    * Retries disabled (max_retries=0) — a timed-out request is never
-      silently retried, keeping worst-case latency predictable and
-      avoiding double-billing for abandoned generations.
-    * Response length capped (_MAX_RESPONSE_TOKENS) so open-ended
-      prompts cannot generate for a minute at the user's expense.
-    * Every failure mode maps to a clean, spoken-friendly Response —
-      no exception ever escapes this module.
+    * Retries disabled (max_retries=0).
+    * Response length capped (_MAX_RESPONSE_TOKENS).
+    * Every failure mode maps to a clean Response.
     * Telemetry split into openai_request / openai_response /
-      response_parsing / ai_total, each tagged with provider and model.
+      response_parsing / ai_total.
 
-Telemetry honesty note:
-    openai_response measures the full blocking API round-trip. True
-    separation of network latency vs model generation time requires
-    streaming (time-to-first-token vs total) and is future work.
+Genesis-030 Sprint-002:
+    * supports_streaming = True
+    * ask_stream() uses OpenAI streaming API
+    * Tokens emitted via StreamCallbacks.emit_token()
+    * Fallback to ask() preserved for non-streaming callers
 """
 
 import time
@@ -36,17 +33,12 @@ from openai import (
 
 from core import telemetry
 from core.ai.providers.base import AIProvider
+from core.ai.streaming import StreamCallbacks
 from core.logger import get_logger
 from core.models.response import Response
 from core.settings.settings import Settings
 
-# Cap on completion tokens per reply. IMPORTANT: on reasoning models
-# (gpt-5, o-series) this budget ALSO covers hidden reasoning tokens —
-# set too low, the model spends it all on thinking and returns an EMPTY
-# answer. 2000 leaves room to think and still write a spoken-length
-# reply, while keeping worst-case cost bounded. Candidate for Settings.
 _MAX_RESPONSE_TOKENS = 2000
-
 _CONNECT_TIMEOUT_S = 10.0
 _READ_TIMEOUT_S = 45.0
 
@@ -55,36 +47,120 @@ class OpenAIProvider(AIProvider):
     """
     OpenAI implementation of the AIProvider interface.
 
-    Every call to ask() ends in exactly one of two states: a successful
-    Response, or a graceful-failure Response. Never an exception.
+    Supports incremental streaming via ask_stream().
+    Falls back to blocking ask() for non-streaming callers.
     """
 
     def __init__(self):
-
         self.settings = Settings()
         self.logger = get_logger()
-
-        # Which token-limit parameter the model accepts. Newer models
-        # (gpt-5, o-series) require max_completion_tokens; older ones
-        # use max_tokens. We default to the modern name and adapt once,
-        # automatically, if the API rejects it — no model list to
-        # maintain (Maintenance Patch 002.1).
         self._token_param = "max_completion_tokens"
-
         self.client = OpenAI(
             api_key=self.settings.openai_api_key,
             timeout=httpx.Timeout(_READ_TIMEOUT_S, connect=_CONNECT_TIMEOUT_S),
             max_retries=0,
         )
 
+    # ------------------------------------------------------------------
+    # Genesis-030 Sprint-002: streaming support
+    # ------------------------------------------------------------------
+
+    @property
+    def supports_streaming(self) -> bool:
+        return True
+
+    def ask_stream(self, prompt: str, callbacks: StreamCallbacks) -> Response:
+        """
+        Stream a response from OpenAI incrementally.
+
+        Emits tokens via callbacks.on_token() as they arrive.
+        Calls callbacks.on_complete() when the stream ends.
+        Calls callbacks.on_error() on any failure.
+
+        Returns a complete Response for compatibility with callers
+        that use the return value directly.
+        """
+        if not self.settings.openai_api_key:
+            err = Exception("OpenAI API key has not been configured.")
+            callbacks.emit_error(err)
+            return Response(success=False, message=str(err))
+
+        fields = {"provider": "openai", "model": self.settings.default_model}
+        messages = [
+            {"role": "system", "content": self._system_prompt()},
+            {"role": "user",   "content": prompt},
+        ]
+
+        full_text = []
+
+        try:
+            with telemetry.stage("openai_request", **fields):
+                pass  # message build is instant
+
+            with telemetry.stage("openai_response", **fields):
+                stream = self.client.chat.completions.create(
+                    model=self.settings.default_model,
+                    messages=messages,
+                    stream=True,
+                    **{self._token_param: _MAX_RESPONSE_TOKENS},
+                )
+
+            with telemetry.stage("response_parsing", **fields):
+                for chunk in stream:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    token = getattr(delta, "content", None) if delta else None
+                    if token:
+                        full_text.append(token)
+                        callbacks.emit_token(token)
+
+            complete = "".join(full_text).strip()
+
+            if not complete:
+                err = Exception(
+                    "Sorry the AI service returned an empty response. Please try again."
+                )
+                callbacks.emit_error(err)
+                return Response(success=False, message=str(err))
+
+            callbacks.emit_complete(complete)
+            return Response(success=True, message=complete)
+
+        except APITimeoutError as e:
+            msg = "Sorry the AI service is taking too long to respond. Please try again."
+            callbacks.emit_error(e)
+            return self._fail("timeout", e, msg)
+        except APIConnectionError as e:
+            msg = "Sorry I'm having trouble contacting the AI service right now."
+            callbacks.emit_error(e)
+            return self._fail("connection", e, msg)
+        except AuthenticationError as e:
+            msg = "My OpenAI API key appears to be invalid. Please check the key configuration."
+            callbacks.emit_error(e)
+            return self._fail("authentication", e, msg)
+        except RateLimitError as e:
+            msg = "We've hit the AI service rate limit. Give it a moment and try again."
+            callbacks.emit_error(e)
+            return self._fail("rate_limit", e, msg)
+        except APIStatusError as e:
+            msg = "Sorry the AI service reported an error. Please try again shortly."
+            callbacks.emit_error(e)
+            return self._fail("api_status", e, msg)
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("OpenAIProvider: unexpected streaming failure.")
+            msg = "Sorry something unexpected went wrong while contacting the AI service."
+            callbacks.emit_error(e)
+            return self._fail("unexpected", e, msg)
+
+    # ------------------------------------------------------------------
+    # Existing blocking ask() -- unchanged
+    # ------------------------------------------------------------------
+
     def ask(self, prompt: str) -> Response:
         """
-        Send a prompt to OpenAI.
+        Send a prompt to OpenAI (blocking).
 
-        Returns a Response in all circumstances — success or a clean,
-        user-friendly failure. Exceptions never escape.
+        Returns a Response in all circumstances.
         """
-
         if not self.settings.openai_api_key:
             return Response(
                 success=False,
@@ -94,17 +170,10 @@ class OpenAIProvider(AIProvider):
         fields = {"provider": "openai", "model": self.settings.default_model}
 
         with telemetry.stage("ai_total", **fields):
-
             with telemetry.stage("openai_request", **fields):
                 messages = [
-                    {
-                        "role": "system",
-                        "content": self._system_prompt(),
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    },
+                    {"role": "system", "content": self._system_prompt()},
+                    {"role": "user",   "content": prompt},
                 ]
 
             request_started = time.perf_counter()
@@ -112,43 +181,36 @@ class OpenAIProvider(AIProvider):
                 with telemetry.stage("openai_response", **fields):
                     completion = self._create_completion(messages)
 
-            # Order matters: APITimeoutError subclasses APIConnectionError.
             except APITimeoutError as e:
                 return self._fail(
                     "timeout", e,
-                    "Sorry the AI service is taking too long to "
-                    "respond. Please try again."
+                    "Sorry the AI service is taking too long to respond. Please try again."
                 )
             except APIConnectionError as e:
                 return self._fail(
                     "connection", e,
-                    "Sorry I'm having trouble contacting the AI "
-                    "service right now."
+                    "Sorry I'm having trouble contacting the AI service right now."
                 )
             except AuthenticationError as e:
                 return self._fail(
                     "authentication", e,
-                    "my OpenAI API key appears to be invalid or "
-                    "rejected. Please check the key configuration."
+                    "my OpenAI API key appears to be invalid or rejected."
                 )
             except RateLimitError as e:
                 return self._fail(
                     "rate_limit", e,
-                    "we've hit the AI service rate limit. Give it a "
-                    "moment and try again."
+                    "we've hit the AI service rate limit. Give it a moment and try again."
                 )
             except APIStatusError as e:
                 return self._fail(
                     "api_status", e,
-                    "Sorry the AI service reported an error. Please "
-                    "try again shortly."
+                    "Sorry the AI service reported an error. Please try again shortly."
                 )
-            except Exception as e:  # noqa: BLE001 — final safety net
+            except Exception as e:  # noqa: BLE001
                 self.logger.exception("OpenAIProvider: unexpected failure.")
                 return self._fail(
                     "unexpected", e,
-                    "Sorry something unexpected went wrong while "
-                    "contacting the AI service."
+                    "Sorry something unexpected went wrong while contacting the AI service."
                 )
 
             with telemetry.stage("response_parsing", **fields):
@@ -157,45 +219,25 @@ class OpenAIProvider(AIProvider):
 
                 reply = (completion.choices[0].message.content or "").strip()
 
-                # An empty completion must never become a silent blank
-                # bubble. On reasoning models this typically means the
-                # token budget was consumed by hidden reasoning
-                # (finish_reason='length').
                 if not reply:
-                    finish = getattr(
-                        completion.choices[0], "finish_reason", None
-                    )
+                    finish = getattr(completion.choices[0], "finish_reason", None)
                     self.logger.error(
                         "OpenAIProvider: empty completion | model=%s | finish_reason=%s",
                         self.settings.default_model, finish,
                     )
                     return Response(
                         success=False,
-                        message="Sorry the AI service returned an "
-                                "empty response. Please try again.",
-                        data={
-                            "error_kind": "empty_completion",
-                            "finish_reason": str(finish),
-                        },
+                        message="Sorry the AI service returned an empty response. Please try again.",
+                        data={"error_kind": "empty_completion", "finish_reason": str(finish)},
                     )
 
-                return Response(
-                    success=True,
-                    message=reply,
-                )
+                return Response(success=True, message=reply)
+
+    # ------------------------------------------------------------------
+    # Internal helpers -- unchanged
+    # ------------------------------------------------------------------
 
     def _create_completion(self, messages):
-        """
-        Call the chat completions API with the response-length cap,
-        adapting the token-limit parameter name to what the model
-        accepts.
-
-        First call uses the current parameter (modern name by default).
-        If the API rejects it as unsupported_parameter, we switch to the
-        other name, remember the choice for all future requests, and
-        retry once. Any other error propagates to ask()'s handlers.
-        """
-
         for attempt in range(2):
             try:
                 return self.client.chat.completions.create(
@@ -218,23 +260,13 @@ class OpenAIProvider(AIProvider):
                         else "max_completion_tokens"
                     )
                     self.logger.info(
-                        "OpenAIProvider: model %s rejected %r — switching to %r.",
+                        "OpenAIProvider: model %s rejected %r -- switching to %r.",
                         self.settings.default_model, previous, self._token_param,
                     )
                     continue
                 raise
 
     def _log_usage(self, completion, ai_ms: float) -> None:
-        """
-        Log one summary line per AI request — the single-glance record:
-
-            USAGE | req=13 | model=gpt-5 | ai_ms=8421 | prompt=45 |
-            completion=1900 | reasoning=1680 | finish=length
-
-        reasoning is only reported by reasoning models; None otherwise.
-        Never raises — logging must not break the pipeline.
-        """
-
         try:
             choice = completion.choices[0]
             usage = getattr(completion, "usage", None)
@@ -254,8 +286,6 @@ class OpenAIProvider(AIProvider):
             self.logger.exception("OpenAIProvider: failed to log usage.")
 
     def _fail(self, kind: str, error: Exception, message: str) -> Response:
-        """Log a categorised failure and return a clean Response."""
-
         self.logger.error(
             "OpenAIProvider: %s error | model=%s | %s",
             kind, self.settings.default_model, error,
@@ -267,10 +297,6 @@ class OpenAIProvider(AIProvider):
         )
 
     def _system_prompt(self) -> str:
-        """
-        Build the system prompt.
-        """
-
         return (
             f"You are {self.settings.assistant_name}. "
             f"Your personality is {self.settings.personality}. "

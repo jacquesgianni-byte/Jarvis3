@@ -1,38 +1,16 @@
 """
-Jarvis OS Main Window (Genesis-023 MP-004 Sprint-006)
+Jarvis OS Main Window (Genesis-030 Sprint-002)
 
-The primary application window for Jarvis OS Desktop.
-Composes all widgets into the complete interface.
-
-Genesis-011 Desktop Improvement — Input Independence:
-    * The input field is never disabled; typing and speech are
-      independent. Enter (with text) while Jarvis is thinking or
-      speaking interrupts the current request and starts the new one.
-    * Empty Enter never interrupts anything.
-
-Genesis-011 Task 002 (Part 2) — Desktop Worker Integration:
-    * The action button dispatches: Send when idle, Stop when processing.
-    * Stop forwards to JarvisCore.stop() — the UI adds no interrupt logic.
-    * JarvisCore.process() may return None, meaning a newer request owns
-      the conversation; the worker result is then silently discarded.
-    * Worker threads are tracked until finished so overlapping requests
-      can never crash Qt ("QThread destroyed while running").
-
-Genesis-023 MP-004 Sprint-006 — DesktopShell Integration:
-    * Body area migrated from inline ChatView/InputBar to DesktopShell.
-    * DesktopShell hosts ChatPage which owns ChatView and InputBar.
-    * DesktopController introduced as the desktop behaviour coordinator.
-    * SidebarWidget retained as a hidden compatibility layer so orb
-      state calls continue to work without modification.
-
-    TODO (Genesis-023 Sprint-008): Replace SidebarWidget compatibility
-    layer with PresenceController + OrbController, then remove
-    SidebarWidget completely.
-
-Genesis-030 Sprint-001 — Responsive Conversation Framework:
+Genesis-030 Sprint-001: Responsive Conversation Framework
     * ProcessWorker emits 'acknowledged' signal before calling Agent.
     * ResponseCoordinator classifies requests as FAST/MEDIUM/LONG.
     * MEDIUM/LONG requests show an immediate acknowledgement in the chat.
+
+Genesis-030 Sprint-002: Incremental AI Streaming
+    * ProcessWorker uses JarvisCore.process_stream() for streaming providers.
+    * Emits 'token' signal per chunk -- UI appends text progressively.
+    * Falls back to process() for non-streaming providers automatically.
+    * StreamCallbacks bridge between background thread and Qt signals.
 """
 
 import time
@@ -48,25 +26,26 @@ from apps.desktop.widgets.sidebar import SidebarWidget
 from apps.desktop.widgets.status_bar import StatusBar
 from apps.desktop.shell.desktop_shell import DesktopShell
 from apps.desktop.controller.desktop_controller import DesktopController
-from core.response_coordinator import ResponseCoordinator  # Genesis-030
+from core.response_coordinator import ResponseCoordinator
+from core.ai.streaming import StreamCallbacks
 
 
 class ProcessWorker(QObject):
     """
-    Runs jarvis.process() on a background thread so the UI never blocks.
+    Runs jarvis processing on a background thread so the UI never blocks.
 
-    Genesis-030 Sprint-001: emits 'acknowledged' signal with an immediate
-    acknowledgement string before the main processing begins. The UI
-    displays this instantly so the user sees a response within ~50ms
-    even for long AI operations.
+    Genesis-030 Sprint-001: emits 'acknowledged' before processing.
+    Genesis-030 Sprint-002: emits 'token' per streaming chunk.
 
-    The emitted result may be None — JarvisCore returns None when a newer
-    request took ownership of the conversation while this one was being
-    processed. The UI must silently discard None results.
+    Signal order:
+        acknowledged (str)  -- immediate ack for MEDIUM/LONG requests
+        token (str)         -- one per streaming chunk (may be many)
+        finished (object)   -- final Response (or None if interrupted)
     """
 
-    acknowledged = Signal(str)   # Genesis-030: fires before processing
-    finished = Signal(object)
+    acknowledged = Signal(str)
+    token        = Signal(str)
+    finished     = Signal(object)
 
     def __init__(self, jarvis, message: str, queued_at: float = None):
         super().__init__()
@@ -78,12 +57,36 @@ class ProcessWorker(QObject):
     def run(self):
         telemetry.begin_request(queued_at=self._queued_at)
 
-        # Genesis-030 Sprint-001: classify and emit acknowledgement immediately.
+        # Classify and emit acknowledgement immediately.
         classification = self._coordinator.classify(self._message)
         if classification.needs_ack:
             self.acknowledged.emit(classification.acknowledgement)
 
-        response = self._jarvis.process(self._message)
+        # Build StreamCallbacks that bridge to Qt signals.
+        # on_token emits the token signal on the worker thread --
+        # Qt queued connections deliver it safely to the main thread.
+        _first_token = [True]  # track whether we've started streaming
+
+        def on_token(text: str) -> None:
+            if _first_token[0]:
+                _first_token[0] = False
+            self.token.emit(text)
+
+        def on_complete(full_text: str) -> None:
+            pass  # finished signal carries the final Response
+
+        def on_error(exc: Exception) -> None:
+            pass  # finished signal carries the Response with error message
+
+        callbacks = StreamCallbacks(
+            on_token=on_token,
+            on_complete=on_complete,
+            on_error=on_error,
+        )
+
+        # Use streaming path -- falls back to blocking if provider
+        # does not support streaming.
+        response = self._jarvis.process_stream(self._message, callbacks)
         telemetry.end_request()
         self.finished.emit(response)
 
@@ -91,17 +94,6 @@ class ProcessWorker(QObject):
 class MainWindow(QMainWindow):
     """
     The main window for Jarvis OS Desktop.
-
-    Sprint-006 layout:
-
-        Header
-        DesktopShell
-            └── ChatPage (ChatView + InputBar)
-        StatusBar
-
-    SidebarWidget is instantiated but hidden — it serves as a
-    compatibility shim for orb state calls until Sprint-007 replaces
-    it with PresenceController + OrbController.
     """
 
     def __init__(self, jarvis):
@@ -109,14 +101,13 @@ class MainWindow(QMainWindow):
 
         self.jarvis = jarvis
         self._busy = False
+        self._streaming = False  # True while tokens are arriving
 
-        # Speech lifecycle observation (Genesis-011 Task 002.6).
         self._awaiting_speech_end = False
         self._speech_timer = QTimer(self)
         self._speech_timer.setInterval(150)
         self._speech_timer.timeout.connect(self._check_speech_finished)
 
-        # Live worker threads. Entries removed when thread finishes.
         self._jobs = []
 
         self.setWindowTitle(Theme.WINDOW_TITLE)
@@ -127,7 +118,6 @@ class MainWindow(QMainWindow):
         self._apply_global_style()
         self._connect_signals()
 
-        # Startup via controller — shows initial page.
         self._controller.startup()
 
         self.chat_view.display_system_message(
@@ -140,7 +130,6 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_ui(self):
-
         root = QWidget()
         self.setCentralWidget(root)
 
@@ -148,26 +137,20 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # Header — unchanged.
         self.header = HeaderWidget()
         root_layout.addWidget(self.header)
 
-        # DesktopShell — owns all page navigation.
-        # Sprint-006: ChatPage is the only registered page.
         self._shell = DesktopShell()
         root_layout.addWidget(self._shell, stretch=1)
 
-        # SidebarWidget — hidden compatibility shim.
         self.sidebar = SidebarWidget()
         self.sidebar.setVisible(False)
 
-        # DesktopController — coordinates shell and JarvisCore.
         self._controller = DesktopController(
             jarvis=self.jarvis,
             shell=self._shell,
         )
 
-        # Status bar — unchanged.
         self.status_bar_widget = StatusBar()
         root_layout.addWidget(self.status_bar_widget)
 
@@ -201,17 +184,15 @@ class MainWindow(QMainWindow):
         self.input_bar.voice_button.clicked.connect(self._toggle_voice)
 
     # ------------------------------------------------------------------
-    # Convenience accessors — route through DesktopShell's ChatPage
+    # Convenience accessors
     # ------------------------------------------------------------------
 
     @property
     def chat_view(self):
-        """The active ChatView, hosted inside ChatPage."""
         return self._shell.chat_page.chat_view
 
     @property
     def input_bar(self):
-        """The active InputBar, hosted inside ChatPage."""
         return self._shell.chat_page.input_bar
 
     # ------------------------------------------------------------------
@@ -235,6 +216,7 @@ class MainWindow(QMainWindow):
             self.chat_view.hide_typing()
 
         self._busy = True
+        self._streaming = False
         self._awaiting_speech_end = False
         self._speech_timer.stop()
         self.input_bar.clear()
@@ -250,7 +232,8 @@ class MainWindow(QMainWindow):
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
-        worker.acknowledged.connect(self._on_acknowledgement)   # Genesis-030
+        worker.acknowledged.connect(self._on_acknowledgement)
+        worker.token.connect(self._on_token)              # Genesis-030 Sprint-002
         worker.finished.connect(self._on_response)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
@@ -261,7 +244,6 @@ class MainWindow(QMainWindow):
         thread.start()
 
     def _forget_job(self, thread):
-        """Drop the finished thread's references so it can be collected."""
         self._jobs = [(t, w) for (t, w) in self._jobs if t is not thread]
 
     def _stop_request(self):
@@ -270,14 +252,12 @@ class MainWindow(QMainWindow):
         self.status_bar_widget.set_status("Stopping...")
         self.sidebar.set_orb_state("idle")
         self._busy = False
+        self._streaming = False
         self.input_bar.set_processing(False)
         self.input_bar.focus()
 
     def _on_acknowledgement(self, text: str):
-        """
-        Genesis-030 Sprint-001: display immediate acknowledgement while
-        the full response is being processed in the background.
-        """
+        """Display immediate acknowledgement (Genesis-030 Sprint-001)."""
         if not text:
             return
         self.chat_view.hide_typing()
@@ -285,14 +265,56 @@ class MainWindow(QMainWindow):
         self.chat_view.show_typing()
         self.status_bar_widget.set_status("Working...")
 
+    def _on_token(self, text: str):
+        """
+        Append a streaming token to the chat view (Genesis-030 Sprint-002).
+
+        First token hides the typing indicator and starts a new message
+        bubble. Subsequent tokens append to the same bubble.
+        """
+        if not text:
+            return
+
+        if not self._streaming:
+            # First token -- hide typing indicator, start fresh message
+            self._streaming = True
+            self.chat_view.hide_typing()
+            self.status_bar_widget.set_status("Responding...")
+
+        # Append token to the current streaming message.
+        # Falls back to display_jarvis_message if append_token not available.
+        if hasattr(self.chat_view, "append_token"):
+            self.chat_view.append_token(text)
+        else:
+            # Fallback: accumulate tokens and display when complete
+            if not hasattr(self, "_token_buffer"):
+                self._token_buffer = []
+            self._token_buffer.append(text)
+
     def _on_response(self, response):
+        """Handle final response (streaming or blocking)."""
         if response is None:
             if not self._busy:
                 self.status_bar_widget.set_status("Ready")
             return
 
-        self.chat_view.hide_typing()
-        self.chat_view.display_jarvis_message(response.message)
+        # If we were streaming, the message is already shown token by token.
+        # If not streaming (fast response or non-streaming provider),
+        # display the complete message now.
+        if not self._streaming:
+            self.chat_view.hide_typing()
+            self.chat_view.display_jarvis_message(response.message)
+        else:
+            # Flush any token buffer fallback
+            if hasattr(self, "_token_buffer") and self._token_buffer:
+                full = "".join(self._token_buffer)
+                self._token_buffer = []
+                self.chat_view.display_jarvis_message(full)
+            # Finalise the streaming bubble if supported
+            if hasattr(self.chat_view, "finalise_stream"):
+                self.chat_view.finalise_stream()
+
+        self._streaming = False
         self.sidebar.set_orb_state("speaking")
         self.status_bar_widget.set_status("Speaking...")
 
@@ -305,17 +327,16 @@ class MainWindow(QMainWindow):
         self._speech_timer.start()
 
     def _check_speech_finished(self):
-        """Poll the voice state and return to Idle when speech truly ends."""
         if not self._awaiting_speech_end:
             self._speech_timer.stop()
             return
-
         if not self.jarvis.is_speaking:
             self._speech_timer.stop()
             self._return_to_idle()
 
     def _return_to_idle(self):
         self._busy = False
+        self._streaming = False
         self._awaiting_speech_end = False
         self._speech_timer.stop()
         self.sidebar.set_orb_state("idle")
@@ -329,7 +350,7 @@ class MainWindow(QMainWindow):
         self.input_bar.set_voice_active(True)
 
     # ------------------------------------------------------------------
-    # Public API — unchanged
+    # Public API
     # ------------------------------------------------------------------
 
     def display_system_message(self, message: str):
