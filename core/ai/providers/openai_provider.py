@@ -1,21 +1,11 @@
 """
-OpenAI Provider (Genesis-030 Sprint-002)
+OpenAI Provider (Genesis-030 Sprint-003)
 
-Implements the AIProvider interface using the OpenAI API.
-
-Genesis-011 Maintenance Patch 002:
-    * Connection timeout (10s) and read timeout (45s) on every request.
-    * Retries disabled (max_retries=0).
-    * Response length capped (_MAX_RESPONSE_TOKENS).
-    * Every failure mode maps to a clean Response.
-    * Telemetry split into openai_request / openai_response /
-      response_parsing / ai_total.
-
-Genesis-030 Sprint-002:
-    * supports_streaming = True
-    * ask_stream() uses OpenAI streaming API
-    * Tokens emitted via StreamCallbacks.emit_token()
-    * Fallback to ask() preserved for non-streaming callers
+Adds interruption support to ask_stream():
+    - Accepts an optional is_cancelled callable
+    - Checks cancellation between each token
+    - Closes the stream cleanly on cancellation
+    - Emits partial response if cancelled mid-stream
 """
 
 import time
@@ -42,13 +32,13 @@ _MAX_RESPONSE_TOKENS = 2000
 _CONNECT_TIMEOUT_S = 10.0
 _READ_TIMEOUT_S = 45.0
 
+# Sentinel returned when stream was cancelled mid-way
+_CANCELLED = object()
+
 
 class OpenAIProvider(AIProvider):
     """
-    OpenAI implementation of the AIProvider interface.
-
-    Supports incremental streaming via ask_stream().
-    Falls back to blocking ask() for non-streaming callers.
+    OpenAI implementation of AIProvider with streaming + interruption support.
     """
 
     def __init__(self):
@@ -61,24 +51,27 @@ class OpenAIProvider(AIProvider):
             max_retries=0,
         )
 
-    # ------------------------------------------------------------------
-    # Genesis-030 Sprint-002: streaming support
-    # ------------------------------------------------------------------
-
     @property
     def supports_streaming(self) -> bool:
         return True
 
-    def ask_stream(self, prompt: str, callbacks: StreamCallbacks) -> Response:
+    def ask_stream(
+        self,
+        prompt: str,
+        callbacks: StreamCallbacks,
+        is_cancelled=None,
+    ) -> Response:
         """
         Stream a response from OpenAI incrementally.
 
-        Emits tokens via callbacks.on_token() as they arrive.
-        Calls callbacks.on_complete() when the stream ends.
-        Calls callbacks.on_error() on any failure.
+        Genesis-030 Sprint-003: accepts optional is_cancelled callable.
+        If is_cancelled() returns True mid-stream, the stream is closed
+        cleanly and the partial response is returned.
 
-        Returns a complete Response for compatibility with callers
-        that use the return value directly.
+        Args:
+            prompt:       The user's prompt.
+            callbacks:    StreamCallbacks for token/complete/error events.
+            is_cancelled: Optional callable returning True when cancelled.
         """
         if not self.settings.openai_api_key:
             err = Exception("OpenAI API key has not been configured.")
@@ -94,9 +87,6 @@ class OpenAIProvider(AIProvider):
         full_text = []
 
         try:
-            with telemetry.stage("openai_request", **fields):
-                pass  # message build is instant
-
             with telemetry.stage("openai_response", **fields):
                 stream = self.client.chat.completions.create(
                     model=self.settings.default_model,
@@ -107,6 +97,23 @@ class OpenAIProvider(AIProvider):
 
             with telemetry.stage("response_parsing", **fields):
                 for chunk in stream:
+                    # Genesis-030 Sprint-003: check cancellation each token
+                    if is_cancelled and is_cancelled():
+                        stream.close()
+                        partial = "".join(full_text).strip()
+                        if partial:
+                            callbacks.emit_complete(partial)
+                            return Response(
+                                success=True,
+                                message=partial,
+                                data={"cancelled": True},
+                            )
+                        return Response(
+                            success=False,
+                            message="Cancelled.",
+                            data={"cancelled": True},
+                        )
+
                     delta = chunk.choices[0].delta if chunk.choices else None
                     token = getattr(delta, "content", None) if delta else None
                     if token:
@@ -145,22 +152,14 @@ class OpenAIProvider(AIProvider):
             msg = "Sorry the AI service reported an error. Please try again shortly."
             callbacks.emit_error(e)
             return self._fail("api_status", e, msg)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.logger.exception("OpenAIProvider: unexpected streaming failure.")
             msg = "Sorry something unexpected went wrong while contacting the AI service."
             callbacks.emit_error(e)
             return self._fail("unexpected", e, msg)
 
-    # ------------------------------------------------------------------
-    # Existing blocking ask() -- unchanged
-    # ------------------------------------------------------------------
-
     def ask(self, prompt: str) -> Response:
-        """
-        Send a prompt to OpenAI (blocking).
-
-        Returns a Response in all circumstances.
-        """
+        """Send a prompt to OpenAI (blocking)."""
         if not self.settings.openai_api_key:
             return Response(
                 success=False,
@@ -206,7 +205,7 @@ class OpenAIProvider(AIProvider):
                     "api_status", e,
                     "Sorry the AI service reported an error. Please try again shortly."
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 self.logger.exception("OpenAIProvider: unexpected failure.")
                 return self._fail(
                     "unexpected", e,
@@ -232,10 +231,6 @@ class OpenAIProvider(AIProvider):
                     )
 
                 return Response(success=True, message=reply)
-
-    # ------------------------------------------------------------------
-    # Internal helpers -- unchanged
-    # ------------------------------------------------------------------
 
     def _create_completion(self, messages):
         for attempt in range(2):
