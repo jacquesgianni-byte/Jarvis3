@@ -1,8 +1,10 @@
 """
-Jarvis Core (Genesis-030 Sprint-003)
+Jarvis Core (Genesis-030 Sprint-003 safe fix)
 
-Added is_cancelled hook to process_stream() so streaming providers
-can check interruption between tokens and close the stream cleanly.
+process_stream() uses agent.process() for all conversation handling.
+Tokens are emitted after the response arrives.
+True token-by-token streaming will be implemented in Sprint-004
+once the Agent streaming hook is properly designed.
 """
 
 import threading
@@ -55,39 +57,28 @@ class JarvisCore:
 
     def process_stream(self, request: str, callbacks: StreamCallbacks):
         """
-        Process a user request with streaming.
+        Process a user request, emitting the response via callbacks.
 
-        Genesis-030 Sprint-003: passes is_cancelled to ask_stream() so
-        the provider checks interruption between tokens and closes
-        the stream cleanly.
+        Currently uses agent.process() for all conversation handling
+        and emits the complete response as a single token.
+        True incremental streaming at the Agent level is Sprint-004.
         """
         token = self.interrupts.new_request()
         telemetry.bind(token)
-
-        # Reset cancel event for this request
         self._cancel_event.clear()
 
-        def is_cancelled() -> bool:
-            return self._cancel_event.is_set()
-
-        active = self.ai.active_provider
-        if active and active.supports_streaming:
-            with telemetry.stage("agent_total"):
-                response = self.agent.process_stream(
-                    request, callbacks, token=token
-                )
-        else:
-            with telemetry.stage("agent_total"):
-                response = self.agent.process(request, token=token)
-            if response and response.success:
-                if not is_cancelled():
-                    callbacks.emit_token(response.message)
-                    callbacks.emit_complete(response.message)
-            elif response:
-                callbacks.emit_error(Exception(response.message))
+        with telemetry.stage("agent_total"):
+            response = self.agent.process(request, token=token)
 
         if not self.interrupts.complete(token):
             return None
+
+        if response and response.success:
+            if not self._cancel_event.is_set():
+                callbacks.emit_token(response.message)
+                callbacks.emit_complete(response.message)
+        elif response:
+            callbacks.emit_error(Exception(response.message))
 
         if response:
             with telemetry.stage("voice_synthesis"):
@@ -96,7 +87,6 @@ class JarvisCore:
         return response
 
     def stop(self) -> None:
-        """Stop active request, cancel streaming, and stop speech."""
         self._cancel_event.set()
         self.interrupts.interrupt_all()
         self.voice.stop()
