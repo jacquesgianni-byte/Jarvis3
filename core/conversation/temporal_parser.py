@@ -81,6 +81,12 @@ _MONTH_NAMES: dict[str, int] = {
     "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
+_WORD_NUMBERS: dict[str, int] = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "a": 1, "an": 1,
+}
+
 _UNIT_TO_DAYS: dict[str, int] = {
     "day": 1, "days": 1,
     "week": 7, "weeks": 7,
@@ -194,11 +200,11 @@ _PATTERNS: list[tuple[re.Pattern, str]] = [
     # "soon" / "shortly" / "in a bit"
     (re.compile(r"\b(?:soon|shortly|in a bit|in a moment)\b", re.IGNORECASE), "soon"),
 
-    # "N days/weeks/months ago"
-    (re.compile(r"\b(\d+)\s+(days?|weeks?|months?|years?|fortnights?)\s+ago\b", re.IGNORECASE), "n_units_ago"),
+    # "N days/weeks/months ago" or "three weeks ago"
+    (re.compile(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(days?|weeks?|months?|years?|fortnights?)\s+ago\b", re.IGNORECASE), "n_units_ago"),
 
-    # "in N days/weeks/months"
-    (re.compile(r"\bin\s+(\d+)\s+(days?|weeks?|months?|years?)\b", re.IGNORECASE), "in_n_units"),
+    # "in N days/weeks/months" or "in three days"
+    (re.compile(r"\bin\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(days?|weeks?|months?|years?)\b", re.IGNORECASE), "in_n_units"),
 
     # "for N days/weeks/months" (duration)
     (re.compile(r"\bfor\s+(\d+)\s+(days?|weeks?|months?|years?)\b", re.IGNORECASE), "duration"),
@@ -425,7 +431,8 @@ class TemporalParser:
         )
 
     def _handle_n_units_ago(self, m: re.Match, ref: date) -> TemporalContext:
-        n = int(m.group(1))
+        raw_n = m.group(1).lower()
+        n = int(raw_n) if raw_n.isdigit() else _WORD_NUMBERS.get(raw_n, 1)
         unit = m.group(2).lower()
         days = _UNIT_TO_DAYS.get(unit, 1) * n
         resolved = ref - timedelta(days=days)
@@ -465,7 +472,8 @@ class TemporalParser:
         )
 
     def _handle_in_n_units(self, m: re.Match, ref: date) -> TemporalContext:
-        n = int(m.group(1))
+        raw_n = m.group(1).lower()
+        n = int(raw_n) if raw_n.isdigit() else _WORD_NUMBERS.get(raw_n, 1)
         unit = m.group(2).lower()
         days = _UNIT_TO_DAYS.get(unit, 1) * n
         resolved = ref + timedelta(days=days)

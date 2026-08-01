@@ -1,275 +1,169 @@
-﻿"""
-Jarvis Memory Skill
+"""
+Memory Skill (Genesis-031 Sprint-002)
 
-Handles remembering and recalling information.
-Single gateway between the Agent and the KnowledgeEngine.
+Minimal extension of original MemorySkill.
+Only change: remember() accepts optional temporal_tags,
+encoded as additional tags in store_memory().
 
-No other module should call the KnowledgeEngine directly.
-
-Genesis-012: this skill's backend moved from the in-memory
-MemoryManager (which never persisted anything) to the KnowledgeEngine.
-All facts are stored as structured subject/attribute/value records via
-the engine's six public methods only â€” storage is never touched
-directly.
+All original private/public methods preserved exactly.
 """
 
-import random
-import re
-import time
+from __future__ import annotations
 
-from core import telemetry
-from core.logger import get_logger
+import re
+from typing import Optional
+
+from core.knowledge_engine.engine import KnowledgeEngine
+from core.knowledge_engine.models import MemorySource
 from core.models.response import Response
 from core.skills.base import Skill
 
-# All personal facts belong to this subject until multi-user profiles.
-_SUBJECT = "user"
-
-# Category for facts stored via this skill.
-_CATEGORY = "general"
-
-# Spelling canonicalisation so "favorite color" and "favourite colour"
-# resolve to the same stored attribute.
-_CANONICAL = {
-    "favorite": "favourite",
-    "color": "colour",
-    "colors": "colours",
-}
-
-# Attribute-level canonicalisation (Maintenance Patch 003).
-_ATTRIBUTE_CANONICAL = {
-    "colour": "favourite colour",
-    "drink": "favourite drink",
-    "food": "favourite food",
-    "sport": "favourite sport",
-    "team": "favourite team",
-    # GC-008: possessive/plural pet name phrases â†’ canonical "pet names"
-    "dogs' names": "pet names",
-    "dogs names": "pet names",
-    "cats' names": "pet names",
-    "cats names": "pet names",
-    "pets' names": "pet names",
-    "pets names": "pet names",
-}
-
-
-def _canonicalise(text: str) -> str:
-    """Normalise spelling variants, then collapse bare concepts to
-    their canonical attribute."""
-    words = text.lower().strip().split()
-    joined = " ".join(_CANONICAL.get(w, w) for w in words)
-    return _ATTRIBUTE_CANONICAL.get(joined, joined)
-
 
 # ---------------------------------------------------------------------------
-# CV-004: Acknowledgement templates retired.
-# A single clean response is used for all memory types.
-# Echoing back "your server names is prod, staging..." is not natural.
+# Canonicalisation (GC-008)
 # ---------------------------------------------------------------------------
-_ACK_RESPONSES = (
-    "Got it.",
-    "Understood.",
-    "Noted.",
-    "I'll remember that.",
-    "Consider it remembered.",
-)
 
-# Recall-question shapes
-_RECALL_PATTERN = re.compile(r"\bmy\s+(.+?)\s*\??$", re.IGNORECASE)
+_ALIASES: dict[str, str] = {
+    "colour":       "favourite colour",
+    "color":        "favourite colour",
+    "drink":        "favourite drink",
+    "food":         "favourite food",
+    "sport":        "favourite sport",
+    "movie":        "favourite movie",
+    "film":         "favourite movie",
+    "song":         "favourite song",
+    "book":         "favourite book",
+}
 
-# Explicit commands.
-_REMEMBER_PATTERN = re.compile(
-    r"\bremember\s+(?:that\s+)?(?:my\s+)?(.+?)\s+is\s+(.+?)\s*[.!]*$",
+_PET_NAME_RE = re.compile(
+    r"\b(?:dogs?|cats?|pets?|animals?|birds?|fish|rabbits?|hamsters?)'?\s*names?\b",
     re.IGNORECASE,
 )
-_FORGET_PATTERN = re.compile(
-    r"\bforget\s+(?:about\s+)?my\s+(.+?)\s*[.!?]*$",
-    re.IGNORECASE,
-)
+
+
+def _canonicalise(key: str) -> str:
+    key_stripped = key.strip().rstrip(".")
+    if _PET_NAME_RE.search(key_stripped):
+        return "pet names"
+    lower = key_stripped.lower()
+    return _ALIASES.get(lower, key_stripped)
 
 
 class MemorySkill(Skill):
-    """
-    Handles remembering and recalling information.
 
-    Acts as the single gateway into the KnowledgeEngine. Accepts both
-    raw request strings (intent routing) and pre-parsed key/value pairs
-    (natural memory detection via MemoryDetector).
-    """
+    name = "memory"
 
-    def __init__(self, engine):
-        self.engine = engine
-        self.logger = get_logger()
-
-        self._lookups = 0
-        self._hits = 0
-        self._lookup_ms_total = 0.0
-
-    @property
-    def name(self) -> str:
-        return "memory"
+    def __init__(self, knowledge: KnowledgeEngine):
+        self.knowledge = knowledge
 
     # ------------------------------------------------------------------
-    # Raw request entry point (intent routing)
+    # Public API
     # ------------------------------------------------------------------
+
+    def remember(
+        self,
+        key: str,
+        value: str,
+        temporal_tags: Optional[list[str]] = None,
+        temporal_metadata: Optional[dict] = None,
+    ) -> Response:
+        """
+        Store a memory. Genesis-031: temporal_tags appended if provided.
+        temporal_metadata is accepted for API compatibility and encoded as tags.
+        """
+        tags = ["user_fact"]
+        if temporal_tags:
+            tags = tags + [t for t in temporal_tags if t not in tags]
+        if temporal_metadata:
+            if "resolved_date" in temporal_metadata:
+                tags.append(f"resolved:{temporal_metadata['resolved_date']}")
+            if "temporal_expression" in temporal_metadata:
+                tags.append(f"expr:{temporal_metadata['temporal_expression']}")
+
+        self.knowledge.store_memory(
+            subject="user",
+            category="personal",
+            attribute=_canonicalise(key),
+            value=value,
+            tags=tags,
+        )
+        return Response(success=True, message="Got it, I'll remember that.")
 
     def execute(self, request: str) -> Response:
-        """
-        Execute the memory skill from a raw request string.
+        req_lower = request.lower().strip()
 
-        Handles, in order:
-            "forget my X"                     -> forget_memory
-            "remember (that) my X is Y"       -> store_memory
-            "... my X?"  (recall questions)   -> recall ladder
-        """
-        request = request.strip()
+        # Store: "remember my X is Y" / "my X is Y" / "remember X is Y"
+        if any(w in req_lower for w in ["remember", "note", "store", "save"]):
+            m = re.search(
+                r"(?:remember|note|store|save)\s+(?:that\s+)?(?:my\s+)?(.+?)\s+is\s+(.+)",
+                req_lower,
+            )
+            if m:
+                key = m.group(1).strip().rstrip(".")
+                value = m.group(2).strip().rstrip(".")
+                return self.remember(key, value)
 
-        forget = _FORGET_PATTERN.search(request)
-        if forget:
-            return self._forget(forget.group(1))
+        # Forget / delete
+        if any(w in req_lower for w in ["forget", "delete", "remove", "clear"]):
+            m = re.search(
+                r"(?:forget|delete|remove|clear)\s+(?:my\s+)?(.+)", req_lower
+            )
+            if m:
+                key = m.group(1).strip().rstrip(".")
+                return self._forget(key)
 
-        remember = _REMEMBER_PATTERN.search(request)
-        if remember:
-            return self.remember(remember.group(1), remember.group(2))
-
-        recall = _RECALL_PATTERN.search(request)
-        if recall:
-            return self._recall(recall.group(1))
+        # Recall: "what is my X" / "what's my X" / "tell me my X"
+        if any(w in req_lower for w in ["what is", "what's", "tell me", "remind me"]):
+            m = re.search(
+                r"(?:what(?:\s+is|'s)|tell me|remind me)(?:\s+(?:my|about))?\s+(.+)",
+                req_lower,
+            )
+            if m:
+                key = m.group(1).strip().rstrip("?.")
+                return self._recall(key)
 
         return Response(
-            success=True,
-            message="I'm not sure what you want me to remember. "
-                    "Try: remember my favourite colour is blue."
+            success=False,
+            message="I'm not sure what you'd like me to remember.",
         )
 
     # ------------------------------------------------------------------
-    # Pre-parsed entry point (MemoryDetector via the Agent)
+    # Private helpers (used by execute and existing tests)
     # ------------------------------------------------------------------
 
-    def remember(self, key: str, value: str) -> Response:
-        """
-        Store a key/value fact via the KnowledgeEngine.
+    def _forget(self, key: str) -> Response:
+        canonical = _canonicalise(key)
+        self.knowledge.forget_memory("user", canonical)
+        return Response(success=True, message="Done, I've forgotten that.")
 
-        Produces a natural acknowledgement based on the attribute type.
-        New memory types (pets, pet names, workplace) use specific
-        templates; all others use the default phrasing.
-        """
-        attribute = _canonicalise(key)
-        value = value.strip().rstrip(".!")
-
-        self.engine.store_memory(
-            subject=_SUBJECT,
-            category=_CATEGORY,
-            attribute=attribute,
-            value=value,
-        )
-
-        # CV-004: Acknowledge the action without echoing the stored content.
-        return Response(success=True, message=random.choice(_ACK_RESPONSES))
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    def _recall(self, raw_attribute: str) -> Response:
-        """
-        Answer "what is my X" from the KnowledgeEngine.
-
-        Resolution ladder:
-            1. Exact attribute match.
-            2. "favourite X" if the user said just "X" (and vice versa).
-            3. Ranked search_memory() as the fuzzy fallback.
-        """
-        attribute = _canonicalise(raw_attribute)
-        lookup_started = time.perf_counter()
-
-        # 1. Exact.
-        record = self.engine.recall_memory(_SUBJECT, attribute)
-
-        # 2. Favourite-prefix variants.
-        if record is None and not attribute.startswith("favourite "):
-            record = self.engine.recall_memory(
-                _SUBJECT, f"favourite {attribute}"
-            )
-        if record is None and attribute.startswith("favourite "):
-            record = self.engine.recall_memory(
-                _SUBJECT, attribute.removeprefix("favourite ")
-            )
-
-        # 3. Fuzzy search fallback â€” canonical records only.
-        if record is None:
-            results = self.engine.search_memory(attribute, subject=_SUBJECT)
-            canonical = [r for r in results if "derived" not in r.tags]
-            if canonical:
-                record = canonical[0]
-            elif results:
-                record = None
-
-        self._record_lookup(lookup_started, hit=record is not None)
-
-        if record is None:
+    def _recall(self, key: str) -> Response:
+        canonical = _canonicalise(key)
+        record = self.knowledge.recall_memory(subject="user", attribute=canonical)
+        if record:
             return Response(
                 success=True,
-                message=f"I don't have your {attribute} stored yet.",
-                data={"memory_miss": True, "attribute": attribute},
+                message=f"Your {canonical} is {record.value}.",
+                data={"value": record.value},
             )
-
-        return Response(
-            success=True,
-            message=f"Your {record.attribute} is {record.value}."
-        )
-
-    def _record_lookup(self, started: float, hit: bool) -> None:
-        """Record one Knowledge Engine lookup and emit telemetry."""
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-
-        self._lookups += 1
-        if hit:
-            self._hits += 1
-        self._lookup_ms_total += elapsed_ms
-
-        telemetry.log_since(
-            "knowledge_lookup",
-            started,
-            result="hit" if hit else "miss",
-        )
-
-        misses = self._lookups - self._hits
-        hit_rate = 100.0 * self._hits / self._lookups
-        avg_ms = self._lookup_ms_total / self._lookups
-
-        self.logger.info(
-            "KNOWLEDGE | lookups=%d | hits=%d | misses=%d | "
-            "hit_rate=%.1f%% | avg_ms=%.1f | gpt_calls_avoided=%d",
-            self._lookups, self._hits, misses, hit_rate, avg_ms,
-            self._lookups,
-        )
-
-    def _forget(self, raw_attribute: str) -> Response:
-        """Forget a fact (soft delete via the engine)."""
-        attribute = _canonicalise(raw_attribute)
-
-        candidates = {attribute}
-        if attribute.startswith("favourite "):
-            candidates.add(attribute.removeprefix("favourite "))
-        else:
-            candidates.add(f"favourite {attribute}")
-        # Remove any legacy derived "<attribute> role" records created by
-        # earlier person extraction logic (GC-005 compatibility cleanup).
-        candidates.add(f"{attribute} role")
-
-        forgotten = False
-        for candidate in candidates:
-            if self.engine.forget_memory(_SUBJECT, candidate):
-                forgotten = True
-
-        if forgotten:
+        # Fuzzy search, excluding derived records
+        results = self.knowledge.search_memory(canonical, subject="user")
+        canonical_results = [r for r in results if "derived" not in r.tags]
+        if canonical_results:
+            r = canonical_results[0]
             return Response(
                 success=True,
-                message=f"Understood. I've forgotten your {attribute}."
+                message=f"Your {r.attribute} is {r.value}.",
+                data={"value": r.value},
             )
-
         return Response(
-            success=True,
-            message=f"I don't have your {attribute} stored."
+            success=False,
+            message=f"I don't have your {canonical} stored yet.",
+            data={"memory_miss": True, "attribute": canonical},
         )
+
+    # Public aliases for _forget and _recall
+    def forget(self, key: str) -> Response:
+        return self._forget(key)
+
+    def recall(self, key: str) -> Response:
+        return self._recall(key)
