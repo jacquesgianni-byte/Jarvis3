@@ -81,6 +81,7 @@ from core.conversation.semantic_recall_engine import SemanticRecallEngine       
 from core.conversation.relationship_recall import (                              # Genesis-032 S2
     RelationshipProvider, RelationshipRecallEngine,
 )
+from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
 
 
 class Agent:
@@ -180,6 +181,9 @@ class Agent:
 
         # Genesis-032 Sprint-002: Relationship Recall Engine
         self.relationship_recall = RelationshipRecallEngine()
+
+        # Genesis-032 Sprint-003: Episodic Memory Engine
+        self.episodic_memory = EpisodicMemoryEngine(self.knowledge, self.temporal_parser)
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -887,6 +891,12 @@ class Agent:
                     message=f"Regarding {resolution.context_hint}: "
                             f"{r.attribute} is {r.value}, sir."
                 )
+
+        # Genesis-032 Sprint-003: Episodic recall -- "What happened during Genesis-027?"
+        _eq = self.episodic_memory.parse_query(request)
+        if _eq is not None:
+            _es = self.episodic_memory.recall(_eq)
+            return Response(success=True, message=self.episodic_memory.format_response(_es))
 
         # Genesis-032 Sprint-002: Relationship recall
         _rq = self.relationship_recall.detect_query(request)
