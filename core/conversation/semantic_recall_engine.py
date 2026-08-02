@@ -103,22 +103,51 @@ class SemanticProfile:
 
     def to_text(self) -> str:
         """
-        Render the profile as a natural bullet-point summary.
+        Render the profile as natural conversational prose.
 
         Example:
-            Leo
-            - One of your children
-            - 8 years old
-            - Likes football
+            "Here's what I know about Leo. He is 9 years old, likes football,
+            and is very smart. Leo is one of your children."
         """
         if not self.found:
             return f"I don't have any information stored about {self.entity_name}."
 
-        lines = [self.entity_name]
-        for category, facts in self.by_category().items():
-            for f in facts:
-                lines.append(f"- {f.label}")
-        return "\n".join(lines)
+        cats = self.by_category()
+        parts = []
+
+        # Properties first -- core facts
+        props = cats.get("Properties", [])
+        if props:
+            prop_labels = [f.label for f in props]
+            if len(prop_labels) == 1:
+                parts.append(f"{self.entity_name} is {prop_labels[0]}")
+            elif len(prop_labels) == 2:
+                parts.append(f"{self.entity_name} is {prop_labels[0]} and {prop_labels[1]}")
+            else:
+                parts.append(
+                    f"{self.entity_name} is {', '.join(prop_labels[:-1])}, and {prop_labels[-1]}"
+                )
+
+        # Relationships -- group membership
+        rels = cats.get("Relationships", [])
+        for f in rels:
+            parts.append(f.label)
+
+        # Temporal -- when things happened
+        temps = cats.get("Temporal", [])
+        for f in temps:
+            parts.append(f.label.lower())
+
+        # Conversation -- skip "Discussed recently" if we have real facts
+        conv = cats.get("Conversation", [])
+        if conv and len(parts) == 0:
+            parts.append(conv[0].label.lower())
+
+        if not parts:
+            return f"I don't have any information stored about {self.entity_name}."
+
+        intro = f"Here's what I know about {self.entity_name}. "
+        return intro + ". ".join(p[0].upper() + p[1:] for p in parts) + "."
 
 
 # ---------------------------------------------------------------------------
