@@ -19,7 +19,7 @@ from core.episodic_memory_engine import (
 def _make_engine(memories=None):
     """Return an EpisodicMemoryEngine with stub KE and TemporalParser."""
     ke = MagicMock()
-    ke.get_all_memories.return_value = memories or []
+    ke.list_memories.return_value = memories or []
     tp = MagicMock()
     tp.parse.return_value = None
     return EpisodicMemoryEngine(ke, tp), ke, tp
@@ -175,10 +175,10 @@ class TestRecall:
         memories = []
         for text in texts:
             m = MagicMock()
-            m.content = text
+            m.value = text
             m.tags = [label]
             memories.append(m)
-        ke.get_all_memories.return_value = memories
+        ke.list_memories.return_value = memories
         return ke
 
     def test_labeled_recall_returns_summary(self):
@@ -203,9 +203,9 @@ class TestRecall:
         import datetime
         ke = MagicMock()
         m = MagicMock()
-        m.content = "We worked on streaming."
+        m.value = "We worked on streaming."
         m.tags = ["2026-07-27"]
-        ke.get_all_memories.return_value = [m]
+        ke.list_memories.return_value = [m]
 
         tc = MagicMock()
         tc.start_date = datetime.date(2026, 7, 27)
@@ -229,9 +229,9 @@ class TestRecall:
         import datetime
         ke = MagicMock()
         m = MagicMock()
-        m.content = "Old memory."
+        m.value = "Old memory."
         m.tags = ["2026-01-01"]
-        ke.get_all_memories.return_value = [m]
+        ke.list_memories.return_value = [m]
 
         tc = MagicMock()
         tc.start_date = datetime.date(2026, 7, 27)
