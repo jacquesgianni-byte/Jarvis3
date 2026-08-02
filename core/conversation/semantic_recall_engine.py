@@ -254,9 +254,10 @@ class GroupProvider(SemanticProvider):
         knowledge: "KnowledgeEngine",
         profile: SemanticProfile,
     ) -> None:
-        # Search for group slot records containing this entity name
+        # Search for name records on user subject
         search_results = knowledge.search_memory(
-            query=entity_name,
+            query="names",
+            subject="user",
             limit=20,
         )
 
@@ -292,24 +293,24 @@ class GroupProvider(SemanticProvider):
         """
         Extract the group kind from a slot attribute string.
 
-        Examples:
-            "group:dogs:names" -> "dogs"
-            "dogs_names"       -> "dogs"
-            subject="user", attribute="names" -> None (too generic)
+        Handles:
+            "group:printer:names" -> "printers"
+            "pet names"           -> "pets"
+            "people names"        -> "people"
+            "vehicle names"       -> "vehicles"
         """
-        # Try "group:KIND:slot" format
-        m = re.match(r"group:([^:]+):", attribute)
+        # Format 1: "group:{kind}:names"
+        m = re.match(r"group:([^:]+):names?", attribute, re.IGNORECASE)
         if m:
-            return m.group(1)
+            kind = m.group(1).lower()
+            return kind + "s" if not kind.endswith("s") else kind
 
-        # Try "KIND_names" or "KIND:names" format
-        m = re.match(r"(\w+)[_:]names", attribute)
-        if m and m.group(1) not in ("user", "my", "your"):
-            return m.group(1)
-
-        # Use subject if it looks like a group kind
-        if subject and subject not in ("user", "jarvis"):
-            return subject
+        # Format 2: "{kind} names" e.g. "pet names", "people names"
+        m = re.match(r"^(\w+)\s+names?$", attribute, re.IGNORECASE)
+        if m:
+            kind = m.group(1).lower()
+            if kind not in ("user", "my", "your", "name"):
+                return kind + "s" if not kind.endswith("s") else kind
 
         return None
 

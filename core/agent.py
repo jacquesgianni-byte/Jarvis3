@@ -78,6 +78,9 @@ from core.conversation.clarification_engine import (                            
 from core.conversation.temporal_parser import TemporalParser                    # Genesis-031
 from core.conversation.temporal_recall_engine import TemporalRecallEngine       # Genesis-031
 from core.conversation.semantic_recall_engine import SemanticRecallEngine       # Genesis-032
+from core.conversation.relationship_recall import (                              # Genesis-032 S2
+    RelationshipProvider, RelationshipRecallEngine,
+)
 
 
 class Agent:
@@ -171,8 +174,12 @@ class Agent:
         self.temporal_parser = TemporalParser()
         self.temporal_recall = TemporalRecallEngine()
 
-        # Genesis-032: Semantic Recall Engine
+        # Genesis-032: Semantic Recall Engine with RelationshipProvider
         self.semantic_recall = SemanticRecallEngine()
+        self.semantic_recall.register_provider(RelationshipProvider())
+
+        # Genesis-032 Sprint-002: Relationship Recall Engine
+        self.relationship_recall = RelationshipRecallEngine()
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -880,6 +887,13 @@ class Agent:
                     message=f"Regarding {resolution.context_hint}: "
                             f"{r.attribute} is {r.value}, sir."
                 )
+
+        # Genesis-032 Sprint-002: Relationship recall
+        _rq = self.relationship_recall.detect_query(request)
+        if _rq is not None:
+            _ra = self.relationship_recall.answer(_rq, self.knowledge)
+            if _ra.found:
+                return Response(success=True, message=_ra.answer)
 
         # Genesis-032: Semantic recall -- "Tell me everything about Leo."
         _sq = self.semantic_recall.detect_query(request)
