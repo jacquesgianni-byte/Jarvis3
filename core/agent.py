@@ -77,6 +77,7 @@ from core.conversation.clarification_engine import (                            
 )
 from core.conversation.temporal_parser import TemporalParser                    # Genesis-031
 from core.conversation.temporal_recall_engine import TemporalRecallEngine       # Genesis-031
+from core.conversation.semantic_recall_engine import SemanticRecallEngine       # Genesis-032
 
 
 class Agent:
@@ -169,6 +170,9 @@ class Agent:
         # Genesis-031: Temporal Intelligence
         self.temporal_parser = TemporalParser()
         self.temporal_recall = TemporalRecallEngine()
+
+        # Genesis-032: Semantic Recall Engine
+        self.semantic_recall = SemanticRecallEngine()
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -876,6 +880,12 @@ class Agent:
                     message=f"Regarding {resolution.context_hint}: "
                             f"{r.attribute} is {r.value}, sir."
                 )
+
+        # Genesis-032: Semantic recall -- "Tell me everything about Leo."
+        _sq = self.semantic_recall.detect_query(request)
+        if _sq is not None:
+            _profile = self.semantic_recall.recall(_sq, self.knowledge)
+            return Response(success=True, message=_profile.to_text())
 
         # Genesis-031: Temporal recall -- "When did I start my job?"
         _tq = self.temporal_recall.detect_query(request)
