@@ -37,14 +37,14 @@ def _labeled_query(label="genesis-027"):
 
 def _make_memory(content: str, tags: list[str]):
     m = MagicMock()
-    m.content = content
+    m.value = content  # KE uses .value
     m.tags = tags
     return m
 
 
 def _make_ke(memories):
     ke = MagicMock()
-    ke.get_all_memories.return_value = memories
+    ke.list_memories.return_value = memories
     return ke
 
 

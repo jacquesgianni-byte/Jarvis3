@@ -375,6 +375,25 @@ class Agent:
                 self._post_turn(request, _clarify.question)
                 return Response(success=True, message=_clarify.question)
 
+        # Genesis-032 S3: Tag-seeding syntax -- "Some text [tag: genesis-027]"
+        import re as _re_tag
+        _TAG_RE = _re_tag.compile(r"^(.+?)\s*\[tag:\s*([^\]]+)\]\s*$", _re_tag.IGNORECASE)
+        _tag_match = _TAG_RE.match(request.strip())
+        if _tag_match:
+            _tag_content = _tag_match.group(1).strip()
+            _tag_label   = _tag_match.group(2).strip().lower()
+            self.knowledge.store_memory(
+                subject="jarvis",
+                category="general",
+                attribute=f"episode_{_tag_label}_{hash(_tag_content) & 0xFFFF:04x}",
+                value=_tag_content,
+                tags=[_tag_label],
+            )
+            _ack = Response(success=True, message=f"Noted, sir. Tagged as [{_tag_label}].")
+            self.context.last_jarvis_response = _ack.message
+            self._post_turn(request, _ack.message)
+            return _ack
+
         # Step 4 -- Check for natural memory statements.
         # Genesis-025 Sprint-002: SlotCompletionEngine runs first (generic),
         # then falls back to MemoryDetector (explicit patterns).

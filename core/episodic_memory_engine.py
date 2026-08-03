@@ -278,41 +278,34 @@ class EpisodicMemoryEngine:
 
 def _iter_memories(knowledge_engine):
     """
-    Yield all memory objects from KnowledgeEngine.
-    Tries several known API shapes; returns empty iterator if none match.
+    Yield all MemoryRecord objects from KnowledgeEngine.
+    Uses list_memories() which is the documented public API.
     """
-    # Shape 1: ke.get_all_memories() → list
-    get_all = getattr(knowledge_engine, "get_all_memories", None)
-    if callable(get_all):
-        yield from (get_all() or [])
+    list_fn = getattr(knowledge_engine, "list_memories", None)
+    if callable(list_fn):
+        yield from (list_fn(limit=10000) or [])
         return
 
-    # Shape 2: ke.memories → list
-    memories_attr = getattr(knowledge_engine, "memories", None)
-    if isinstance(memories_attr, list):
-        yield from memories_attr
-        return
-
-    # Shape 3: ke.memory_store → dict/list
-    store = getattr(knowledge_engine, "memory_store", None)
-    if isinstance(store, dict):
-        for items in store.values():
-            if isinstance(items, list):
-                yield from items
-        return
-    if isinstance(store, list):
-        yield from store
+    # Fallback: _storage.list_all()
+    storage = getattr(knowledge_engine, "_storage", None)
+    if storage is not None:
+        list_all = getattr(storage, "list_all", None)
+        if callable(list_all):
+            yield from (list_all() or [])
 
 
 def _memory_content(memory) -> str:
-    """Extract the plain-text content of a memory object."""
-    # Dataclass / object with .content attribute
+    """Extract the plain-text content of a MemoryRecord."""
+    # MemoryRecord uses .value
+    value = getattr(memory, "value", None)
+    if value is not None:
+        return str(value)
+    # Fallback: .content
     content = getattr(memory, "content", None)
     if content is not None:
         return str(content)
-    # Dict
     if isinstance(memory, dict):
-        return str(memory.get("content") or memory.get("text") or memory)
+        return str(memory.get("value") or memory.get("content") or memory.get("text") or memory)
     return str(memory)
 
 
