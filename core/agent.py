@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.executive.engine import ExecutiveDashboardEngine  # Genesis-035 S2
 from core.progress.engine import ProgressEngine  # Genesis-035 S1
 from core.engineering.lifecycle.manager import LifecycleManager
 from core.engineering.evidence.manager import EvidenceManager  # Genesis-034 S2  # Genesis-034 S1
@@ -194,6 +195,9 @@ class Agent:
         self.lifecycle_manager = LifecycleManager(self.knowledge)
         # Genesis-035 Sprint-001: Progress Engine
         self.progress_engine = ProgressEngine(self.knowledge)
+        # Genesis-035 Sprint-002: Executive Dashboard
+        self.executive_dashboard = ExecutiveDashboardEngine(self.knowledge)
+
 
         # Genesis-034 Sprint-002: Evidence Manager
         self.evidence_manager = EvidenceManager(self.knowledge)
@@ -977,6 +981,13 @@ class Agent:
 
 
 
+
+
+        # ── Section 7.42 — Executive Dashboard (Genesis-035 Sprint-002) ─────────
+        if self.executive_dashboard.can_handle(request):
+            _ed_response = self.executive_dashboard.handle(request)
+            if _ed_response:
+                return Response(success=True, message=_ed_response)
 
         # ── Section 7.43 — Progress Engine (Genesis-035 Sprint-001) ─────────────
         if self.progress_engine.can_handle(request):
