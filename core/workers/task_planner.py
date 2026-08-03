@@ -104,6 +104,19 @@ class CapabilitySignal:
 
 _CAPABILITY_SIGNALS: list[CapabilitySignal] = [
     CapabilitySignal(
+        name="run_engineering_review",
+        patterns=(
+            r"\\breview\\s+genesis\\b",
+            r"\\breview\\s+the\\s+latest\\b",
+            r"\\bengineering\\s+review\\b",
+            r"\\brun\\s+(?:an?\\s+)?(?:engineering\\s+)?review\\b",
+            r"\\bgenerate\\s+(?:genesis\\s+)?review\\b",
+            r"\\breview\\s+genesis[-\\s]\\d+\\b",
+        ),
+        order=0,
+    ),
+
+    CapabilitySignal(
         name="plan_implementation",
         patterns=(
             r"\b(?:implement|add|create|build|write|develop|introduce|extend)\b",

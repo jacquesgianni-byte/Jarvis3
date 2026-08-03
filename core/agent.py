@@ -65,6 +65,7 @@ from core.workers.worker_factory import WorkerFactory                           
 from core.workers.debug_worker import DebugWorker                                # Genesis-027
 from core.workers.suite_worker import SuiteRunnerWorker                          # Genesis-027 S3
 from core.workers.coding_worker import CodingWorker                              # Genesis-027 S2
+from core.workers.engineering_review_worker import EngineeringReviewOSWorker  # Genesis-033 Integration
 from core.workers.coordinator import WorkerCoordinator                           # Genesis-027 S3
 from core.workers.task_planner import TaskPlanner, WorkerPlan                   # Genesis-027 S4
 from core.workers.engineering_intent_detector import EngineeringIntentDetector  # Genesis-027 S4
@@ -238,12 +239,16 @@ class Agent:
             "coding_worker", lambda deps: CodingWorker(deps["ai"])
         )
         self.worker_factory.register_builder(
+            "engineering_review_worker", lambda deps: EngineeringReviewOSWorker()
+        )  # Genesis-033 Integration
+        self.worker_factory.register_builder(
             "suite_runner_worker", lambda deps: SuiteRunnerWorker()
         )
 
         # Register workers via factory (single creation path)
         self.worker_manager.register(self.worker_factory.create("debug_worker"))
         self.worker_manager.register(self.worker_factory.create("suite_runner_worker"))
+        self.worker_manager.register(self.worker_factory.create("engineering_review_worker"))  # Genesis-033 Integration
         if self.ai is not None:
             self.worker_manager.register(
                 self.worker_factory.create("coding_worker", deps={"ai": self.ai})
@@ -258,6 +263,11 @@ class Agent:
             "engineering_review",
             ["coding_worker", "debug_worker", "suite_runner_worker"],
         )
+
+        self.worker_coordinator.register_workflow(
+            "run_engineering_review",
+            ["engineering_review_worker"],
+        )  # Genesis-033 Integration
 
         # Genesis-027 Sprint-004: TaskPlanner + EngineeringIntentDetector
         self.task_planner = TaskPlanner(self.worker_manager)
