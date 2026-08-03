@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.progress.engine import ProgressEngine  # Genesis-035 S1
 from core.engineering.lifecycle.manager import LifecycleManager
 from core.engineering.evidence.manager import EvidenceManager  # Genesis-034 S2  # Genesis-034 S1
 from core.goal_intelligence.engine import GoalIntelligenceEngine   # Genesis-033 S2
@@ -191,6 +192,9 @@ class Agent:
         self.goal_intelligence = GoalIntelligenceEngine(self.knowledge)  # Genesis-033 S2
         # Genesis-034 Sprint-001: Engineering Lifecycle Manager
         self.lifecycle_manager = LifecycleManager(self.knowledge)
+        # Genesis-035 Sprint-001: Progress Engine
+        self.progress_engine = ProgressEngine(self.knowledge)
+
         # Genesis-034 Sprint-002: Evidence Manager
         self.evidence_manager = EvidenceManager(self.knowledge)
 
@@ -972,6 +976,13 @@ class Agent:
             return reasoned
 
 
+
+
+        # ── Section 7.43 — Progress Engine (Genesis-035 Sprint-001) ─────────────
+        if self.progress_engine.can_handle(request):
+            _pe_response = self.progress_engine.handle(request)
+            if _pe_response:
+                return Response(success=True, message=_pe_response)
 
         # ── Section 7.44 — Engineering Lifecycle Manager (Genesis-034 Sprint-001) ─
         if self.lifecycle_manager.can_handle(request):
