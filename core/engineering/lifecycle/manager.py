@@ -30,6 +30,7 @@ from core.engineering.lifecycle.models import (
     LifecycleCommandKind,
 )
 from core.engineering.lifecycle.store import LifecycleStore
+from core.engineering.evidence.manager import EvidenceManager  # Genesis-034 S2
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class LifecycleManager:
     def __init__(self, knowledge_engine) -> None:
         self._detector = LifecycleDetector()
         self._store    = LifecycleStore(knowledge_engine)
+        self._evidence = EvidenceManager(knowledge_engine)  # Genesis-034 S2
 
     # ── Public ─────────────────────────────────────────────────────────────────
 
@@ -103,6 +105,7 @@ class LifecycleManager:
 
         # Open it
         record = self._store.open_genesis(genesis)
+        self._evidence.open(genesis)  # begin collecting evidence
         logger.info("[LIFECYCLE] Opened Genesis-%s at %s", genesis, record.opened_at)
 
         return (
@@ -131,7 +134,9 @@ class LifecycleManager:
             )
 
         # Run Engineering Review via Worker OS
-        review_result = self._run_review(genesis, worker_coordinator, task_planner)
+        self._evidence.mark_complete(genesis)
+        self._evidence.collect_git(genesis)
+        review_result = self._run_review(genesis, worker_coordinator, task_planner, self._evidence.snapshot(genesis))
 
         if not review_result["success"]:
             return (
@@ -165,6 +170,7 @@ class LifecycleManager:
         genesis: str,
         worker_coordinator,
         task_planner,
+        evidence_snapshot=None,
     ) -> dict:
         """
         Run the EngineeringReviewOSWorker via the Worker OS pipeline.
@@ -183,6 +189,7 @@ class LifecycleManager:
             payload={
                 "description": f"Close Genesis-{genesis}",
                 "genesis":     genesis,
+                "evidence":    evidence_snapshot.to_dict() if evidence_snapshot and evidence_snapshot.is_reviewable() else None,
             },
             requester="lifecycle_manager",
         )
