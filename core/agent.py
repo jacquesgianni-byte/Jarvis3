@@ -82,6 +82,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.goal_intelligence.engine import GoalIntelligenceEngine   # Genesis-033 S2
 
 
 class Agent:
@@ -184,6 +185,7 @@ class Agent:
 
         # Genesis-032 Sprint-003: Episodic Memory Engine
         self.episodic_memory = EpisodicMemoryEngine(self.knowledge, self.temporal_parser)
+        self.goal_intelligence = GoalIntelligenceEngine(self.knowledge)  # Genesis-033 S2
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -911,6 +913,12 @@ class Agent:
                             f"{r.attribute} is {r.value}, sir."
                 )
 
+
+        # ── Section 7.7 — Goal & Task Intelligence (Genesis-033 Sprint-002) ────
+        if self.goal_intelligence.can_answer(request):
+            _gi_response = self.goal_intelligence.process(request)
+            if _gi_response:
+                return Response(success=True, message=_gi_response)
         # Genesis-032 Sprint-003: Episodic recall -- "What happened during Genesis-027?"
         _eq = self.episodic_memory.parse_query(request)
         if _eq is not None:
