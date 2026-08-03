@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.engineering.lifecycle.manager import LifecycleManager  # Genesis-034 S1
 from core.goal_intelligence.engine import GoalIntelligenceEngine   # Genesis-033 S2
 
 
@@ -187,6 +188,9 @@ class Agent:
         # Genesis-032 Sprint-003: Episodic Memory Engine
         self.episodic_memory = EpisodicMemoryEngine(self.knowledge, self.temporal_parser)
         self.goal_intelligence = GoalIntelligenceEngine(self.knowledge)  # Genesis-033 S2
+        # Genesis-034 Sprint-001: Engineering Lifecycle Manager
+        self.lifecycle_manager = LifecycleManager(self.knowledge)
+
 
         # Genesis-020 Sprint-001: Conversation Memory
         self.conversation_observer = ConversationObserver(self.knowledge)
@@ -963,6 +967,17 @@ class Agent:
         if reasoned is not None:
             return reasoned
 
+
+
+        # ── Section 7.44 — Engineering Lifecycle Manager (Genesis-034 Sprint-001) ─
+        if self.lifecycle_manager.can_handle(request):
+            _lc_response = self.lifecycle_manager.handle(
+                request,
+                worker_coordinator=self.worker_coordinator,
+                task_planner=self.task_planner,
+            )
+            if _lc_response:
+                return Response(success=True, message=_lc_response)
 
         # ── Section 7.45 — Review routing via TaskPlanner (Genesis-033 Integration) ──
         # EngineeringIntentDetector does not cover review requests (by design —
