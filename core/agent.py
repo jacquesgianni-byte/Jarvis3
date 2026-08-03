@@ -963,6 +963,36 @@ class Agent:
         if reasoned is not None:
             return reasoned
 
+
+        # ── Section 7.45 — Review routing via TaskPlanner (Genesis-033 Integration) ──
+        # EngineeringIntentDetector does not cover review requests (by design —
+        # it would break threshold calibration). TaskPlanner's capability signals
+        # handle review detection instead. Check the planner first.
+        _review_caps = self.task_planner.capabilities_for(request)
+        if "run_engineering_review" in _review_caps and self.worker_manager.worker_count() > 0:
+            _review_task = WorkerTask(
+                task_type="run_engineering_review",
+                payload={
+                    "description": request,
+                    "genesis": self._extract_genesis_number(request),
+                },
+                requester="agent",
+            )
+            _review_result = self.worker_coordinator.run(_review_task)
+            if _review_result.success:
+                _worker_data = (
+                    _review_result.data
+                    .get("results", {})
+                    .get("engineering_review_worker", {})
+                )
+                _md = _worker_data.get("markdown", "")
+                if _md:
+                    return Response(success=True, message=_md)
+            return Response(
+                success=False,
+                message=f"Engineering review failed: {_review_result.error}",
+            )
+
         # 7.5 Engineering intent routing (Genesis-027 Sprint-004)
         _eng_intent = self.engineering_intent_detector.detect(request)
         if _eng_intent.is_engineering and self.worker_manager.worker_count() > 0:
