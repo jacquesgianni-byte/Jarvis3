@@ -119,7 +119,18 @@ class EngineeringReviewOSWorker(Worker):
             from core.engineering.review.markdown_renderer import MarkdownRenderer
 
             pipeline = _Pipeline(output_dir=self._output_dir)
+            import time as _time
+            _t0 = _time.perf_counter()
             report   = pipeline.run(evidence)
+            _duration_ms = (_time.perf_counter() - _t0) * 1000
+
+            # Stamp execution metadata onto the report
+            from core.engineering.review.models import ExecutionMetadata
+            from datetime import datetime, timezone
+            report.metadata = ExecutionMetadata(
+                duration_ms=round(_duration_ms, 1),
+                generated_at=datetime.now(timezone.utc).isoformat(),
+            )
 
             # Render Markdown from the structured report
             renderer = MarkdownRenderer()

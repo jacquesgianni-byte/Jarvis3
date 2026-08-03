@@ -117,9 +117,26 @@ class FutureImprovement:
 
 # ── Top-level report ──────────────────────────────────────────────────────────
 
+
+@dataclass
+class ExecutionMetadata:
+    """
+    Execution provenance — who produced this report and when.
+    Stamped by EngineeringReviewOSWorker before persistence.
+    """
+    worker:          str = "EngineeringReviewOSWorker"
+    worker_id:       str = "engineering_review_worker"
+    worker_version:  str = "1.0"
+    planner:         str = "TaskPlanner"
+    coordinator:     str = "WorkerCoordinator"
+    duration_ms:     float = 0.0
+    generated_at:    str = ""    # ISO datetime string
+
+
 @dataclass
 class GenesisReport:
     review:       EngineeringReview
     rd_evidence:  RDEvidenceRecord
     improvements: list[FutureImprovement]
     rendered_at:  str                    # ISO datetime string
+    metadata:     "ExecutionMetadata | None" = None
