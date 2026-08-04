@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.ai_workers.claude_worker import ClaudeAIWorker  # Genesis-040 S1
 from core.worker_intelligence.engine import WorkerIntelligenceEngine  # Genesis-039 S1
 from core.collaboration.engine import WorkerCollaborationEngine  # Genesis-038 S1
 from core.planning.engine import PlanningEngine  # Genesis-037 S1
@@ -267,11 +268,15 @@ class Agent:
             "engineering_review_worker", lambda deps: EngineeringReviewOSWorker()
         )  # Genesis-033 Integration
         self.worker_factory.register_builder(
+            "claude_ai_worker", lambda deps: ClaudeAIWorker(deps.get("ai"))
+        )  # Genesis-040 S1
+        self.worker_factory.register_builder(
             "suite_runner_worker", lambda deps: SuiteRunnerWorker()
         )
 
         # Register workers via factory (single creation path)
         self.worker_manager.register(self.worker_factory.create("debug_worker"))
+        self.worker_manager.register(self.worker_factory.create("claude_ai_worker", deps={"ai": self.ai}))  # Genesis-040 S1
         self.worker_manager.register(self.worker_factory.create("suite_runner_worker"))
         self.worker_manager.register(self.worker_factory.create("engineering_review_worker"))  # Genesis-033 Integration
         if self.ai is not None:
@@ -1063,6 +1068,7 @@ class Agent:
                 requester="agent",
             )
             _review_result = self.worker_coordinator.run(_review_task)
+            self.worker_intelligence.observe(_review_result, 'run_engineering_review')
             if _review_result.success:
                 _worker_data = (
                     _review_result.data
@@ -1099,6 +1105,7 @@ class Agent:
                     requester="agent",
                 )
                 _wf_result = self.worker_coordinator.run(_wf_task)
+                self.worker_intelligence.observe(_wf_result, _plan.tasks[0].task_type if _plan.tasks else '')
                 if _wf_result.success:
                     _steps = _wf_result.data.get("workers_executed", [])
                     _n = len(_steps)
