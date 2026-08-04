@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.collaboration.engine import WorkerCollaborationEngine  # Genesis-038 S1
 from core.planning.engine import PlanningEngine  # Genesis-037 S1
 from core.decision.engine import DecisionEngine  # Genesis-036 S1
 from core.executive.engine import ExecutiveDashboardEngine  # Genesis-035 S2
@@ -226,6 +227,8 @@ class Agent:
         # Genesis-037 Sprint-001: Planning Engine
         self.planning_engine = PlanningEngine(self.knowledge)
 
+
+
         self.decision_query = DecisionQueryEngine(self.decision_engine)
         self.decision_inspector = DecisionInspector(self.decision_engine)
 
@@ -292,6 +295,11 @@ class Agent:
 
         # Genesis-027 Sprint-004: TaskPlanner + EngineeringIntentDetector
         self.task_planner = TaskPlanner(self.worker_manager)
+
+        # Genesis-038 Sprint-001: Worker Collaboration Engine
+        self.collaboration_engine = WorkerCollaborationEngine(
+            self.worker_manager, self.worker_coordinator
+        )
         self.engineering_intent_detector = EngineeringIntentDetector()
 
     def process(self, request: str, token=None) -> Response:
@@ -989,6 +997,13 @@ class Agent:
 
 
 
+
+
+        # ── Section 7.39 — Worker Collaboration Engine (Genesis-038 Sprint-001) ─
+        if self.collaboration_engine.can_handle(request):
+            _wce_response = self.collaboration_engine.handle(request)
+            if _wce_response:
+                return Response(success=True, message=_wce_response)
 
         # ── Section 7.40 — Planning Engine (Genesis-037 Sprint-001) ────────────
         if self.planning_engine.can_handle(request):
