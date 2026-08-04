@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.worker_intelligence.engine import WorkerIntelligenceEngine  # Genesis-039 S1
 from core.collaboration.engine import WorkerCollaborationEngine  # Genesis-038 S1
 from core.planning.engine import PlanningEngine  # Genesis-037 S1
 from core.decision.engine import DecisionEngine  # Genesis-036 S1
@@ -300,6 +301,7 @@ class Agent:
         self.collaboration_engine = WorkerCollaborationEngine(
             self.worker_manager, self.worker_coordinator
         )
+        self.worker_intelligence = WorkerIntelligenceEngine(self.knowledge, self.worker_manager)  # Genesis-039 S1
         self.engineering_intent_detector = EngineeringIntentDetector()
 
     def process(self, request: str, token=None) -> Response:
@@ -998,6 +1000,13 @@ class Agent:
 
 
 
+
+
+        # ── Section 7.38 — Worker Intelligence (Genesis-039 Sprint-001) ─────────
+        if self.worker_intelligence.can_handle(request):
+            _wi_response = self.worker_intelligence.handle(request)
+            if _wi_response:
+                return Response(success=True, message=_wi_response)
 
         # ── Section 7.39 — Worker Collaboration Engine (Genesis-038 Sprint-001) ─
         if self.collaboration_engine.can_handle(request):
