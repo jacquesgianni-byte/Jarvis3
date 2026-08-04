@@ -1151,6 +1151,12 @@ class Agent:
             message="I'm still learning, but I'll be able to help with that soon."
         )
 
+
+    def _extract_genesis_number(self, request: str) -> str:
+        """Extract a genesis number string from a request e.g. 'Genesis-040' -> '040'."""
+        import re as _re
+        m = _re.search(r"genesis[-_]?(\d{3})", request, _re.IGNORECASE)
+        return m.group(1) if m else ""
     def _collect_all_entity_members(self) -> list[str]:
         """
         Collect all known entity member names from KnowledgeEngine.
