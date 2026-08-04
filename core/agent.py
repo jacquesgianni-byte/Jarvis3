@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.decision.engine import DecisionEngine  # Genesis-036 S1
 from core.executive.engine import ExecutiveDashboardEngine  # Genesis-035 S2
 from core.progress.engine import ProgressEngine  # Genesis-035 S1
 from core.engineering.lifecycle.manager import LifecycleManager
@@ -220,7 +221,7 @@ class Agent:
         self.timeline_inspector = TimelineInspector(self.timeline)
 
         # Genesis-020 Sprint-004: Decision Engine
-        self.decision_engine = DecisionEngine()
+        self.decision_engine = DecisionEngine(self.knowledge)
         self.decision_query = DecisionQueryEngine(self.decision_engine)
         self.decision_inspector = DecisionInspector(self.decision_engine)
 
@@ -982,6 +983,13 @@ class Agent:
 
 
 
+
+
+        # ── Section 7.41 — Decision Engine (Genesis-036 Sprint-001) ────────────
+        if self.decision_engine.can_handle(request):
+            _de_response = self.decision_engine.handle(request)
+            if _de_response:
+                return Response(success=True, message=_de_response)
 
         # ── Section 7.42 — Executive Dashboard (Genesis-035 Sprint-002) ─────────
         if self.executive_dashboard.can_handle(request):
