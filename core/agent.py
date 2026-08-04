@@ -632,6 +632,32 @@ class Agent:
         # which branch is taken.
         resolved_entity = ""
 
+        # -- Section 7.0 - Engineering Collaboration Fast-Path (CV-040-002f) --
+        # Must be first: engineering requests are intercepted by GoalIntelligence,
+        # Reasoning, and Recall engines before reaching Section 7.5/7.6.
+        _eng_early = self.engineering_intent_detector.detect(request)
+        if _eng_early.is_engineering and self.worker_manager.worker_count() > 0:
+            _req_lower_e = request.lower()
+            _is_review_e = any(w in _req_lower_e for w in (
+                "review", "analyse", "analyze", "inspect", "audit", "architecture",
+            ))
+            _is_implement_e = any(w in _req_lower_e for w in (
+                "add", "implement", "build", "create", "write", "develop",
+                "fix", "refactor", "extend", "introduce", "need to",
+            ))
+            if _is_review_e or _is_implement_e:
+                _cap_e = (
+                    "review_architecture"
+                    if _is_review_e and not _is_implement_e
+                    else "implement_feature"
+                )
+                _cr_early = self.collaboration_runner.run(
+                    description=request,
+                    payload={"genesis": self._extract_genesis_number(request)},
+                    capability=_cap_e,
+                )
+                return Response(success=True, message=_cr_early.markdown)
+
         # Developer inspector commands
         req_lower = request.strip().lower()
         if req_lower in ("inspect context", "/context", "show context", "context"):
@@ -968,6 +994,31 @@ class Agent:
 
 
         # ── Section 7.7 — Goal & Task Intelligence (Genesis-033 Sprint-002) ────
+        # -- Section 7.6 - Engineering Collaboration Fast-Path (CV-040-002) --
+        # Must run before GoalIntelligenceEngine which intercepts "I need to add X".
+        _eng_fast = self.engineering_intent_detector.detect(request)
+        if _eng_fast.is_engineering and self.worker_manager.worker_count() > 0:
+            _req_lower_f = request.lower()
+            _is_review_f = any(w in _req_lower_f for w in (
+                "review", "analyse", "analyze", "inspect", "audit", "architecture"
+            ))
+            _is_implement_f = any(w in _req_lower_f for w in (
+                "add", "implement", "build", "create", "write", "develop",
+                "fix", "refactor", "extend", "introduce", "need to",
+            ))
+            if _is_review_f or _is_implement_f:
+                _cap_f = (
+                    "review_architecture"
+                    if _is_review_f and not _is_implement_f
+                    else "implement_feature"
+                )
+                _cr_fast = self.collaboration_runner.run(
+                    description=request,
+                    payload={"genesis": self._extract_genesis_number(request)},
+                    capability=_cap_f,
+                )
+                return Response(success=True, message=_cr_fast.markdown)
+
         if self.goal_intelligence.can_answer(request):
             _gi_response = self.goal_intelligence.process(request)
             if _gi_response:
@@ -1100,8 +1151,36 @@ class Agent:
             )
 
         # 7.5 Engineering intent routing (Genesis-027 Sprint-004)
+        # CV-040-002: natural language engineering requests (implement/review/fix)
+        # are routed through CollaborationRunner so they enter the full
+        # Genesis-040 pipeline: AI worker → engineering review → approval gate.
         _eng_intent = self.engineering_intent_detector.detect(request)
         if _eng_intent.is_engineering and self.worker_manager.worker_count() > 0:
+            _caps = self.task_planner.capabilities_for(request)
+            # Map TaskPlanner capability names to ClaudeAIWorker capability names
+            _cap_map = {
+                "plan_implementation": "implement_feature",
+                "analyse_session":     "review_architecture",
+                "run_tests":           "write_tests",
+            }
+            # Also detect review_architecture from signals directly
+            _req_lower = request.lower()
+            _is_review = any(w in _req_lower for w in ("review", "analyse", "analyze", "inspect", "architecture"))
+            _is_implement = any(w in _req_lower for w in ("add", "implement", "build", "create", "write", "develop", "fix", "refactor"))
+            _collab_caps = [_cap_map[c] for c in _caps if c in _cap_map]
+            if not _collab_caps and (_is_implement or _is_review):
+                _collab_caps = ["review_architecture" if _is_review and not _is_implement else "implement_feature"]
+            if _collab_caps:
+                # Route through CollaborationRunner (Genesis-040 pipeline)
+                _capability = "review_architecture" if _is_review and not _is_implement else _collab_caps[0]
+                _cr_outcome = self.collaboration_runner.run(
+                    description=request,
+                    payload={"genesis": self._extract_genesis_number(request)},
+                    capability=_capability,
+                )
+                return Response(success=True, message=_cr_outcome.markdown)
+
+            # Fallback: non-AI capabilities (debug, run_tests) use old path
             _plan = self.task_planner.plan(
                 request,
                 payload={

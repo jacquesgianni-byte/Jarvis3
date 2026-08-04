@@ -142,8 +142,9 @@ class TestExecution:
     def test_execute_with_mock_ai_client(self):
         """Worker uses injected AI client when available."""
         class MockAI:
-            def chat(self, messages, system=""):
-                return "Mock AI response: here is the implementation."
+            def ask(self, prompt):
+                from core.models.response import Response
+                return Response(success=True, message="Mock AI response: here is the implementation.")
 
         w      = ClaudeAIWorker(ai_client=MockAI())
         task   = _FakeWorkerTask("implement_feature", {"description": "Build X"})

@@ -55,6 +55,30 @@ class ClaudeAIWorker(ExternalAIWorker):
         super().__init__()
         self._ai = ai_client   # Jarvis's existing AI client, injected via factory
 
+    def execute(self, task) -> "WorkerResult":
+        """
+        Override to stamp the requested capability into the payload
+        so _resolve_capability() returns the correct capability name.
+        The coordinator sets task_type to the workflow name, not the capability,
+        so we extract the capability from the workflow name here.
+        """
+        # Extract capability from workflow name e.g. "ai_collab_review_architecture"
+        task_type = task.task_type or ""
+        _prefix = "ai_collab_"
+        if task_type.startswith(_prefix):
+            cap = task_type[len(_prefix):]
+            if cap in self.capabilities:
+                # Rebuild task with capability stamped into payload
+                from core.workers.models import WorkerTask
+                payload = dict(task.payload)
+                payload["capability_used"] = cap
+                task = WorkerTask(
+                    task_type=cap,
+                    payload=payload,
+                    requester=task.requester,
+                )
+        return super().execute(task)
+
     @property
     def name(self) -> str:
         return "claude_ai_worker"
@@ -85,12 +109,11 @@ class ClaudeAIWorker(ExternalAIWorker):
             return self._placeholder_response(prompt, context)
 
         try:
-            messages = [{"role": "user", "content": prompt}]
-            response = self._ai.chat(
-                messages=messages,
-                system=_SYSTEM_PROMPT,
-            )
-            return response if isinstance(response, str) else str(response)
+            full_prompt = f"{_SYSTEM_PROMPT}\n\n{prompt}"
+            response = self._ai.ask(full_prompt)
+            if hasattr(response, "message"):
+                return response.message or ""
+            return str(response) if response else ""
         except Exception as exc:
             logger.exception("[CLAUDE_AI_WORKER] AI call failed.")
             return f"AI call failed: {exc}"

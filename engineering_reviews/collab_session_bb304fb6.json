@@ -1,0 +1,87 @@
+{
+  "session_id": "bb304fb6-5633-41dd-8e04-cd41941b601e",
+  "work_package_id": "direct",
+  "assigned_worker": "claude_ai_worker",
+  "capability": "review_architecture",
+  "description": "Review the architecture of my authentication module.",
+  "started_at": "2026-08-04T11:26:33.598703+00:00",
+  "completed_at": "2026-08-04T11:27:07.043462+00:00",
+  "duration_seconds": 33.444759,
+  "recommendation": "All engineering gates passed. Ready for human review and approval.",
+  "state": {
+    "status": "complete",
+    "stage": "complete",
+    "review_passed": true,
+    "tests_passed": true,
+    "blocked_reason": "",
+    "timestamp": "2026-08-04T11:27:07.043446+00:00"
+  },
+  "result": {
+    "response": "Requested artifacts for review\n- Context: product scope, user types, trust boundaries, SSO needs, mobile/web/native/CLI clients.\n- Diagrams: component diagram, sequence flows for login/refresh/logout/MFA/password reset/social login/service-to-service.\n- Config: IdP/OIDC/SAML config, token formats/claims, cookie settings, CORS.\n- Code/infra: auth service repo, gateway policies, middleware, secret management, infra (LB/WAF/CDN), CI/CD security gates.\n- Policies: password/MFA/lockout, session lifetime, device trust, recovery flows.\n- Logs/metrics: successful/failed auth events, anomaly detection, audit retention.\n- Threat model: STRIDE or similar, DFDs, mitigations.\n- Compliance: GDPR/CCPA, SOC2/ISO, PCI/HIPAA if relevant.\n\nReference architecture (baseline best practice)\n- Identity provider: Managed IdP (Auth0/Okta/Cognito/Azure AD B2C) or self-hosted (Keycloak) for OIDC/OAuth2/SAML.\n- API gateway: Terminates TLS, enforces rate limits, JWT validation, token introspection for opaque tokens.\n- Auth service: Issues tokens, manages sessions, MFA orchestration, risk scoring, recovery, token revocation lists.\n- Token service: OIDC provider, asymmetric signing (RS256/ES256), short-lived access tokens, refresh tokens with rotation and reuse detection.\n- Frontend: PKCE authorization code flow; httpOnly, Secure, SameSite cookies for web; native flows with OS browser; no tokens in localStorage.\n- Backend: Resource servers validate tokens (JWKS cache, kid rotation), enforce scopes/permissions, fine-grained ABAC/RBAC.\n- Data: User store with strong hashing (argon2id/scrypt/bcrypt costed), unique constraints, device/session tables.\n- Secrets: Central manager (KMS/HashiCorp Vault), envelope encryption, per-env separation, least privilege.\n- Observability: Structured audit logs, correlation IDs, SIEM integration, metrics (latency, error rates, unusual auth).\n- Edge: WAF, bot detection, IP reputation, geofencing as needed.\n\nDesign review checklist\n1) Protocols and flows\n- Web: OIDC Auth Code + PKCE; SameSite=Lax/Strict cookies; CSRF tokens for state-changing requests if same-site not guaranteed.\n- Mobile/desktop/CLI: System browser + PKCE; loopback/custom URI schemes hardened.\n- Service-to-service: mTLS and/or client credentials with JWKS-based JWTs; consider SPIFFE/SPIRE for workload identity.\n\n2) Tokens and sessions\n- Access tokens \u2264 5\u201315 min; refresh tokens rotated, bound to device, detect reuse -> global/logout for that device.\n- Consider sender-constrained tokens (DPoP or mTLS) for high-risk APIs.\n- JWT contents minimal: sub, iss, aud, iat, exp, jti, scopes/roles; no PII. Use opaque tokens if revocation is critical.\n- Key management: separate signing keys per env, automated rotation, JWKS cache TTL, alg allowlist.\n\n3) Credential security\n- Password storage: argon2id (memory \u2265 64\u2013128MB, iters \u2265 2, parallelism \u2265 1) or bcrypt (cost \u2265 12).\n- MFA: TOTP/WebAuthn (FIDO2) preferred; SMS as fallback with SIM-swap checks; step-up for sensitive operations.\n- Recovery: backup codes, WebAuthn multi-device passkeys; proof-of-possession checks for email links.\n\n4) Authorization\n- Model: roles + attributes; central policy service (OPA/Cedar) for complex ABAC; deny-by-default.\n- Scope design: least privilege, resource-scoped permissions, tenancy isolation enforced at query and service layers.\n- Admin actions: break-glass, dual control for high-risk operations.\n\n5) App/transport security\n- TLS 1.2/1.3, HSTS, secure ciphers; certificate pinning in mobile where feasible.\n- CSRF/XSS mitigations; Content Security Policy; no tokens in URLs or logs.\n- CORS: narrow allowlist, no wildcards with credentials.\n\n6) Account lifecycle\n- Provisioning/deprovisioning hooks; GDPR deletion; email/phone verification; username enumeration resistance.\n- Brute-force protection: adaptive throttling, IP/device fingerprinting, CAPTCHA as last resort.\n\n7) Logging, audit, and detection\n- Log auth decisions, MFA challenges, token issuance/revocation, admin changes; redact secrets.\n- Anomaly detection: impossible travel, velocity, new device/location risk scoring with step-up MFA.\n- Retention and tamper-evidence; access to audit logs segregated.\n\n8) Reliability and scale\n- Stateless services; sticky sessions only if necessary; cache JWKS; circuit breakers to IdP; graceful degradation.\n- Multi-region: key replication/rotation strategy, clock skew handling, eventual consistency for revocation lists.\n- Performance: P99 targets for login and token introspection; load test MFA providers, email/SMS gateways.\n\n9) Compliance and privacy\n- Data minimization; purpose limitation for claims; DPA with third parties; regional data residency if required.\n\nCommon pitfalls to avoid\n- Storing tokens in localStorage; long-lived JWTs without revocation; no refresh rotation/reuse detection.\n- Inconsistent audience/issuer validation across services.\n- Embedding roles/permissions that outlive policy changes.\n- Weak cookie flags or SameSite=None without Secure.\n- Homegrown crypto or password reset flows without expiration/single-use.\n\nSecurity controls matrix (essentials)\n- Prevent: strong hashing, MFA, rate limits, bot/WAF, CSP, least privilege, key rotation.\n- Detect: structured audits, anomaly rules, alerting on reuse/failed logins/spikes.\n- Respond: device/session revocation APIs, user notifications, forced password/MFA resets, runbooks.\n\nPerformance/scalability considerations\n- Cache JWKS and introspection results with short TTLs.\n- Use async queues for email/SMS; backoff and fallback providers.\n- Partition user/session stores; consider Redis for session state and token blacklists with TTL.\n\nTesting and validation plan\n- Unit: token validation, clock skew, edge cases (expiry, not-before).\n- Integration: end-to-end flows across web/mobile/API; cookie settings; CORS/CSRF.\n- Security: fuzzing auth endpoints; SSRF on redirect_uri; OAuth/OIDC compliance tests; password reset abuse.\n- Chaos: IdP outage, SMS/email provider failure, key rotation mid-traffic, clock drift.\n- Pen-test: session fixation, CSRF, OAuth misconfig, MFA bypass, IDOR with tenant boundaries.\n\nOpen questions to tailor the review\n- Which IdP and protocols are in use? Any social/enterprise SSO?\n- Clients and platforms supported? Any legacy flows (ROPC, implicit)?\n- Token strategy (JWT vs opaque), rotation, revocation approach?\n- Session storage and cookie configuration details?\n- Authorization model (RBAC/ABAC), tenancy isolation strategy?\n- MFA choices and step-up triggers?\n- Secrets/key management and rotation cadence?\n- Observability stack and incident response runbooks?\n- Compliance constraints and data residency?\n- Multi-region/HA requirements and current SLAs?\n\nNext steps\n- Share the requested artifacts.\n- I will map your current design against the checklist, highlight gaps by severity, and propose concrete changes with effort estimates."
+  },
+  "engineering_review": {
+    "genesis": "034",
+    "sprint": "002",
+    "markdown": "============================================================\nENGINEERING REVIEW\n============================================================\n\nGenerated by:  EngineeringReviewOSWorker\nWorker ID:     engineering_review_worker\nWorker Ver.:   1.0\nPlanner:       TaskPlanner\nCoordinator:   WorkerCoordinator\nTimestamp:     2026-08-04T11:27:06.969311+00:00\nDuration:      4 ms\n\n============================================================\n\n# Genesis 034 Sprint 002 \u2014 Engineering Review\n\n## Status\nCOMPLETE | Completed: 2026-08-04\n\n## Commits\n- ae7df07\n- c5c2ca1\n\n## Files Added\n- *(none)*\n\n## Files Modified\n- *(none)*\n\n## Architecture Decisions\n*(none recorded)*\n\n## Test Results\n\u2705 Passed: 3641 | \u23ed Skipped: 33 | \u274c Failed: 0\n\n## Desktop Validation\n**Status:** passed\n**Scenarios:**\n- Open sets active\n- Close triggers review\n\n## Technical Debt\nNone identified.\n\n## Risks\nNone identified.\n\n## Future Improvements\n*(none deferred)*\n\n## R&D Evidence Summary\n**Problem:** \n**Uncertainty:** \n**Hypothesis:** \n**Approach:** \n**Results:** All scenarios passed.\n**Validation:** 3641 tests passing.\n\n## Recommendation\n**BEGIN_NEXT_GENESIS**\nLifecycle and Evidence Manager complete. 3641 tests green.\n",
+    "json_path": "engineering_reviews\\genesis_034_sprint_002_review.json",
+    "md_path": "engineering_reviews\\genesis_034_sprint_002_report.md",
+    "report": {
+      "review": {
+        "genesis": "034",
+        "sprint": "002",
+        "status": "complete",
+        "completed_at": "2026-08-04",
+        "commits": [
+          "ae7df07",
+          "c5c2ca1"
+        ],
+        "files_added": [],
+        "files_modified": [],
+        "architecture_decisions": [],
+        "tests_added": 0,
+        "test_results": {
+          "passed": 3641,
+          "skipped": 33,
+          "failed": 0,
+          "warnings": 0
+        },
+        "desktop_validation": {
+          "status": "passed",
+          "scenarios": [
+            "Open sets active",
+            "Close triggers review"
+          ],
+          "notes": null
+        },
+        "technical_debt": [],
+        "risks": [],
+        "future_improvements": [],
+        "recommendation": "BEGIN_NEXT_GENESIS",
+        "recommendation_reason": "Lifecycle and Evidence Manager complete. 3641 tests green."
+      },
+      "rd_evidence": {
+        "genesis": "034",
+        "technical_problem": "",
+        "technical_uncertainty": "",
+        "hypothesis": "",
+        "approach": "",
+        "experiments": [],
+        "results": "All scenarios passed.",
+        "validation": "3641 tests passing.",
+        "remaining_unknowns": []
+      },
+      "improvements": [],
+      "rendered_at": "2026-08-04T21:27:06.965756",
+      "metadata": {
+        "worker": "EngineeringReviewOSWorker",
+        "worker_id": "engineering_review_worker",
+        "worker_version": "1.0",
+        "planner": "TaskPlanner",
+        "coordinator": "WorkerCoordinator",
+        "duration_ms": 4.0,
+        "generated_at": "2026-08-04T11:27:06.969311+00:00"
+      }
+    }
+  },
+  "test_summary": null
+}

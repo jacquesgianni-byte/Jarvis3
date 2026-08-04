@@ -67,6 +67,14 @@ class IntentSignal:
 
 _INTENT_SIGNALS: list[IntentSignal] = [
     IntentSignal(
+        name="review",
+        patterns=(
+            r"\b(?:review|analyse|analyze|inspect|audit|evaluate|assess)\b",
+            r"\b(?:architecture|design|structure|module|component|system)\b",
+        ),
+        weight=0.4,
+    ),
+    IntentSignal(
         name="implement",
         patterns=(
             r"\b(?:implement|add|create|build|write|develop|introduce|extend)\b",
@@ -104,7 +112,7 @@ _COMPILED_SIGNALS: list[tuple[IntentSignal, list[re.Pattern]]] = [
     for sig in _INTENT_SIGNALS
 ]
 
-_CONFIDENCE_THRESHOLD = 0.20
+_CONFIDENCE_THRESHOLD = 0.15
 
 
 class EngineeringIntentDetector:

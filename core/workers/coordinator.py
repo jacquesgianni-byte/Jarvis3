@@ -190,9 +190,25 @@ class WorkerCoordinator:
                 # Rewrite task_type to the worker's primary capability so
                 # validate() passes. The workflow task_type is the
                 # coordinator's concern; each worker sees its own type.
+                # CV-040-003: if the original task_type matches a specific
+                # worker capability, preserve it so the worker knows which
+                # capability was requested (not always capabilities[0]).
                 worker = self._manager.get_worker(worker_name)
+                _original_type = current_task.task_type
+                _prefix = "ai_collab_"
+                if _original_type.startswith(_prefix):
+                    _cap_from_name = _original_type[len(_prefix):]
+                    _resolved_type = (
+                        _cap_from_name
+                        if _cap_from_name in worker.capabilities
+                        else worker.capabilities[0]
+                    )
+                elif _original_type in worker.capabilities:
+                    _resolved_type = _original_type
+                else:
+                    _resolved_type = worker.capabilities[0]
                 step_task = WorkerTask(
-                    task_type=worker.capabilities[0],
+                    task_type=_resolved_type,
                     payload=current_task.payload,
                     task_id=current_task.task_id,
                     created_at=current_task.created_at,
