@@ -83,6 +83,7 @@ from core.conversation.relationship_recall import (                             
     RelationshipProvider, RelationshipRecallEngine,
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.planning.engine import PlanningEngine  # Genesis-037 S1
 from core.decision.engine import DecisionEngine  # Genesis-036 S1
 from core.executive.engine import ExecutiveDashboardEngine  # Genesis-035 S2
 from core.progress.engine import ProgressEngine  # Genesis-035 S1
@@ -222,6 +223,9 @@ class Agent:
 
         # Genesis-020 Sprint-004: Decision Engine
         self.decision_engine = DecisionEngine(self.knowledge)
+        # Genesis-037 Sprint-001: Planning Engine
+        self.planning_engine = PlanningEngine(self.knowledge)
+
         self.decision_query = DecisionQueryEngine(self.decision_engine)
         self.decision_inspector = DecisionInspector(self.decision_engine)
 
@@ -984,6 +988,13 @@ class Agent:
 
 
 
+
+
+        # ── Section 7.40 — Planning Engine (Genesis-037 Sprint-001) ────────────
+        if self.planning_engine.can_handle(request):
+            _pe_plan = self.planning_engine.handle(request)
+            if _pe_plan:
+                return Response(success=True, message=_pe_plan)
 
         # ── Section 7.41 — Decision Engine (Genesis-036 Sprint-001) ────────────
         if self.decision_engine.can_handle(request):
