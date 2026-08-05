@@ -451,10 +451,16 @@ class PlanValidator:
         files_to_modify = plan.get("files_to_modify", [])
         files_to_delete = plan.get("files_to_delete", [])
 
+        def _extract_path(item):
+            """Accept either a string path or a dict with a 'path' key."""
+            if isinstance(item, dict):
+                return item.get("path", "")
+            return str(item)
+
         all_paths = (
-            [("create", p) for p in files_to_create]
-            + [("modify", p) for p in files_to_modify]
-            + [("delete", p) for p in files_to_delete]
+            [("create", _extract_path(p)) for p in files_to_create]
+            + [("modify", _extract_path(p)) for p in files_to_modify]
+            + [("delete", _extract_path(p)) for p in files_to_delete]
         )
 
         # Must have at least one operation
