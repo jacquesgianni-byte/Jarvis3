@@ -89,11 +89,54 @@ class CollaborationRunner:
         worker_intelligence=None,
         output_dir: str = "engineering_reviews",
     ) -> None:
-        self._coordinator  = worker_coordinator
-        self._manager      = worker_manager
-        self._intelligence = worker_intelligence
-        self._session_mgr  = CollaborationSessionManager(output_dir)
+        self._coordinator    = worker_coordinator
+        self._manager        = worker_manager
+        self._intelligence   = worker_intelligence
+        self._session_mgr    = CollaborationSessionManager(output_dir)
         self._report_builder = CollaborationReportBuilder()
+        self._last_outcome: Optional[CollaborationOutcome] = None  # for approval routing
+
+    # -- Approval routing API ------------------------------------------------
+
+    def has_pending_approval(self) -> bool:
+        """True if the last collaboration is complete and awaiting approval."""
+        if self._last_outcome is None:
+            return False
+        return (
+            self._last_outcome.success
+            and self._last_outcome.approval.ready_for_approval
+        )
+
+    def get_pending_approval_text(self) -> str:
+        """Return the approval gate text for the last completed collaboration."""
+        if self._last_outcome is None:
+            return ""
+        return self._last_outcome.approval.to_text()
+
+    def clear_pending_approval(self) -> None:
+        """Clear the pending approval after it has been presented."""
+        self._last_outcome = None
+
+    def has_active_session(self) -> bool:
+        """True if any collaboration outcome is available for follow-up."""
+        return self._last_outcome is not None
+
+    def get_session_summary(self) -> str:
+        """Return a brief summary of the last collaboration for follow-up questions."""
+        if self._last_outcome is None:
+            return ""
+        r = self._last_outcome.report
+        lines = [
+            f"Last collaboration: {r.capability} -- {r.status.upper()}",
+            f"Description: {r.description}",
+        ]
+        if r.worker_response:
+            lines.append(f"Worker response:\n{r.worker_response}")
+        if r.recommendation:
+            lines.append(f"Recommendation: {r.recommendation}")
+        if r.blocked_reason:
+            lines.append(f"Blocked: {r.blocked_reason}")
+        return "\n".join(lines)
 
     def can_handle(self, utterance: str) -> bool:
         return utterance.strip().lower().rstrip("?!.") in _COLLABORATION_TRIGGERS
@@ -150,7 +193,9 @@ class CollaborationRunner:
                 recommendation="Worker failed. Check worker configuration and retry.",
             )
             self._session_mgr.persist(session)
-            return self._build_outcome(session, "Worker execution failed.")
+            outcome = self._build_outcome(session, "Worker execution failed.")
+            self._last_outcome = outcome
+            return outcome
 
         worker_state = EngineeringCollaborationState.pending().with_worker_response(
             worker_response
@@ -181,7 +226,9 @@ class CollaborationRunner:
 
         # ── Steps 4-5: Build report and approval ──────────────────────────
         self._session_mgr.persist(session)
-        return self._build_outcome(session)
+        outcome = self._build_outcome(session)
+        self._last_outcome = outcome  # store for approval and follow-up routing
+        return outcome
 
     # ── Private ───────────────────────────────────────────────────────────
 

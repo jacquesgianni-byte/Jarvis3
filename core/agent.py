@@ -449,6 +449,59 @@ class Agent:
             self._post_turn(request, _ack.message)
             return _ack
 
+        # Step 3b2 -- Engineering Collaboration Approval (Genesis-040 Final)
+        # Must run BEFORE memory detection and intent routing so approval
+        # commands ("Approve.", "yes", "proceed") are caught here, not sent
+        # to the AI. Runs alongside the follow-up check (Step 3c).
+        _APPROVAL_TRIGGERS_EARLY = frozenset({
+            "yes", "approve", "approved", "apply",
+            "apply the changes", "apply recommended changes",
+            "apply the recommended changes",
+            "apply the recommended changes automatically",
+            "proceed", "proceed with changes", "confirm", "go ahead",
+            "yes proceed", "yes, proceed", "install", "implement it",
+            "implement the changes", "make the changes",
+            "i approve", "yes i approve", "approved proceed",
+        })
+        if (
+            self.collaboration_runner.has_pending_approval()
+            and request.strip().lower().rstrip("?!.") in _APPROVAL_TRIGGERS_EARLY
+        ):
+            _approval_text = self.collaboration_runner.get_pending_approval_text()
+            self.collaboration_runner.clear_pending_approval()
+            self.context.last_jarvis_response = _approval_text
+            self._post_turn(request, _approval_text)
+            return Response(success=True, message=_approval_text)
+
+        # Step 3c -- Engineering Collaboration Follow-up (Genesis-040 Final)
+        # Must run BEFORE memory detection and intent routing so follow-up
+        # questions ("What risks did you identify?", "Summarise the recommendations.")
+        # are answered from the active collaboration session rather than being
+        # intercepted by Intent=MEMORY or sent to AI fallback.
+        _COLLAB_FOLLOWUP_TRIGGERS = frozenset({
+            "what risks", "what were the risks", "what risk",
+            "what recommendations", "show recommendations",
+            "show me the recommendations", "what did you find",
+            "what did you identify", "what risks did you identify",
+            "what are the recommendations", "summarise", "summarize",
+            "summarise the recommendations", "summarize the recommendations",
+            "what was the result", "show the report", "show report",
+            "what did the review say", "review results", "session summary",
+            "what did you recommend", "what should we do",
+            "what did claude say", "summarise claude", "summarize claude",
+        })
+        _req_cf = request.strip().lower().rstrip("?!.")
+        _matched_trigger = next((t for t in _COLLAB_FOLLOWUP_TRIGGERS if t in _req_cf), None)
+        if (
+            self.collaboration_runner.has_active_session()
+            and _matched_trigger is not None
+        ):
+            _cf_summary = self.collaboration_runner.get_session_summary()
+            if _cf_summary:
+                self.context.last_jarvis_response = _cf_summary
+                self._post_turn(request, _cf_summary)
+                return Response(success=True, message=_cf_summary)
+
         # Step 4 -- Check for natural memory statements.
         # Genesis-025 Sprint-002: SlotCompletionEngine runs first (generic),
         # then falls back to MemoryDetector (explicit patterns).
@@ -657,6 +710,26 @@ class Agent:
                     capability=_cap_e,
                 )
                 return Response(success=True, message=_cr_early.markdown)
+
+
+        # -- Section 7.0a - Approval Routing (Genesis-040 Final) --
+        # If a collaboration session is awaiting approval, intercept approval
+        # intent before any other routing so "apply", "approve", "yes, proceed"
+        # etc. return the approval gate rather than the AI fallback.
+        _APPROVAL_TRIGGERS = frozenset({
+            "yes", "yes.", "approve", "approved", "apply",
+            "apply the changes", "apply recommended changes",
+            "apply the recommended changes", "apply the recommended changes automatically",
+            "proceed", "proceed with changes", "confirm", "go ahead",
+            "yes proceed", "yes, proceed", "install", "implement it",
+        })
+        if (
+            self.collaboration_runner.has_pending_approval()
+            and request.strip().lower().rstrip("?!.") in _APPROVAL_TRIGGERS
+        ):
+            _approval_text = self.collaboration_runner.get_pending_approval_text()
+            self.collaboration_runner.clear_pending_approval()
+            return Response(success=True, message=_approval_text)
 
         # Developer inspector commands
         req_lower = request.strip().lower()
