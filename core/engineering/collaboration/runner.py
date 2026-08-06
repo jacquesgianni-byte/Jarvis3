@@ -178,7 +178,7 @@ class CollaborationRunner:
         )
 
         # ── Step 2: Execute AI worker ─────────────────────────────────────
-        worker_response, worker_error = self._execute_ai_worker(
+        worker_response, execution_plan, worker_error = self._execute_ai_worker(
             description=description,
             capability=capability,
             worker_name=ai_worker,
@@ -201,7 +201,8 @@ class CollaborationRunner:
             worker_response
         )
         session = self._session_mgr.update(
-            session, worker_state, result={"response": worker_response}
+            session, worker_state, result={"response": worker_response,
+                                           "execution_plan": execution_plan}
         )
 
         # ── Step 3: Engineering review gate (mandatory) ───────────────────
@@ -278,7 +279,7 @@ class CollaborationRunner:
                 self._intelligence.observe(result, capability)
 
             if not result.success:
-                return "", result.error or "Worker returned failure."
+                return "", {}, result.error or "Worker returned failure."
 
             # Extract response from worker data
             worker_data = (
@@ -289,11 +290,13 @@ class CollaborationRunner:
             if not response and result.observations:
                 response = " ".join(result.observations)
 
-            return response or "[Worker completed — no response text]", ""
+            execution_plan = worker_data.get("execution_plan", {})
+
+            return response or "[Worker completed — no response text]", execution_plan, ""
 
         except Exception as exc:
             logger.exception("[COLLAB_RUNNER] AI worker execution raised.")
-            return "", str(exc)
+            return "", {}, str(exc)
 
     def _run_engineering_gates(
         self,

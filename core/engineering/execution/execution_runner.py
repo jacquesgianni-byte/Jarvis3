@@ -258,18 +258,28 @@ class ExecutionRunner:
                 snapshot_sha=snapshot_sha,
             )
 
-        files_created  = exec_result.data.get("files_created", [])
-        files_modified = exec_result.data.get("files_modified", [])
-        exec_data      = exec_result.data
+        # Unwrap coordinator envelope for execution data
+        _exec_data = (
+            exec_result.data.get("results", {}).get("execution_worker", {})
+            or exec_result.data
+        )
+        files_created  = _exec_data.get("files_created", [])
+        files_modified = _exec_data.get("files_modified", [])
+        exec_data      = _exec_data
 
         # ── Step 3: Regression gate ──────────────────────────────────────
         test_result = self._run_tests()
-        tests_failed = test_result.data.get("failed", 0) if test_result.success else 1
+        # Unwrap coordinator envelope for test data
+        _test_data = (
+            test_result.data.get("results", {}).get("suite_runner_worker", {})
+            or test_result.data
+        )
+        tests_failed = _test_data.get("failed", 0) if test_result.success else 1
 
         if tests_failed > 0 or not test_result.success:
             # Tests failed — automatic rollback
             self._rollback(snapshot_sha, files_created, session_id)
-            failures = test_result.data.get("failures", [])[:5]
+            failures = _test_data.get("failures", [])[:5]
             error = (
                 f"Regression tests failed ({tests_failed} failure(s)). "
                 f"Rolled back to {snapshot_sha[:8]}. "
@@ -285,7 +295,7 @@ class ExecutionRunner:
             session_id=session_id,
             description=description,
             execution_data=exec_data,
-            test_data=test_result.data,
+            test_data=_test_data,
             snapshot_sha=snapshot_sha,
             duration_seconds=round(duration, 1),
         )
@@ -317,13 +327,23 @@ class ExecutionRunner:
         return ""
 
     def clear_pending_commit(self) -> None:
+        self._pending_push = True   # commit done → push now available
         self._last_outcome = None
+
+    def has_pending_push(self) -> bool:
+        return getattr(self, "_pending_push", False)
+
+    def get_push_summary_text(self) -> str:
+        return "Changes committed. Ready to push to GitHub."
+
+    def clear_pending_push(self) -> None:
+        self._pending_push = False
 
     # ── Internal ─────────────────────────────────────────────────────────
 
     def _git_snapshot(self) -> str:
         """Run git_snapshot, return SHA or empty string on failure."""
-        self._ensure_workflow("git_snapshot_exec", ["git_worker"])
+        self._ensure_workflow("git_snapshot", ["git_worker"])
         task = WorkerTask(
             task_type="git_snapshot",
             payload={"repo_root": self._repo_root},
@@ -351,7 +371,7 @@ class ExecutionRunner:
         snapshot_sha: str,
     ) -> WorkerResult:
         """Run ExecutionWorker."""
-        self._ensure_workflow("execute_approved_plan_exec", ["execution_worker"])
+        self._ensure_workflow("execute_approved_plan", ["execution_worker"])
         task = WorkerTask(
             task_type="execute_approved_plan",
             payload={
@@ -374,7 +394,7 @@ class ExecutionRunner:
 
     def _run_tests(self) -> WorkerResult:
         """Run SuiteRunnerWorker regression gate."""
-        self._ensure_workflow("run_tests_exec", ["suite_runner_worker"])
+        self._ensure_workflow("run_tests", ["suite_runner_worker"])
         task = WorkerTask(
             task_type="run_tests",
             payload={"paths": ["tests/"], "verbose": False},
@@ -396,7 +416,7 @@ class ExecutionRunner:
         session_id: str,
     ) -> None:
         """Trigger RollbackWorker — automatic, no approval needed."""
-        self._ensure_workflow("rollback_execution_exec", ["rollback_worker"])
+        self._ensure_workflow("rollback_execution", ["rollback_worker"])
         task = WorkerTask(
             task_type="rollback_execution",
             payload={

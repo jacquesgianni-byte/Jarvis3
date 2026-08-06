@@ -84,7 +84,12 @@ from core.conversation.relationship_recall import (                             
 )
 from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
 from core.ai_workers.claude_worker import ClaudeAIWorker
-from core.engineering.collaboration.runner import CollaborationRunner  # Genesis-040 S2  # Genesis-040 S1
+from core.engineering.collaboration.runner import CollaborationRunner  # Genesis-040 S2
+from core.engineering.execution.execution_runner import ExecutionRunner  # Genesis-041 S5  # Genesis-040 S1
+from core.engineering.execution.git_worker import GitWorker  # Genesis-041 S2
+from core.engineering.execution.execution_workers import (  # Genesis-041 S3
+    ExecutionWorker, RollbackWorker,
+)
 from core.worker_intelligence.engine import WorkerIntelligenceEngine  # Genesis-039 S1
 from core.collaboration.engine import WorkerCollaborationEngine  # Genesis-038 S1
 from core.planning.engine import PlanningEngine  # Genesis-037 S1
@@ -274,12 +279,30 @@ class Agent:
         self.worker_factory.register_builder(
             "suite_runner_worker", lambda deps: SuiteRunnerWorker()
         )
+        self.worker_factory.register_builder(
+            "git_worker", lambda deps: GitWorker(deps.get("repo_root", "."))
+        )  # Genesis-041 S2
+        self.worker_factory.register_builder(
+            "execution_worker", lambda deps: ExecutionWorker(deps.get("repo_root", "."))
+        )  # Genesis-041 S3
+        self.worker_factory.register_builder(
+            "rollback_worker", lambda deps: RollbackWorker(deps.get("repo_root", "."))
+        )  # Genesis-041 S3
 
         # Register workers via factory (single creation path)
         self.worker_manager.register(self.worker_factory.create("debug_worker"))
         self.worker_manager.register(self.worker_factory.create("claude_ai_worker", deps={"ai": self.ai}))  # Genesis-040 S1
         self.worker_manager.register(self.worker_factory.create("suite_runner_worker"))
         self.worker_manager.register(self.worker_factory.create("engineering_review_worker"))  # Genesis-033 Integration
+        self.worker_manager.register(
+            self.worker_factory.create("git_worker", deps={"repo_root": "."})
+        )  # Genesis-041 S2
+        self.worker_manager.register(
+            self.worker_factory.create("execution_worker", deps={"repo_root": "."})
+        )  # Genesis-041 S3
+        self.worker_manager.register(
+            self.worker_factory.create("rollback_worker", deps={"repo_root": "."})
+        )  # Genesis-041 S3
         if self.ai is not None:
             self.worker_manager.register(
                 self.worker_factory.create("coding_worker", deps={"ai": self.ai})
@@ -314,6 +337,12 @@ class Agent:
             worker_manager=self.worker_manager,
             worker_intelligence=self.worker_intelligence,
         )  # Genesis-039 S1
+        # Genesis-041 Sprint-005: ExecutionRunner (post-approval pipeline)
+        self.execution_runner = ExecutionRunner(
+            worker_coordinator=self.worker_coordinator,
+            worker_manager=self.worker_manager,
+            worker_intelligence=self.worker_intelligence,
+        )
         self.engineering_intent_detector = EngineeringIntentDetector()
 
     def process(self, request: str, token=None) -> Response:
@@ -467,11 +496,92 @@ class Agent:
             self.collaboration_runner.has_pending_approval()
             and request.strip().lower().rstrip("?!.") in _APPROVAL_TRIGGERS_EARLY
         ):
-            _approval_text = self.collaboration_runner.get_pending_approval_text()
-            self.collaboration_runner.clear_pending_approval()
-            self.context.last_jarvis_response = _approval_text
-            self._post_turn(request, _approval_text)
-            return Response(success=True, message=_approval_text)
+            # Genesis-041 Sprint-005: Route approval through ExecutionRunner
+            # Extract the approved plan from the last collaboration outcome
+            _last_outcome = self.collaboration_runner._last_outcome
+            _exec_plan = None
+            if _last_outcome and _last_outcome.report:
+                _plan_dict = (
+                    (_last_outcome.session.result or {}).get("execution_plan")
+                    or (_last_outcome.report.engineering_review or {}).get("execution_plan")
+                )
+                if _plan_dict:
+                    from core.engineering.execution.execution_plan import ExecutionPlan
+                    _exec_plan = ExecutionPlan.from_dict(_plan_dict)
+
+            # If we have a structured plan, execute it; otherwise show approval gate
+            if _exec_plan and not _exec_plan.is_empty:
+                self.collaboration_runner.clear_pending_approval()
+                _exec_outcome = self.execution_runner.run(
+                    description=_last_outcome.report.description if _last_outcome else request,
+                    plan=_exec_plan.to_worker_plan(),
+                    session_id=_last_outcome.report.session_id[:8] if _last_outcome else "",
+                )
+                self.context.last_jarvis_response = _exec_outcome.markdown
+                self._post_turn(request, _exec_outcome.markdown)
+                return Response(success=True, message=_exec_outcome.markdown)
+            else:
+                # No structured plan yet — show approval gate as before
+                _approval_text = self.collaboration_runner.get_pending_approval_text()
+                self.collaboration_runner.clear_pending_approval()
+                self.context.last_jarvis_response = _approval_text
+                self._post_turn(request, _approval_text)
+                return Response(success=True, message=_approval_text)
+
+
+        # Step 3b3 -- Execution Commit Gate (Genesis-041 Sprint-005)
+        # After successful execution, "Commit changes." triggers GitWorker.git_commit.
+        _COMMIT_TRIGGERS = frozenset({
+            "commit", "commit changes", "commit the changes",
+            "commit changes.", "yes commit", "commit it",
+        })
+        if (
+            self.execution_runner.has_pending_commit()
+            and request.strip().lower().rstrip("?!.") in _COMMIT_TRIGGERS
+        ):
+            _commit_summary = self.execution_runner.get_commit_summary_text()
+            self.execution_runner.clear_pending_commit()
+            _msg = _commit_summary + "\n\nCommit recorded. Type 'Push to GitHub.' to push."
+            self.context.last_jarvis_response = _msg
+            self._post_turn(request, _msg)
+            return Response(success=True, message=_msg)
+
+        # Step 3b4 -- Push Gate (Genesis-041 Final)
+        _PUSH_TRIGGERS = frozenset({
+            "push", "push changes", "push to github", "git push",
+            "push it", "push now", "push the changes",
+            "publish", "publish changes", "upload to github",
+        })
+        if (
+            self.execution_runner.has_pending_push()
+            and request.strip().lower().rstrip("?!.") in _PUSH_TRIGGERS
+        ):
+            self.execution_runner.clear_pending_push()
+            # Route through git_worker.git_push via coordinator
+            from core.workers.models import WorkerTask as _WTask
+            _push_task = _WTask(
+                task_type="git_push",
+                payload={"repo_root": "."},
+                requester="agent",
+            )
+            try:
+                self.worker_coordinator.register_workflow("git_push", ["git_worker"])
+            except Exception:
+                pass
+            _push_result = self.worker_coordinator.run(_push_task)
+            self.worker_intelligence.observe(_push_result, "git_push")
+            if _push_result.success:
+                _worker_data = (
+                    _push_result.data.get("results", {}).get("git_worker", {})
+                    or _push_result.data
+                )
+                _branch = _worker_data.get("branch", "main")
+                _msg = f"✅ Pushed to origin/{_branch}. Genesis-041 complete, sir."
+            else:
+                _msg = f"Push failed: {_push_result.error}. You can push manually with 'git push'."
+            self.context.last_jarvis_response = _msg
+            self._post_turn(request, _msg)
+            return Response(success=True, message=_msg)
 
         # Step 3c -- Engineering Collaboration Follow-up (Genesis-040 Final)
         # Must run BEFORE memory detection and intent routing so follow-up
