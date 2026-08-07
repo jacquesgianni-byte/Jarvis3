@@ -40,6 +40,11 @@ class SystemSkill:
         "what provider", "which provider", "ai provider",
         "what are you running", "what are you using",
     }
+    _TIMELINE_TRIGGERS = {
+        "activity log", "operational log", "show timeline",
+        "show today", "jarvis timeline", "server log", "daily activity",
+    }
+
     _ENGINEERING_TRIGGERS = {
         "engineering status", "engineering history", "engineering queue",
         "engineering logs", "engineering workers", "engineering dashboard",
@@ -57,9 +62,32 @@ class SystemSkill:
             return self._capabilities(agent)
         if any(t in req for t in self._PROVIDER_TRIGGERS):
             return self._provider(agent)
+        if any(t in req for t in self._TIMELINE_TRIGGERS):
+            return self._timeline(agent)
         if any(t in req for t in self._ENGINEERING_TRIGGERS):
             return self._engineering(agent)
         return self._status(agent)
+
+    def _timeline(self, agent) -> Response:
+        """Return today's activity log from SessionRegistry."""
+        try:
+            # Try to get from app config via agent
+            if hasattr(agent, '_session_registry') and agent._session_registry:
+                return Response(success=True, message=agent._session_registry.today_summary())
+            # Fall back to Flask app config
+            try:
+                from flask import current_app
+                sr = current_app.config.get("SESSION_REGISTRY")
+                if sr:
+                    return Response(success=True, message=sr.today_summary())
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return Response(
+            success=True,
+            message="No session activity recorded yet. Keep talking to me and I'll track what we do."
+        )
 
     def _version(self) -> Response:
         return Response(

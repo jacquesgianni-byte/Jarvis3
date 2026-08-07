@@ -778,6 +778,14 @@ class Agent:
                 _temporal_ctx.expression, _temporal_ctx.resolved_date,
             )
 
+        # Log to session registry
+        try:
+            from flask import current_app
+            sr = current_app.config.get("SESSION_REGISTRY")
+            if sr:
+                sr.log_memory_stored(detection.key, detection.value)
+        except Exception:
+            pass
         with telemetry.stage("skill_manager", skill="memory_store"):
             return self.skills.get("memory").remember(
                 detection.key,

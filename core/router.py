@@ -132,7 +132,9 @@ class IntentRouter:
             r"what are you running|what are you using|"
             r"memory status|knowledge status|worker status|"
             r"engineering status|engineering history|engineering queue|"
-            r"engineering logs|engineering workers|engineering dashboard)\b",
+            r"engineering logs|engineering workers|engineering dashboard|"
+            r"show timeline|activity log|operational log|"
+            r"show today|jarvis timeline|server log)\b",
             re.IGNORECASE,
         ),
     ]
