@@ -116,6 +116,27 @@ class IntentRouter:
         re.compile(r"^/summary$", re.IGNORECASE),
     ]
 
+
+    # Genesis-042: System intent patterns
+    _SYSTEM_PATTERNS = [
+        re.compile(
+            r"\b(?:system status|system check|system report|status report|"
+            r"run diagnostics?|diagnostics?|health check|run health|"
+            r"are you okay|are you ok|are you working|are you online|"
+            r"how are you running|how are you doing|self.?check|"
+            r"what version|which version|version number|your version|"
+            r"what model|which model|what ai|which ai|"
+            r"how many tools|how many skills|how many workers|"
+            r"what can you do|what are your capabilities|"
+            r"what provider|which provider|ai provider|"
+            r"what are you running|what are you using|"
+            r"memory status|knowledge status|worker status|"
+            r"engineering status|engineering history|engineering queue|"
+            r"engineering logs|engineering workers|engineering dashboard)\b",
+            re.IGNORECASE,
+        ),
+    ]
+
     _EXITS = ["exit", "quit", "bye", "goodbye"]
 
     def __init__(self):
@@ -125,6 +146,11 @@ class IntentRouter:
         """Detect the user's intent."""
 
         request = self.normalizer.normalize(request)
+
+        # System -- Genesis-042: answered locally, never AI.
+        if any(p.search(request) for p in self._SYSTEM_PATTERNS):
+            return Intent.SYSTEM
+
 
         # Memory — explicit commands and personal recall questions.
         if _has_word(request, "remember") or _has_word(request, "forget"):

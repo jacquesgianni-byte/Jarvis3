@@ -26,6 +26,7 @@ from core.skills.memory import MemorySkill
 from core.skills.tool import ToolSkill
 from core.skills.exit import ExitSkill
 from core.skills.engineering import EngineeringSkill  # Genesis-019.5
+from core.skills.system import SystemSkill  # Genesis-042
 
 from core.conversation.context import ConversationContext
 from core.conversation.intelligence import ConversationIntelligence
@@ -155,6 +156,7 @@ class Agent:
         self.skills.register(ToolSkill(self.tools))
         self.skills.register(ExitSkill())
         self.skills.register(EngineeringSkill(ai=self.ai))  # Genesis-019.5
+        self.skills.register(SystemSkill())  # Genesis-042
 
         # Conversation layer
         self.context = ConversationContext()
@@ -929,6 +931,13 @@ class Agent:
                 return Response(success=True, message=f"Got it. I've noted {slot_value!r}.")
         except Exception:
             self.logger.exception("[CONV] ConversationEngine error -- continuing with intent routing.")
+
+        # Genesis-042: System intent -- always answered locally.
+        if intent == Intent.SYSTEM:
+            skill = self.skills.get("system")
+            if skill:
+                return skill.execute(request, agent=self)
+            return Response(success=True, message="Jarvis OS 0.1-alpha -- online.")
 
         if intent == Intent.GREETING:
             return self._execute_skill("greeting", request)

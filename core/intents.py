@@ -19,4 +19,5 @@ class Intent(Enum):
     ENGINEERING = auto() # Genesis-019.5: questions answered by the
                          # Engineering Academy before any AI provider
                          # is invoked.
+    SYSTEM = auto()      # Genesis-042: system status, diagnostics, version
     UNKNOWN = auto()
