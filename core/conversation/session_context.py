@@ -83,6 +83,11 @@ class SessionContext:
     currently in focus for that dimension.
     """
 
+    # Genesis-042 Sprint-003: Follow-up context
+    last_intent:      Optional[str]        = field(default=None)
+    last_response:    Optional[str]        = field(default=None)
+    last_topic:       Optional[str]        = field(default=None)
+
     active_project:   Optional[ContextSlot] = field(default=None)
     active_milestone: Optional[ContextSlot] = field(default=None)
     active_task:      Optional[ContextSlot] = field(default=None)
@@ -139,8 +144,17 @@ class SessionContext:
         self.active_topic = ContextSlot(value=value, raw=raw,
                                         turn=self._turn, confidence=confidence)
 
+    def set_last_turn(self, intent: str, response: str, topic: str = "") -> None:
+        """Record the last turn's intent, response and topic for follow-up resolution."""
+        self.last_intent   = intent
+        self.last_response = response
+        self.last_topic    = topic or self.last_topic
+
     def reset(self) -> None:
         """Clear all active context slots. Called on session end."""
+        self.last_intent   = None
+        self.last_response = None
+        self.last_topic    = None
         self.active_project   = None
         self.active_milestone = None
         self.active_task      = None

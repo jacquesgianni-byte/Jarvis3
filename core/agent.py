@@ -83,7 +83,8 @@ from core.conversation.semantic_recall_engine import SemanticRecallEngine       
 from core.conversation.relationship_recall import (                              # Genesis-032 S2
     RelationshipProvider, RelationshipRecallEngine,
 )
-from core.episodic_memory_engine import EpisodicMemoryEngine                     # Genesis-032 S3
+from core.episodic_memory_engine import EpisodicMemoryEngine
+from core.conversation.followup_resolver import FollowUpResolver  # Genesis-042 S3                     # Genesis-032 S3
 from core.ai_workers.claude_worker import ClaudeAIWorker
 from core.engineering.collaboration.runner import CollaborationRunner  # Genesis-040 S2
 from core.engineering.execution.execution_runner import ExecutionRunner  # Genesis-041 S5  # Genesis-040 S1
@@ -203,6 +204,8 @@ class Agent:
 
         # Genesis-032 Sprint-003: Episodic Memory Engine
         self.episodic_memory = EpisodicMemoryEngine(self.knowledge, self.temporal_parser)
+        # Genesis-042 Sprint-003: Follow-up resolver
+        self.followup_resolver = FollowUpResolver()
         self.goal_intelligence = GoalIntelligenceEngine(self.knowledge)  # Genesis-033 S2
         # Genesis-034 Sprint-001: Engineering Lifecycle Manager
         self.lifecycle_manager = LifecycleManager(self.knowledge)
@@ -680,6 +683,17 @@ class Agent:
         return response
 
     def _post_turn(self, request: str, response_message: str) -> None:
+        # Genesis-042 Sprint-003: track last turn for follow-up resolution
+        try:
+            _topic = self.session.active_topic.value if self.session.active_topic else ""
+            self.session.set_last_turn(
+                intent=self.context.last_skill or "unknown",
+                response=response_message,
+                topic=_topic
+            )
+        except Exception:
+            pass
+
         """
         Fire-and-forget post-turn processing. Errors never propagate.
 
