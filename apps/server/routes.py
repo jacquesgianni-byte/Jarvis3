@@ -240,6 +240,78 @@ def register_routes(app) -> None:
         finally:
             _processing = False
 
+
+    # ── File Upload endpoint (File Intelligence Sprint) ────────────────────────
+    @app.route("/upload", methods=["POST"])
+    def upload():
+        """
+        Accept a file upload from Android.
+        Multipart form: file=<bytes>, message=<optional str>
+        Returns: upload_id, filename, detected_type, readable, prompt_context
+        """
+        from apps.server.document_intake.document_intake import DocumentIntake
+
+        if "file" not in request.files:
+            return jsonify(_envelope(
+                success=False,
+                message="No file field in request.",
+            )), 400
+
+        f         = request.files["file"]
+        filename  = f.filename or "upload"
+        mime_type = f.content_type or ""
+        user_msg  = request.form.get("message", "").strip()
+
+        try:
+            file_bytes = f.read()
+            intake     = DocumentIntake()
+            result     = intake.process(file_bytes, filename, mime_type)
+        except ValueError as e:
+            return jsonify(_envelope(success=False, message=str(e))), 400
+        except Exception as e:
+            logger.exception("[UPLOAD] DocumentIntake failed.")
+            return jsonify(_envelope(success=False, message=f"Upload failed: {e}")), 500
+
+        # Route file content directly to AI, bypassing intent routing
+        agent_reply = None
+        if result.context.is_readable:
+            try:
+                session_id = _get_session_id()
+                agent = _agent()
+                _restore_session(agent, session_id)
+
+                # Build a clear AI-directed prompt with file content
+                attachment_context = result.context.to_prompt_context()
+                user_instruction = user_msg if user_msg else "Please analyse this file and give me a summary of its key points."
+                combined_message = f"{user_instruction}\n\n{attachment_context}"
+
+                # Go straight to AI — file content should never be intercepted
+                # by intent routing (memory detector, engineering detector etc.)
+                if agent.ai is not None:
+                    ai_response = agent.ai.ask(combined_message)
+                    agent_reply = ai_response.message
+                else:
+                    response = agent.process(combined_message)
+                    agent_reply = response.message
+
+                _save_session(agent, session_id)
+            except Exception:
+                logger.exception("[UPLOAD] Agent.process() failed after upload.")
+                agent_reply = f"File received: {filename}. I couldn't process it right now."
+        else:
+            agent_reply = (
+                f"I received {filename} but couldn't read it: {result.context.error}"
+            )
+
+        return jsonify({
+            **_envelope(success=True, message=agent_reply or "File received."),
+            "upload_id":    result.upload_id,
+            "filename":     result.detected.filename,
+            "detected_type": result.detected.file_type.value,
+            "mime_type":    result.detected.mime_type,
+            "readable":     result.context.is_readable,
+        }), 200
+
     @app.route("/interrupt", methods=["POST"])
     def interrupt():
         logger.info("[INTERRUPT] Interrupt requested.")
