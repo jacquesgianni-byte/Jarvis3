@@ -228,6 +228,10 @@ class ConversationState:
         from core.conversation.topic_tracker import TopicTracker
         self.topic_tracker: TopicTracker                = TopicTracker()
 
+        # ── Genesis-043 Sprint-004: ConversationSummariser (PROP-0003) ──
+        from core.conversation.conversation_summariser import ConversationSummariser
+        self.summariser: ConversationSummariser         = ConversationSummariser()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -595,6 +599,8 @@ class ConversationState:
         self.entity_registry.reset()
         # Genesis-043 Sprint-003
         self.topic_tracker.reset()
+        # Genesis-043 Sprint-004
+        self.summariser.reset()
         self._touch()
 
     # ------------------------------------------------------------------
@@ -643,6 +649,8 @@ class ConversationState:
             "entity_registry": self.entity_registry.summary(self._ctx_turn),
             # Genesis-043 Sprint-003
             "topic_tracker":   self.topic_tracker.summary(),
+            # Genesis-043 Sprint-004
+            "summariser":      self.summariser.summary(),
         }
 
     def __repr__(self) -> str:
