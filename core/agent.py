@@ -36,7 +36,9 @@ from core.conversation.memory_detector import MemoryDetector
 from core.conversation.memory_detection import MemoryDetection
 from core.conversation.conversation_observer import ConversationObserver  # Genesis-020 S1
 from core.conversation.conversation_recall import ConversationRecall      # Genesis-020 S1
-from core.conversation.session_context import SessionContext              # Genesis-020 S2
+from core.conversation.session_context import SessionContext              # Genesis-020 S2 (compat stub)
+from core.conversation.conversation_state import ConversationState           # Genesis-043 canonical state
+from core.conversation.session_context_adapter import SessionContextAdapter  # Genesis-043 migration adapter
 from core.conversation.context_manager import ContextManager             # Genesis-020 S2
 from core.conversation.context_resolver import ContextResolver           # Genesis-020 S2
 from core.conversation.context_inspector import ContextInspector         # Genesis-020 S2
@@ -224,8 +226,16 @@ class Agent:
         self.conversation_observer = ConversationObserver(self.knowledge)
         self.conversation_recall = ConversationRecall(self.knowledge)
 
+        # Genesis-043 Runtime Integration: ONE shared ConversationState
+        # Named jarvis_state to avoid collision with self.conversation_state
+        # which is already used for ConversationStateEngine (Genesis-029).
+        # Genesis-044 will clean up this naming once ConversationStateEngine is renamed.
+        # SessionContextAdapter is a temporary migration shim — retired in Genesis-044.
+        self.jarvis_state = ConversationState()
+        self.session = SessionContextAdapter(self.jarvis_state)
+
         # Genesis-020 Sprint-002: Active Conversation Context
-        self.session = SessionContext()
+        # These now write to ConversationState via the adapter.
         self.context_manager = ContextManager(self.session)
         self.context_resolver = ContextResolver(self.session)
         self.context_inspector = ContextInspector(self.session)
@@ -255,7 +265,8 @@ class Agent:
         self.summary_query = SessionSummaryQueryEngine(self.summary_engine)
         self.summary_inspector = SessionSummaryInspector(self.summary_engine)
 
-        # Genesis-022: Conversation Engine
+        # Genesis-022: Conversation Engine (owns its own internal ConversationState)
+        # Genesis-044 will unify with jarvis_state.
         self.conversation_engine = ConversationEngine()
 
         # Genesis-027: Worker Operating System
@@ -694,6 +705,23 @@ class Agent:
         except Exception:
             pass
 
+        # Genesis-043 Runtime Integration: wire summariser
+        try:
+            _sum_topic = self.session.active_topic.value if self.session.active_topic else ""
+            self.jarvis_state.summariser.add_turn(
+                user_msg        = request,
+                jarvis_response = response_message,
+                topic           = _sum_topic,
+                turn_number     = self.jarvis_state.current_turn,
+            )
+            # Rebuild abstract every 5 turns
+            if self.jarvis_state.current_turn % 5 == 0:
+                self.jarvis_state.summariser.build_abstract_from_state(
+                    self.jarvis_state
+                )
+        except Exception:
+            pass
+
         """
         Fire-and-forget post-turn processing. Errors never propagate.
 
@@ -938,6 +966,14 @@ class Agent:
             if len(self._recent_entities) > 5:
                 self._recent_entities.pop(0)
             if _store.success:
+                # Genesis-043: record entity mention in EntityRegistry
+                try:
+                    self.jarvis_state.entity_registry.mention(
+                        _pa.subject, turn=self.jarvis_state.current_turn,
+                        display_name=_pa.subject.title()
+                    )
+                except Exception:
+                    pass
                 return Response(success=True, message=_store.message)
 
         # Genesis-022: Run Conversation Engine pipeline for enriched context.

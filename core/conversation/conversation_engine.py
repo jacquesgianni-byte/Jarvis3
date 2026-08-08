@@ -63,6 +63,8 @@ class ConversationEngine:
         self,
         policy: Optional[ConversationPolicy] = None,
     ) -> None:
+        # Genesis-022: ConversationEngine owns its own ConversationState.
+        # Genesis-044 will unify this with the Agent's shared ConversationState.
         self._state    = ConversationState()
         self._policy   = policy or ConversationPolicy()
         self._pipeline = ConversationPipeline()
