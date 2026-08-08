@@ -297,6 +297,7 @@ class ConversationStateEngine:
 
         Group changes update active_topic with high confidence.
         Entity changes update active_person with high confidence.
+        Genesis-043 Sprint-003: also updates TopicTracker.
 
         Args:
             change:  A detected FocusChange.
@@ -308,9 +309,15 @@ class ConversationStateEngine:
         if change.is_group:
             session.set_topic(change.entity, raw=change.entity, confidence=change.confidence)
             logger.info("[STATE] Focus → group %r", change.entity)
+            # Genesis-043 Sprint-003: record in TopicTracker
+            self.update_topic(change.entity, session,
+                              confidence=change.confidence, explicit=True)
         else:
             session.set_person(change.entity, raw=change.entity, confidence=change.confidence)
             logger.info("[STATE] Focus → entity %r", change.entity)
+            # Entity focus change also updates topic tracker
+            self.update_topic(change.entity, session,
+                              confidence=change.confidence, explicit=True)
 
     # ------------------------------------------------------------------
     # Sprint-001: Entity / group tracking
@@ -349,6 +356,79 @@ class ConversationStateEngine:
 
         if not prev or prev.value.lower() != group_name.lower():
             logger.info("[STATE] Active group → %r", group_name)
+
+    def update_topic(
+        self,
+        name:       str,
+        session:    "SessionContext",
+        confidence: float = 0.65,
+        explicit:   bool  = False,
+    ) -> None:
+        """
+        Update the current topic in ConversationState.TopicTracker.
+
+        Genesis-043 Sprint-003: Topic Tracker (PROP-0002).
+
+        Called by:
+            apply_focus_change() — explicit topic switch, confidence=0.92
+            update_group()       — group declaration, confidence=0.90
+            ContextManager       — implicit detection, confidence=0.65
+
+        Args:
+            name:       The topic name to set.
+            session:    The current SessionContext (or SessionContextAdapter).
+            confidence: Topic confidence (use TopicTracker constants).
+            explicit:   True if set via an explicit focus-change signal.
+        """
+        if not name or not name.strip():
+            return
+
+        # Resolve ConversationState from the session object
+        # Works with both SessionContextAdapter and direct ConversationState
+        state = getattr(session, "_s", None) or session
+        tracker = getattr(state, "topic_tracker", None)
+        if tracker is None:
+            logger.debug("[STATE] No topic_tracker on state — skipping topic update")
+            return
+
+        # Collect current entity names for drift detection
+        entity_registry = getattr(state, "entity_registry", None)
+        entity_set: set[str] = set()
+        if entity_registry is not None:
+            entity_set = {
+                e.name for e in entity_registry.active(
+                    getattr(state, "current_turn", 0)
+                )
+            }
+
+        tracker.set(
+            name       = name,
+            confidence = confidence,
+            turn       = getattr(state, "current_turn", 0),
+            explicit   = explicit,
+            entity_set = entity_set,
+        )
+
+    def detect_implicit_topic_shift(
+        self,
+        session:      "SessionContext",
+        new_entities: set[str],
+    ) -> bool:
+        """
+        Detect whether a topic shift has occurred implicitly.
+
+        Compares the active entity set in the current turn against the
+        entity set recorded when the current topic was set. Low overlap
+        suggests the conversation has drifted to a new topic.
+
+        Genesis-043 Sprint-003.
+        """
+        state   = getattr(session, "_s", None) or session
+        tracker = getattr(state, "topic_tracker", None)
+        if tracker is None:
+            return False
+        current_turn = getattr(state, "current_turn", 0)
+        return tracker.detect_shift(new_entities, current_turn)
 
     # ------------------------------------------------------------------
     # Sprint-001: Pronoun resolution
