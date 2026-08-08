@@ -220,6 +220,10 @@ class ConversationState:
         self._dialogue_act:   str                       = "inform"
         self._session_summary: str                      = ""
 
+        # ── Genesis-043 Sprint-002: EntityRegistry (PROP-0001) ─────────
+        from core.conversation.entity_registry import EntityRegistry
+        self.entity_registry: EntityRegistry            = EntityRegistry()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -583,6 +587,8 @@ class ConversationState:
         self._last_topic        = None
         self._dialogue_act      = "inform"
         self._session_summary   = ""
+        # Genesis-043 Sprint-002
+        self.entity_registry.reset()
         self._touch()
 
     # ------------------------------------------------------------------
@@ -627,6 +633,8 @@ class ConversationState:
             "last_topic":      self._last_topic,
             "dialogue_act":    self._dialogue_act,
             "session_summary": self._session_summary[:80] if self._session_summary else "",
+            # Genesis-043 Sprint-002
+            "entity_registry": self.entity_registry.summary(self._ctx_turn),
         }
 
     def __repr__(self) -> str:
