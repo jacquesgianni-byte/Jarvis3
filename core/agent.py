@@ -942,7 +942,9 @@ class Agent:
                 "April", "May", "June", "July", "August", "September",
                 "October", "November", "December", "Jarvis",
             }
-            _search_text = (detection.key or "") + " " + (self.context.last_user_message or "")
+            # FIX-9: Also title-case the message so lowercase names are found
+            _raw_msg = self.context.last_user_message or ""
+            _search_text = (detection.key or "") + " " + _raw_msg + " " + _raw_msg.title()
             import re as _re_fix1_inner
             _name_candidates = _re_fix1_inner.findall(r'\b([A-Z][a-z]{1,20})\b', _search_text)
             # Skip common sentence starters that are not entity names
@@ -950,6 +952,10 @@ class Agent:
                 "My", "The", "A", "An", "In", "It", "He", "She", "We",
                 "They", "Is", "Are", "Was", "Were", "You", "Hi", "Oh",
                 "So", "But", "And", "Or", "If", "To", "Do", "Go",
+                # Relationship nouns that appear before names in title-cased input
+                "Son", "Daughter", "Brother", "Sister", "Father", "Mother",
+                "Wife", "Husband", "Friend", "Partner", "Child", "Kid",
+                "Nephew", "Niece", "Cousin", "Uncle", "Aunt", "Pet", "Dog", "Cat",
             }
             for _cand in _name_candidates:
                 if (_cand not in _STOP_WORDS
@@ -1328,6 +1334,24 @@ class Agent:
                                 _pr_age = self.property_recall.retrieve(_pq_age)
                                 if _pr_age.found:
                                     return Response(success=True, message=_pr_age.message)
+                            else:
+                                # FIX-9B: No active person — search all personal records for age values
+                                # Find any record with a numeric value stored under a relationship key
+                                # e.g. subject=user, attribute="son lucas", value="14"
+                                _all_personal = self.knowledge.list_memories(subject="user", category="personal")
+                                for _pr in _all_personal:
+                                    if _pr.value.strip().replace(".", "").isdigit():
+                                        # Extract name from attribute like "son lucas" -> "lucas"
+                                        _attr_parts = _pr.attribute.split()
+                                        # Need 2+ words: first=relationship, last=name
+                                        # e.g. "son lucas" → "Lucas"
+                                        _REL_WORDS = {"son","daughter","brother","sister","father","mother","wife","husband","friend","partner","child","kid","nephew","niece","cousin","uncle","aunt"}
+                                        if len(_attr_parts) >= 2 and _attr_parts[0].lower() in _REL_WORDS:
+                                            _name_part = _attr_parts[-1].title()
+                                        else:
+                                            _name_part = None
+                                        if _name_part and len(_name_part) >= 3:
+                                            return Response(success=True, message=f"{_name_part} is {_pr.value}.")
                         break
 
                 response = self._execute_skill("memory", request)
