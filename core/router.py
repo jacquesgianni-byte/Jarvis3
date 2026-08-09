@@ -43,6 +43,22 @@ class IntentRouter:
         re.IGNORECASE,
     )
 
+    # FIX-2: Personal memory queries that don't use "my"
+    # Covers: "where do I live", "where am I from", "how old am I",
+    #         "what is my name" (already caught above), "where was I born"
+    _PERSONAL_RECALL = re.compile(
+        r"\b(?:where\s+(?:do|did|am|was)\s+i\s+(?:live|stay|work|go|come from|grow up|born|study)|"
+        r"how\s+old\s+am\s+i|"
+        r"what\s+(?:is|are|was|were)\s+my\b|"
+        r"what\s+do\s+i\s+(?:do|like|enjoy|have|own|drive|play)|"
+        r"who\s+(?:is|are)\s+my\b|"
+        r"do\s+i\s+have\s+(?:any\s+)?\w+|"
+        r"who\s+are\s+(?:they|those|them)|"
+        r"how\s+old\s+(?:is|are|was|were)\s+(?:he|she|they|it)|"
+        r"my\s+(?:children|kids|son|daughter|family|relatives?)\s+are\b)\b",
+        re.IGNORECASE,
+    )
+
     _REASONING_FOLLOW_UPS = {
         "why", "why is that", "how did you work that out", "how do you know",
         "how do you know that", "explain", "explain that",
@@ -158,6 +174,8 @@ class IntentRouter:
         if _has_word(request, "remember") or _has_word(request, "forget"):
             return Intent.MEMORY
         if self._MEMORY_RECALL.search(request):
+            return Intent.MEMORY
+        if self._PERSONAL_RECALL.search(request):  # FIX-2: location/age/personal queries
             return Intent.MEMORY
         if _has_word(request, "drink"):
             return Intent.MEMORY

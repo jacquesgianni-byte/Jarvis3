@@ -628,6 +628,92 @@ class Agent:
                 self._post_turn(request, _cf_summary)
                 return Response(success=True, message=_cf_summary)
 
+        # Genesis-043 Fix 2: FollowUpResolver — must run before memory detection
+        # so "tell me another one", "make it shorter", "say that again" etc.
+        # are handled from session context rather than sent to AI.
+        # FollowUpResolver was instantiated but never called in process() — this wires it.
+        try:
+            _followup = self.followup_resolver.resolve(request, self.session)
+            if _followup.is_followup:
+                self.logger.info("[G043-Fix2] FollowUp detected: type=%r context=%r",
+                                 _followup.resolved_type, _followup.context_hint)
+                if _followup.resolved_type == "repeat" and self.session.last_response:
+                    _fu_resp = Response(success=True, message=self.session.last_response)
+                    self.context.last_jarvis_response = _fu_resp.message
+                    self._post_turn(request, _fu_resp.message)
+                    return _fu_resp
+                elif _followup.suggested_prompt and self.ai is not None:
+                    with telemetry.stage("ai_manager"):
+                        _fu_resp = self.ai.ask(_followup.suggested_prompt)
+                    self.context.last_skill = "followup_resolver"
+                    self.context.last_jarvis_response = _fu_resp.message
+                    self._post_turn(request, _fu_resp.message)
+                    return _fu_resp
+        except Exception:
+            self.logger.debug("[G043-Fix2] FollowUpResolver error — continuing.")
+
+        # FIX-6B: Catch "My [group] are [names]" before Step 4 for group nouns
+        # that SlotCompletionEngine doesn't recognise (e.g. "children", "kids").
+        import re as _re_group_pre
+        _GROUP_PRE_RE = _re_group_pre.compile(
+            r"^my\s+(children|kids|sons?|daughters?|family|relatives?|friends?|colleagues?)"
+            r"\s+are\s+(.+)$",
+            _re_group_pre.IGNORECASE,
+        )
+        _group_pre_m = _GROUP_PRE_RE.match(request.strip())
+        if _group_pre_m:
+            _gp_noun  = _group_pre_m.group(1).lower()
+            _gp_names = _group_pre_m.group(2).strip().rstrip(".")
+            # Store as people names + people declaration
+            _gp_attr  = "people names"
+            _gp_decl  = _gp_noun  # "children", "kids" etc.
+            self.knowledge.store_memory(
+                subject="user", category="personal",
+                attribute=_gp_attr, value=_gp_names, tags=["user_fact"],
+            )
+            self.knowledge.store_memory(
+                subject="user", category="personal",
+                attribute="people", value=_gp_decl, tags=["user_fact"],
+            )
+            # Also set active_topic so pronouns resolve
+            self.session.set_topic(_gp_decl, raw=_gp_decl)
+            self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
+            _gp_resp = Response(success=True, message="Got it, I'll remember that.")
+            self.context.last_jarvis_response = _gp_resp.message
+            self._post_turn(request, _gp_resp.message)
+            return _gp_resp
+
+        # FIX-6B: Catch "My [group] are [names]" before Step 4 for group nouns
+        # that SlotCompletionEngine doesn't recognise (e.g. "children", "kids").
+        import re as _re_group_pre
+        _GROUP_PRE_RE = _re_group_pre.compile(
+            r"^my\s+(children|kids|sons?|daughters?|family|relatives?|friends?|colleagues?)"
+            r"\s+are\s+(.+)$",
+            _re_group_pre.IGNORECASE,
+        )
+        _group_pre_m = _GROUP_PRE_RE.match(request.strip())
+        if _group_pre_m:
+            _gp_noun  = _group_pre_m.group(1).lower()
+            _gp_names = _group_pre_m.group(2).strip().rstrip(".")
+            # Store as people names + people declaration
+            _gp_attr  = "people names"
+            _gp_decl  = _gp_noun  # "children", "kids" etc.
+            self.knowledge.store_memory(
+                subject="user", category="personal",
+                attribute=_gp_attr, value=_gp_names, tags=["user_fact"],
+            )
+            self.knowledge.store_memory(
+                subject="user", category="personal",
+                attribute="people", value=_gp_decl, tags=["user_fact"],
+            )
+            # Also set active_topic so pronouns resolve
+            self.session.set_topic(_gp_decl, raw=_gp_decl)
+            self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
+            _gp_resp = Response(success=True, message="Got it, I'll remember that.")
+            self.context.last_jarvis_response = _gp_resp.message
+            self._post_turn(request, _gp_resp.message)
+            return _gp_resp
+
         # Step 4 -- Check for natural memory statements.
         # Genesis-025 Sprint-002: SlotCompletionEngine runs first (generic),
         # then falls back to MemoryDetector (explicit patterns).
@@ -695,12 +781,34 @@ class Agent:
 
     def _post_turn(self, request: str, response_message: str) -> None:
         # Genesis-042 Sprint-003: track last turn for follow-up resolution
+        # FIX-3: Use a meaningful topic hint, not the EntityGroup active_topic.
+        # If the last skill was AI fallback, the conversational topic is the
+        # user's request subject — not which group of entities is active.
+        # We use last_user_message keywords as a proxy when active_topic is
+        # an entity group and the response came from AI.
         try:
-            _topic = self.session.active_topic.value if self.session.active_topic else ""
+            _active_topic_val = self.session.active_topic.value if self.session.active_topic else ""
+            _last_skill = self.context.last_skill or "unknown"
+            # If AI answered and active_topic looks like an entity group declaration
+            # (contains a digit or is multi-word like "2 dogs"), prefer using
+            # last_intent-derived topic or a short extract from the request.
+            import re as _re_topic
+            _is_group_topic = bool(
+                _active_topic_val
+                and _re_topic.search(r'\d', _active_topic_val)
+            )
+            if _is_group_topic and _last_skill in ("ai_fallback", "unknown", ""):
+                # Extract first meaningful noun from user request as topic hint
+                _words = _re_topic.findall(r'[a-z]{3,}', self.context.last_user_message or "", _re_topic.IGNORECASE)
+                _SKIP = {"tell", "give", "make", "what", "where", "when", "why", "how", "the", "and", "for", "that", "this", "are", "was", "did", "does"}
+                _topic_words = [w for w in _words if w.lower() not in _SKIP]
+                _conv_topic = _topic_words[0] if _topic_words else _active_topic_val
+            else:
+                _conv_topic = _active_topic_val or _last_skill
             self.session.set_last_turn(
-                intent=self.context.last_skill or "unknown",
+                intent=_last_skill,
                 response=response_message,
-                topic=_topic
+                topic=_conv_topic,
             )
         except Exception:
             pass
@@ -815,12 +923,53 @@ class Agent:
         except Exception:
             pass
         with telemetry.stage("skill_manager", skill="memory_store"):
-            return self.skills.get("memory").remember(
+            _mem_response = self.skills.get("memory").remember(
                 detection.key,
                 detection.value,
                 temporal_tags=temporal_tags,
                 temporal_metadata=temporal_metadata,
             )
+
+        # Genesis-043 Fix 1: Register named entity so pronouns resolve next turn.
+        # Scan detection.key and detection.value for capitalised names.
+        # e.g. "My son Lucas is 14" -> detection.key="son lucas", value="14"
+        # We find "Lucas" and register it in EntityRegistry + update_entity.
+        try:
+            _STOP_WORDS = {
+                "Melbourne", "Sydney", "Brisbane", "Perth", "Adelaide",
+                "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+                "Saturday", "Sunday", "January", "February", "March",
+                "April", "May", "June", "July", "August", "September",
+                "October", "November", "December", "Jarvis",
+            }
+            _search_text = (detection.key or "") + " " + (self.context.last_user_message or "")
+            import re as _re_fix1_inner
+            _name_candidates = _re_fix1_inner.findall(r'\b([A-Z][a-z]{1,20})\b', _search_text)
+            # Skip common sentence starters that are not entity names
+            _SENTENCE_STARTERS = {
+                "My", "The", "A", "An", "In", "It", "He", "She", "We",
+                "They", "Is", "Are", "Was", "Were", "You", "Hi", "Oh",
+                "So", "But", "And", "Or", "If", "To", "Do", "Go",
+            }
+            for _cand in _name_candidates:
+                if (_cand not in _STOP_WORDS
+                        and _cand not in _SENTENCE_STARTERS
+                        and len(_cand) >= 3):
+                    self.conversation_state.update_entity(_cand, self.session)
+                    try:
+                        self.jarvis_state.entity_registry.mention(
+                            _cand,
+                            turn=self.jarvis_state.current_turn,
+                            display_name=_cand,
+                        )
+                        self.logger.info("[G043-Fix1] Entity registered after memory: %r", _cand)
+                    except Exception:
+                        pass
+                    break  # register first found name only
+        except Exception:
+            pass
+
+        return _mem_response
 
     def _respond_to_decision(self, decision: ConversationDecision) -> Response:
         """Translate a ConversationDecision into a user-facing Response."""
@@ -1063,9 +1212,124 @@ class Agent:
                 r"\bwho\s+(?:is|are|was|were)\b",
                 _re_cv003.IGNORECASE,
             )
+
+            # FIX-4B: "Who are my X?" group queries match _IDENTITY_RE but
+            # have a stored answer. Handle them before the generic identity pass.
+            # Generic: map group nouns to KnowledgeEngine attribute keys.
+            _WHO_MY_RE = _re_cv003.compile(
+                r"\bwho\s+are\s+my\s+(\w+)\b", _re_cv003.IGNORECASE
+            )
+            _who_my_m = _WHO_MY_RE.search(request)
+            if _who_my_m:
+                _group_noun = _who_my_m.group(1).lower().rstrip("s")  # dogs→dog, children→children
+                # Map common group nouns to attribute keys
+                _GROUP_ATTR = {
+                    "dog":    ("pet names", "pets"),
+                    "pet":    ("pet names", "pets"),
+                    "cat":    ("pet names", "pets"),
+                    "animal": ("pet names", "pets"),
+                    "child":  ("people names", "people"),
+                    "children": ("people names", "people"),
+                    "kid":    ("people names", "people"),
+                    "son":    ("people names", "people"),
+                    "daughter": ("people names", "people"),
+                    "sibling": ("people names", "people"),
+                    "friend": ("people names", "people"),
+                }
+                _names_attr, _decl_attr = _GROUP_ATTR.get(
+                    _group_noun,
+                    (f"{_group_noun} names", _group_noun + "s")
+                )
+                _grp_names = self.knowledge.recall_memory("user", _names_attr)
+                _grp_decl  = self.knowledge.recall_memory("user", _decl_attr)
+                if _grp_names and _grp_names.value:
+                    _grp_noun_display = _grp_decl.value if _grp_decl else _group_noun + "s"
+                    _grp_msg = f"{_grp_names.value} are your {_grp_noun_display}."
+                    self.logger.info("[FIX-4B] Group recall: %r → %r", _names_attr, _grp_names.value)
+                    return Response(success=True, message=_grp_msg)
+                # Also try the declaration alone
+                if _grp_decl and _grp_decl.value:
+                    return Response(success=True, message=f"You have {_grp_decl.value}.")
+
             if _IDENTITY_RE.search(request):
                 pass  # Fall through to AI routing below
             else:
+                # FIX-A: Direct KnowledgeEngine lookup before MemorySkill.execute().
+                # Handles queries like "Where do I live?" / "Who are my dogs?" when
+                # active_topic is None (no session context) but the fact IS stored.
+                import re as _re_direct
+                _req_lower_direct = request.strip().lower()
+                _DIRECT_ATTR_MAP = [
+                    # (pattern, attribute_key)
+                    (r"\bwhere\s+do\s+i\s+live\b",          "location"),
+                    (r"\bhow\s+old\s+(?:is|are|was)\s+(?:he|she|they|it)\b", "_pronoun_age"),
+                    (r"\bwhat\s+(?:is|are)\s+(?:his|her|their)\s+age\b", "_pronoun_age"),
+                    (r"\bwhere\s+(?:am|do)\s+i\s+(?:live|stay|reside)\b", "location"),
+                    (r"\bwhere\s+(?:was|am)\s+i\s+from\b",  "location"),
+                    (r"\bwhat\s+(?:is|was)\s+my\s+name\b",  "name"),
+                    (r"\bwhat(?:'s|\s+is)\s+my\s+name\b",   "name"),
+                    (r"\bhow\s+old\s+am\s+i\b",             "age"),
+                    (r"\bwhat(?:'s|\s+is)\s+my\s+age\b",    "age"),
+                    (r"\bwho\s+are\s+my\s+(?:dogs?|pets?)\b", "pet names"),
+                    (r"\bwhat\s+are\s+my\s+(?:dogs?|pets?)\s+(?:called|named)\b", "pet names"),
+                    (r"\bwhat\s+are\s+my\s+(?:dogs?|pets?)\s+names?\b", "pet names"),
+                    (r"\bwho\s+are\s+my\s+children\b",      "people names"),
+                    (r"\bwho\s+are\s+my\s+kids\b",          "people names"),
+                    (r"\bwhat(?:'s|\s+is)\s+my\s+(?:job|occupation|work|profession)\b", "occupation"),
+                    (r"\bwhere\s+do\s+i\s+work\b",          "occupation"),
+                ]
+                _direct_hit = None
+                for _pat, _attr in _DIRECT_ATTR_MAP:
+                    if _re_direct.search(_pat, _req_lower_direct):
+                        _rec = self.knowledge.recall_memory("user", _attr)
+                        if _rec is not None:
+                            _msg = f"Your {_attr} is {_rec.value}."
+                            # Format location naturally
+                            if _attr == "location":
+                                _msg = f"You live in {_rec.value}."
+                            elif _attr == "name":
+                                _msg = f"Your name is {_rec.value}."
+                            elif _attr == "age":
+                                _msg = f"You are {_rec.value}."
+                            elif _attr in ("pet names", "people names"):
+                                _msg = f"{_rec.value}."
+                            self.logger.info("[FIX-A] Direct recall: attr=%r value=%r", _attr, _rec.value)
+                            return Response(success=True, message=_msg)
+                        # Also try search for group recall (pets → pet names)
+                        if _attr == "pet names":
+                            _decl = self.knowledge.recall_memory("user", "pets")
+                            _names = self.knowledge.recall_memory("user", "pet names")
+                            if _names:
+                                _msg = f"{_names.value} are your {_decl.value if _decl else 'pets'}."
+                                return Response(success=True, message=_msg)
+                        if _attr == "people names":
+                            _decl2 = self.knowledge.recall_memory("user", "people")
+                            _names2 = self.knowledge.recall_memory("user", "people names")
+                            if _names2:
+                                _msg2 = f"{_names2.value} are your {_decl2.value if _decl2 else 'people'}."
+                                return Response(success=True, message=_msg2)
+                        if _attr == "_pronoun_age":
+                            # Resolve pronoun to entity, search KE for age
+                            _age_entity = None
+                            if self.session.active_person:
+                                _age_entity = self.session.active_person.value
+                            elif self.jarvis_state.entity_registry.most_salient(self.jarvis_state.current_turn):
+                                _age_entity = self.jarvis_state.entity_registry.most_salient(self.jarvis_state.current_turn)
+                            if _age_entity:
+                                # Search for "[name] [property]" in personal records
+                                _age_key = _age_entity.lower()
+                                _age_results = self.knowledge.search_memory(_age_key, subject="user")
+                                for _ar in _age_results:
+                                    if _age_key in _ar.attribute.lower() and _ar.value.strip().replace(".", "").isdigit():
+                                        return Response(success=True, message=f"{_age_entity} is {_ar.value}.")
+                                # Also try property recall
+                                from core.conversation.property_assigner import PropertyQuery
+                                _pq_age = PropertyQuery(subject=_age_key, property_key="age", raw=request)
+                                _pr_age = self.property_recall.retrieve(_pq_age)
+                                if _pr_age.found:
+                                    return Response(success=True, message=_pr_age.message)
+                        break
+
                 response = self._execute_skill("memory", request)
 
                 if response.data and response.data.get("memory_miss"):

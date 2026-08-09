@@ -88,6 +88,15 @@ def _restore_session(agent, session_id: str) -> None:
                 agent.context.last_jarvis_response = ctx["last_jarvis_response"]
             except Exception:
                 pass
+        # FIX-1: Restore full ConversationState (entity_registry, active slots, etc.)
+        if ctx.get("jarvis_state") is not None:
+            try:
+                saved_state = ctx["jarvis_state"]
+                agent.jarvis_state = saved_state
+                # Re-point the SessionContextAdapter to the restored state
+                agent.session._s = saved_state
+            except Exception as e:
+                logger.warning("[SESSION] jarvis_state restore failed: %s", e)
     except Exception as e:
         logger.warning("[SESSION] Restore failed for %s: %s", session_id, e)
 
@@ -108,6 +117,8 @@ def _save_session(agent, session_id: str) -> None:
             "last_intent":         agent.session.last_intent or "",
             "last_response":       agent.session.last_response or "",
             "last_topic":          agent.session.last_topic or "",
+            # FIX-1: Persist full ConversationState across requests
+            "jarvis_state":        agent.jarvis_state,
         }
     except Exception as e:
         logger.warning("[SESSION] Save failed for %s: %s", session_id, e)
