@@ -793,19 +793,53 @@ class Agent:
             # (contains a digit or is multi-word like "2 dogs"), prefer using
             # last_intent-derived topic or a short extract from the request.
             import re as _re_topic
+
+            # CFR-003: Internal routing/skill names that must never become
+            # the user's conversational topic. When _last_skill is one of
+            # these, topic extraction runs on the user's words instead, and
+            # if no meaningful words are found the previous last_topic is
+            # preserved rather than falling back to the skill name.
+            # Centralised here so all routing mechanisms are governed by
+            # one place. Add new internal skill names here as they are built.
+            _INTERNAL_SKILLS = frozenset({
+                'ai_fallback', 'unknown', '',
+                'followup_resolver',          # follow-up routing
+                'memory', 'memory_store',     # memory skill
+                'system',                     # system skill
+                'engineering',                # engineering skill
+                'reasoning',                  # reasoning skill
+            })
+
             _is_group_topic = bool(
                 _active_topic_val
                 and _re_topic.search(r'\d', _active_topic_val)
             )
             _needs_topic_extract = (
-                _last_skill in ('ai_fallback', 'unknown', '')
+                _last_skill in _INTERNAL_SKILLS
                 and (_is_group_topic or not _active_topic_val)
             )
             if _needs_topic_extract:
                 _words = _re_topic.findall(r'[a-z]{3,}', self.context.last_user_message or '', _re_topic.IGNORECASE)
-                _SKIP = {'tell', 'give', 'make', 'what', 'where', 'when', 'why', 'how', 'the', 'and', 'for', 'that', 'this', 'are', 'was', 'did', 'does', 'about', 'another', 'more', 'one'}
+                _SKIP = {
+                    'tell', 'give', 'make', 'what', 'where', 'when', 'why', 'how',
+                    'the', 'and', 'for', 'that', 'this', 'are', 'was', 'did', 'does',
+                    'about', 'another', 'more', 'one', 'say', 'said', 'again',
+                    'explain', 'describe', 'show', 'list', 'can', 'could', 'would',
+                    'should', 'please', 'just', 'now', 'also', 'still', 'get',
+                    'let', 'think', 'know', 'use', 'try', 'help', 'need', 'want',
+                    'differently', 'simpler', 'shorter', 'better', 'different',
+                    'simple', 'brief', 'quickly', 'else', 'other', 'another',
+                }
                 _topic_words = [w for w in _words if w.lower() not in _SKIP]
-                _conv_topic = _topic_words[0] if _topic_words else (_active_topic_val or _last_skill)
+                if _topic_words:
+                    _conv_topic = _topic_words[0]
+                else:
+                    # CFR-003: No meaningful topic words found and last skill
+                    # is internal — preserve existing last_topic so "Tell me
+                    # another one." after a follow-up stays on "joke", not
+                    # "followup_resolver". Pass "" so set_last_turn() keeps
+                    # the existing _last_topic via its `topic or self._last_topic` guard.
+                    _conv_topic = ""
             else:
                 _conv_topic = _active_topic_val or _last_skill
             self.session.set_last_turn(
