@@ -1,0 +1,93 @@
+{
+  "session_id": "36f61979-5188-4ec1-a9ba-5ba5e6fd3c0a",
+  "work_package_id": "direct",
+  "assigned_worker": "claude_ai_worker",
+  "capability": "implement_feature",
+  "description": "[Attached file: JRI-001-Founding-Document.docx (docx)]\n[Pages: 1]\n[Words: 789]\n\nJARVIS RESEARCH INSTITUTE\nFounding Document  \u00b7  JRI-001\nConstitution  \u00b7  Architecture  \u00b7  Sprint-001 Delivery Plan\nLG Jacques Pty Ltd  \u00b7  August 2026\n1.  System Overview\nThe Jarvis ecosystem consists of three independent projects with clearly separated responsibilities.\nThese three projects are related but never directly coupled. The only interface between them is the Proposal \u2014 a versioned, human-reviewed document that carries a research finding from JRI into the Genesis roadmap.\n2.  JRI Constitution  v1.0\nThe Constitution is a permanent document. It does not change unless explicitly revised by the project owner. All JRI campaigns, experiments, and proposals operate under these principles regardless of how sophisticated JRI becomes.\nPrinciple 8 \u2014 Knowledge expires unless revalidated \u2014 is the Confidence Decay rule. A lesson recorded in 2026 about Flask routing may be incorrect by 2028. Every knowledge entry carries a review_due date. Unreviewed knowledge degrades in confidence automatically. This prevents JRI from becoming a digital hoarder.\n3.  Three-Project Architecture\n3.1  Jarvis-OS\nThe production system. Genesis roadmap continues exactly as planned. JRI has no filesystem access to Jarvis-OS. The only input JRI can give Jarvis-OS is an approved Proposal, which a human then implements as a Genesis Sprint.\n3.2  Jarvis Research\nThe active experimentation engine. Runs Campaigns. Produces Experiments, Benchmarks, and Research Papers. Writes Proposals. Reads Jarvis-OS via a thin read-only API client. Never writes to Jarvis-OS.\n3.3  Jarvis Knowledge\nThe permanent institutional memory. Jarvis Research writes to it. Jarvis Research reads from it. Jarvis-OS never directly accesses it \u2014 knowledge flows through Proposals only.\n4.  Jarvis Knowledge \u2014 Schema\nEvery knowledge entry is a structured record. This is not a note. It is a scientific knowledge item with provenance, confidence, and an expiry mechanism.\n4.1  Negative Knowledge\nMost systems record what worked. JRI explicitly preserves what failed. Negative Knowledge entries are first-class citizens \u2014 not bug reports, not deleted experiments. They are institutional memory.\nWhen a future Campaign proposes the same idea, JRI can respond: \"Campaign-003 already tested this. Here is why it failed.\" That prevents repeating expensive mistakes.\n4.2  Confidence Decay\nKnowledge does not age gracefully without intervention. Each domain carries a decay rate \u2014 the number of days before a knowledge entry's confidence begins to fall and a review is flagged.\n5.  Research Workflow\n6.  Research Roles\nJRI is designed around roles rather than a single AI agent. Today, all roles may use the same underlying model. The role architecture exists so that future campaigns can assign specialised models per role without restructuring anything.\n7.  The Proposal Engine\nA Proposal is the only mechanism by which JRI influences Jarvis-OS. It is intentionally lightweight \u2014 an executive summary. The supporting detail lives in Knowledge Entries, Experiment records, and the Research Paper.\nProposals are versioned. A rejected proposal may be revised and resubmitted as a new version with additional evidence.\n8.  Research Papers\nEvery completed Campaign produces one Research Paper. Papers are published to jarvis-knowledge/papers/ and are never deleted. They form the archive of Jarvis's evolution.\n9.  Safety Rules \u2014 Hard Limits\nThese limits are permanent. They do not relax as JRI becomes more capable.\n10.  Sprint-001 \u2014 Foundation Delivery Plan\nSprint-001 builds the framework only. Nothing is autonomous. Nothing modifies Jarvis-OS. Nothing writes proposals automatically. The goal is an elegant foundation that can evolve naturally over months.\nFour internal sprints:\nSprint-001-A  \u2014  Scaffold\n\u2022  Create jarvis-research/ and jarvis-knowledge/ directories\n\u2022  Create CONSTITUTION.md\n\u2022  Create config.py with ResearchConfig, trusted sources, decay rates\n\u2022  Create requirements.txt\nSprint-001-B  \u2014  Core Models\n\u2022  Implement Experiment dataclass with JSON serialisation\n\u2022  Implement Proposal dataclass (full versioned schema)\n\u2022  Implement KnowledgeEntry dataclass with confidence decay\n\u2022  Unit tests for all three models\nSprint-001-C  \u2014  Managers + Journal\n\u2022  Implement CampaignManager \u2014 load/save/list from campaigns/\n\u2022  Implement KnowledgeBase \u2014 write/read/search/decay-check\n\u2022  Implement ResearchJournal \u2014 append-only JSON log\n\u2022  Create CAMP-001.json (Conversation Intelligence campaign)\n\u2022  Unit tests\nSprint-001-D  \u2014  Integration + Client\n\u2022  Implement ResearchManager as top-level coordinator\n\u2022  Implement JarvisClient with read-only HTTP calls\n\u2022  Wire everything through main.py\n\u2022  Full test suite green \u2014 30+ passing, 0 failed\n11.  Sprint-001 Success Criteria\nResearch is not measured by code written. It is measured by knowledge gained and infrastructure validated.\n\u2713  jarvis-research/ runs standalone\n\u2713  jarvis-knowledge/ directory structure in place\n\u2713  CONSTITUTION.md committed and readable\n\u2713  All models serialise to / from JSON\n\u2713  KnowledgeBase persists entries across restarts\n\u2713  Confidence decay calculates correctly\n\u2713  ResearchJournal is append-only (no deletes possible)\n\u2713  JarvisClient successfully calls Jarvis-OS /status\n\u2713  Campaign-001 loads from CAMP-001.json\n\u2713  Negative Knowledge entry can be created and queried\n\u2713  Test suite: 30+ tests, 0 failed\n\u2713  Jarvis-OS: completely untouched\n\"Jarvis-OS remains stable.  JRI remains fearless.\"\nJRI Constitution v1.0  is in force from the first commit.\nLG Jacques Pty Ltd  \u00b7  Jarvis Research Institute  \u00b7  August 2026",
+  "started_at": "2026-08-08T08:07:32.236178+00:00",
+  "completed_at": "2026-08-08T08:07:46.887973+00:00",
+  "duration_seconds": 14.651795,
+  "recommendation": "All engineering gates passed. Ready for human review and approval.",
+  "state": {
+    "status": "complete",
+    "stage": "complete",
+    "review_passed": true,
+    "tests_passed": true,
+    "blocked_reason": "",
+    "timestamp": "2026-08-08T08:07:46.887948+00:00"
+  },
+  "result": {
+    "response": "Implementation Plan\n\nKey files to create/modify\n- jarvis-research/ (package init)\n- jarvis-research/config.py (ResearchConfig, decay rates, trusted sources)\n- jarvis-research/models/experiment.py, proposal.py, knowledge_entry.py (dataclasses + JSON)\n- jarvis-research/managers/campaign_manager.py, knowledge_base.py, research_manager.py\n- jarvis-research/journal/research_journal.py (append-only)\n- jarvis-research/client/jarvis_client.py (read-only HTTP)\n- jarvis-research/main.py (wire-up)\n- jarvis-research/tests/ (30+ unit tests)\n- jarvis-research/campaigns/CAMP-001.json\n- jarvis-knowledge/entries/, jarvis-knowledge/papers/, jarvis-knowledge/index.json\n- CONSTITUTION.md\n- requirements.txt\n- .gitignore, pyproject.toml or setup.cfg (linters/formatters), README.md\n\nPrimary design decisions\n- Strict three-project isolation; JRI communicates to Jarvis-OS via human-reviewed Proposals only.\n- JSON as canonical storage; stable versioned schemas with migration hooks.\n- Confidence Decay: per-domain decay rates; review_due enforcement and scheduled checks.\n- Negative Knowledge as first-class with explicit failure_reason and context.\n- ResearchJournal is append-only via write-once files plus hash chain for integrity.\n- JarvisClient is read-only; base URL config-driven; retries and timeouts.\n- Deterministic tests; filesystem mocked; no network in unit tests.\n\nRisks\n- Schema drift breaking backward compatibility; mitigate with versioning/migrations.\n- Accidental write paths to Jarvis-OS; mitigate with client contract and tests.\n- Clock skew impacting decay; mitigate with UTC and monotonic checks.\n- Journal tampering; mitigate with hash chain and verification tests.\n\n{\n  \"operations\": []\n}",
+    "execution_plan": {
+      "plan_id": "0364ea1c-deb0-4698-a2ea-0c67ba8432fb",
+      "capability": "implement_feature",
+      "description": "[Attached file: JRI-001-Founding-Document.docx (docx)]\n[Pages: 1]\n[Words: 789]\n\nJARVIS RESEARCH INSTITUTE\nFounding Document  \u00b7  JRI-001\nConstitution  \u00b7  Architecture  \u00b7  Sprint-001 Delivery Plan\nLG Jacques Pty Ltd  \u00b7  August 2026\n1.  System Overview\nThe Jarvis ecosystem consists of three independent projects with clearly separated responsibilities.\nThese three projects are related but never directly coupled. The only interface between them is the Proposal \u2014 a versioned, human-reviewed document that carries a research finding from JRI into the Genesis roadmap.\n2.  JRI Constitution  v1.0\nThe Constitution is a permanent document. It does not change unless explicitly revised by the project owner. All JRI campaigns, experiments, and proposals operate under these principles regardless of how sophisticated JRI becomes.\nPrinciple 8 \u2014 Knowledge expires unless revalidated \u2014 is the Confidence Decay rule. A lesson recorded in 2026 about Flask routing may be incorrect by 2028. Every knowledge entry carries a review_due date. Unreviewed knowledge degrades in confidence automatically. This prevents JRI from becoming a digital hoarder.\n3.  Three-Project Architecture\n3.1  Jarvis-OS\nThe production system. Genesis roadmap continues exactly as planned. JRI has no filesystem access to Jarvis-OS. The only input JRI can give Jarvis-OS is an approved Proposal, which a human then implements as a Genesis Sprint.\n3.2  Jarvis Research\nThe active experimentation engine. Runs Campaigns. Produces Experiments, Benchmarks, and Research Papers. Writes Proposals. Reads Jarvis-OS via a thin read-only API client. Never writes to Jarvis-OS.\n3.3  Jarvis Knowledge\nThe permanent institutional memory. Jarvis Research writes to it. Jarvis Research reads from it. Jarvis-OS never directly accesses it \u2014 knowledge flows through Proposals only.\n4.  Jarvis Knowledge \u2014 Schema\nEvery knowledge entry is a structured record. This is not a note. It is a scientific knowledge item with provenance, confidence, and an expiry mechanism.\n4.1  Negative Knowledge\nMost systems record what worked. JRI explicitly preserves what failed. Negative Knowledge entries are first-class citizens \u2014 not bug reports, not deleted experiments. They are institutional memory.\nWhen a future Campaign proposes the same idea, JRI can respond: \"Campaign-003 already tested this. Here is why it failed.\" That prevents repeating expensive mistakes.\n4.2  Confidence Decay\nKnowledge does not age gracefully without intervention. Each domain carries a decay rate \u2014 the number of days before a knowledge entry's confidence begins to fall and a review is flagged.\n5.  Research Workflow\n6.  Research Roles\nJRI is designed around roles rather than a single AI agent. Today, all roles may use the same underlying model. The role architecture exists so that future campaigns can assign specialised models per role without restructuring anything.\n7.  The Proposal Engine\nA Proposal is the only mechanism by which JRI influences Jarvis-OS. It is intentionally lightweight \u2014 an executive summary. The supporting detail lives in Knowledge Entries, Experiment records, and the Research Paper.\nProposals are versioned. A rejected proposal may be revised and resubmitted as a new version with additional evidence.\n8.  Research Papers\nEvery completed Campaign produces one Research Paper. Papers are published to jarvis-knowledge/papers/ and are never deleted. They form the archive of Jarvis's evolution.\n9.  Safety Rules \u2014 Hard Limits\nThese limits are permanent. They do not relax as JRI becomes more capable.\n10.  Sprint-001 \u2014 Foundation Delivery Plan\nSprint-001 builds the framework only. Nothing is autonomous. Nothing modifies Jarvis-OS. Nothing writes proposals automatically. The goal is an elegant foundation that can evolve naturally over months.\nFour internal sprints:\nSprint-001-A  \u2014  Scaffold\n\u2022  Create jarvis-research/ and jarvis-knowledge/ directories\n\u2022  Create CONSTITUTION.md\n\u2022  Create config.py with ResearchConfig, trusted sources, decay rates\n\u2022  Create requirements.txt\nSprint-001-B  \u2014  Core Models\n\u2022  Implement Experiment dataclass with JSON serialisation\n\u2022  Implement Proposal dataclass (full versioned schema)\n\u2022  Implement KnowledgeEntry dataclass with confidence decay\n\u2022  Unit tests for all three models\nSprint-001-C  \u2014  Managers + Journal\n\u2022  Implement CampaignManager \u2014 load/save/list from campaigns/\n\u2022  Implement KnowledgeBase \u2014 write/read/search/decay-check\n\u2022  Implement ResearchJournal \u2014 append-only JSON log\n\u2022  Create CAMP-001.json (Conversation Intelligence campaign)\n\u2022  Unit tests\nSprint-001-D  \u2014  Integration + Client\n\u2022  Implement ResearchManager as top-level coordinator\n\u2022  Implement JarvisClient with read-only HTTP calls\n\u2022  Wire everything through main.py\n\u2022  Full test suite green \u2014 30+ passing, 0 failed\n11.  Sprint-001 Success Criteria\nResearch is not measured by code written. It is measured by knowledge gained and infrastructure validated.\n\u2713  jarvis-research/ runs standalone\n\u2713  jarvis-knowledge/ directory structure in place\n\u2713  CONSTITUTION.md committed and readable\n\u2713  All models serialise to / from JSON\n\u2713  KnowledgeBase persists entries across restarts\n\u2713  Confidence decay calculates correctly\n\u2713  ResearchJournal is append-only (no deletes possible)\n\u2713  JarvisClient successfully calls Jarvis-OS /status\n\u2713  Campaign-001 loads from CAMP-001.json\n\u2713  Negative Knowledge entry can be created and queried\n\u2713  Test suite: 30+ tests, 0 failed\n\u2713  Jarvis-OS: completely untouched\n\"Jarvis-OS remains stable.  JRI remains fearless.\"\nJRI Constitution v1.0  is in force from the first commit.\nLG Jacques Pty Ltd  \u00b7  Jarvis Research Institute  \u00b7  August 2026",
+      "operations": []
+    }
+  },
+  "engineering_review": {
+    "genesis": "034",
+    "sprint": "002",
+    "markdown": "============================================================\nENGINEERING REVIEW\n============================================================\n\nGenerated by:  EngineeringReviewOSWorker\nWorker ID:     engineering_review_worker\nWorker Ver.:   1.0\nPlanner:       TaskPlanner\nCoordinator:   WorkerCoordinator\nTimestamp:     2026-08-08T08:07:46.781209+00:00\nDuration:      3 ms\n\n============================================================\n\n# Genesis 034 Sprint 002 \u2014 Engineering Review\n\n## Status\nCOMPLETE | Completed: 2026-08-08\n\n## Commits\n- ae7df07\n- c5c2ca1\n\n## Files Added\n- *(none)*\n\n## Files Modified\n- *(none)*\n\n## Architecture Decisions\n*(none recorded)*\n\n## Test Results\n\u2705 Passed: 3641 | \u23ed Skipped: 33 | \u274c Failed: 0\n\n## Desktop Validation\n**Status:** passed\n**Scenarios:**\n- Open sets active\n- Close triggers review\n\n## Technical Debt\nNone identified.\n\n## Risks\nNone identified.\n\n## Future Improvements\n*(none deferred)*\n\n## R&D Evidence Summary\n**Problem:** \n**Uncertainty:** \n**Hypothesis:** \n**Approach:** \n**Results:** All scenarios passed.\n**Validation:** 3641 tests passing.\n\n## Recommendation\n**BEGIN_NEXT_GENESIS**\nLifecycle and Evidence Manager complete. 3641 tests green.\n",
+    "json_path": "engineering_reviews\\genesis_034_sprint_002_review.json",
+    "md_path": "engineering_reviews\\genesis_034_sprint_002_report.md",
+    "report": {
+      "review": {
+        "genesis": "034",
+        "sprint": "002",
+        "status": "complete",
+        "completed_at": "2026-08-08",
+        "commits": [
+          "ae7df07",
+          "c5c2ca1"
+        ],
+        "files_added": [],
+        "files_modified": [],
+        "architecture_decisions": [],
+        "tests_added": 0,
+        "test_results": {
+          "passed": 3641,
+          "skipped": 33,
+          "failed": 0,
+          "warnings": 0
+        },
+        "desktop_validation": {
+          "status": "passed",
+          "scenarios": [
+            "Open sets active",
+            "Close triggers review"
+          ],
+          "notes": null
+        },
+        "technical_debt": [],
+        "risks": [],
+        "future_improvements": [],
+        "recommendation": "BEGIN_NEXT_GENESIS",
+        "recommendation_reason": "Lifecycle and Evidence Manager complete. 3641 tests green."
+      },
+      "rd_evidence": {
+        "genesis": "034",
+        "technical_problem": "",
+        "technical_uncertainty": "",
+        "hypothesis": "",
+        "approach": "",
+        "experiments": [],
+        "results": "All scenarios passed.",
+        "validation": "3641 tests passing.",
+        "remaining_unknowns": []
+      },
+      "improvements": [],
+      "rendered_at": "2026-08-08T18:07:46.778533",
+      "metadata": {
+        "worker": "EngineeringReviewOSWorker",
+        "worker_id": "engineering_review_worker",
+        "worker_version": "1.0",
+        "planner": "TaskPlanner",
+        "coordinator": "WorkerCoordinator",
+        "duration_ms": 2.9,
+        "generated_at": "2026-08-08T08:07:46.781209+00:00"
+      }
+    }
+  },
+  "test_summary": null
+}

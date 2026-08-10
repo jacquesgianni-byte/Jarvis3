@@ -101,7 +101,8 @@ class MemorySkill(Skill):
             if m:
                 key = m.group(1).strip().rstrip(".")
                 value = m.group(2).strip().rstrip(".")
-                return self.remember(key, value)
+                # JTI-001 Fix 1 (P1): route corrections to entity records
+                return self._remember_entity_aware(key, value)
 
         # Forget / delete
         if any(w in req_lower for w in ["forget", "delete", "remove", "clear"]):
@@ -126,6 +127,95 @@ class MemorySkill(Skill):
             success=False,
             message="I'm not sure what you'd like me to remember.",
         )
+
+
+    # ------------------------------------------------------------------
+    # JTI-001 Fix 1 (P1): Entity-aware correction routing
+    # ------------------------------------------------------------------
+
+    # Property key inference patterns — ordered most specific first.
+    # Used ONLY as fallback when no existing prop: record exists for entity.
+    _PROP_KEY_PATTERNS: list = []  # populated after class definition
+
+    def _remember_entity_aware(self, key: str, value: str) -> Response:
+        """
+        Route a correction to the right record.
+
+        If key is a known entity subject (has entity_property records),
+        update that entity's existing prop: attribute rather than creating
+        a new user fact. Prefers existing prop relationship over value inference.
+
+        Args:
+            key:   The subject extracted from "remember that X is Y"
+            value: The value extracted from "remember that X is Y"
+
+        Returns:
+            Response with confirmation message.
+        """
+        entity_records = self.knowledge.list_memories(
+            subject=key.lower(), category="entity_property"
+        )
+        if entity_records:
+            # Entity is known — find the most relevant existing prop: attribute.
+            # Prefer value-inferred key match, then fall back to first record.
+            inferred_key = self._infer_prop_key(value)
+            target_attr = f"prop:{inferred_key}"
+
+            # Check if entity already has a record for this prop key
+            existing = self.knowledge.recall_memory(
+                subject=key.lower(), attribute=target_attr
+            )
+            if existing is None:
+                # No existing record for inferred key — use the first prop: record
+                # (most common case: entity has one property, e.g. prop:age)
+                prop_records = [
+                    r for r in entity_records
+                    if r.attribute.startswith("prop:")
+                ]
+                if prop_records:
+                    target_attr = prop_records[0].attribute
+
+            self.knowledge.store_memory(
+                subject=key.lower(),
+                category="entity_property",
+                attribute=target_attr,
+                value=value,
+                tags=["entity_property", f"prop_key:{target_attr[len('prop:'):]}"],
+            )
+            name = key.title()
+            prop_label = target_attr[len("prop:"):]
+            return Response(
+                success=True,
+                message=f"Got it — I've updated {name}'s {prop_label} to {value}.",
+            )
+
+        # Not a known entity — store as normal user fact
+        return self.remember(key, value)
+
+    def _infer_prop_key(self, value: str) -> str:
+        """
+        Infer a canonical property key from a value string.
+        Used as fallback when no existing prop: record exists.
+        Falls back to "property" if no pattern matches.
+        """
+        _patterns = [
+            (re.compile(r"^\d+\s*(?:years?\s*old|yrs?\.?\s*old|years?)?$", re.IGNORECASE), "age"),
+            (re.compile(
+                r"^(?:red|orange|yellow|green|blue|purple|pink|brown|black|white|"
+                r"grey|gray|golden|silver|cream|beige|tan|teal|navy|maroon|violet|indigo)"
+                r"(?:\s+and\s+\w+)?$", re.IGNORECASE), "colour"),
+            (re.compile(
+                r"^(?:online|offline|active|inactive|enabled|disabled|running|stopped|"
+                r"pending|complete|completed|done|open|closed|available|unavailable)$",
+                re.IGNORECASE), "status"),
+            (re.compile(
+                r"^\d+(?:\.\d+)?\s*(?:kg|kgs?|lbs?|pounds?|tonnes?|grams?|g)\b",
+                re.IGNORECASE), "weight"),
+        ]
+        for pattern, key in _patterns:
+            if pattern.match(value.strip()):
+                return key
+        return "property"
 
     # ------------------------------------------------------------------
     # Private helpers (used by execute and existing tests)

@@ -71,6 +71,18 @@ _ASSIGNMENT_PATTERNS: list[tuple[re.Pattern, Optional[str]]] = [
     ), None),
 ]
 
+
+# ---------------------------------------------------------------------------
+# JTI-001 Fix 2 (P2): Conjunction split pattern
+# Matches "Lucas is 14 and Leo is 8" to extract two independent assignments.
+# Group 1: first subject, Group 2: first value,
+# Group 3: second subject, Group 4: second value.
+# ---------------------------------------------------------------------------
+_CONJUNCTION_ASSIGNMENT_RE = re.compile(
+    r"^([A-Za-z][\w\-]*?)\s+is\s+(.+?)\s+and\s+([A-Za-z][a-z][\w\-]*)\s+is\s+(.+?)\s*\.?$",
+    re.IGNORECASE,
+)
+
 # ---------------------------------------------------------------------------
 # Property key inference
 #
@@ -248,6 +260,16 @@ class PropertyAssigner:
 
         text = text.strip()
 
+        # JTI-001 Fix 1b: strip leading correction qualifiers so
+        # "actually, leo is 8" / "no, leo is 8" / "wait, leo is 8"
+        # match the same patterns as "leo is 8".
+        text = re.sub(
+            r"^(?:actually|no|wait|sorry|correction|nope|hmm|oh)[,\s]+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        ).strip()
+
         for pattern, fixed_key in _ASSIGNMENT_PATTERNS:
             m = pattern.match(text)
             if not m:
@@ -293,6 +315,57 @@ class PropertyAssigner:
             )
 
         return None
+
+
+    def detect_assignments(self, text: str) -> list:
+        """
+        JTI-001 Fix 2 (P2): Detect one or more property assignments.
+
+        Handles conjunction statements like "Lucas is 14 and Leo is 8"
+        by splitting into two independent PropertyAssignment objects.
+
+        Single-entity statements return a list of one item.
+        Falls back to empty list if no assignment detected.
+
+        Args:
+            text: The user's raw message.
+
+        Returns:
+            List of PropertyAssignment objects (0, 1, or 2 items).
+        """
+        if not text or not text.strip():
+            return []
+
+        stripped = text.strip()
+
+        # Try conjunction split first on the raw text
+        m = _CONJUNCTION_ASSIGNMENT_RE.match(stripped)
+        if m:
+            subj1 = m.group(1).strip().lower()
+            val1  = m.group(2).strip().rstrip(".")
+            subj2 = m.group(3).strip().lower()
+            val2  = m.group(4).strip().rstrip(".")
+
+            # Strip update qualifiers from values
+            val1 = re.sub(r"^(?:now|currently)\s+", "", val1, flags=re.IGNORECASE)
+            val2 = re.sub(r"^(?:now|currently)\s+", "", val2, flags=re.IGNORECASE)
+
+            # Reject stop subjects
+            if subj1 not in _STOP_SUBJECTS and subj2 not in _STOP_SUBJECTS:
+                # Reject multi-word subjects
+                if len(subj1.split()) <= 3 and len(subj2.split()) <= 3:
+                    key1 = self._infer_property_key(val1)
+                    key2 = self._infer_property_key(val2)
+                    return [
+                        PropertyAssignment(subject=subj1, property_key=key1, value=val1),
+                        PropertyAssignment(subject=subj2, property_key=key2, value=val2),
+                    ]
+
+        # Fall back to single assignment
+        single = self.detect_assignment(text)
+        if single is not None:
+            return [single]
+        return []
 
     def detect_query(self, text: str) -> Optional[PropertyQuery]:
         """

@@ -1094,8 +1094,18 @@ class Agent:
                 # Fall back to property summary if no relationship found
                 _props = self.property_recall.retrieve_all_properties(_focus.entity)
                 if _props:
-                    _parts = [f"{k}: {v}" for k, v in _props.items()]
-                    _summary = f"{_display} -- {', '.join(_parts)}."
+                    # JTI-001 Fix 3 (P5): use SemanticRecallEngine for natural language
+                    # instead of raw 'Chase -- colour: white.' format.
+                    _profile = self.semantic_recall.recall(_focus.entity, self.knowledge)
+                    if _profile.found:
+                        _summary = _profile.to_text()
+                    else:
+                        # SemanticRecallEngine found nothing — format via property formatter
+                        _parts = [
+                            self.property_recall._format_retrieve_response(_focus.entity, k, v)
+                            for k, v in _props.items()
+                        ]
+                        _summary = " ".join(_parts)
                 else:
                     _summary = f"Focusing on {_display}."
             else:
@@ -1126,18 +1136,21 @@ class Agent:
             # Not found -- fall through
 
         # --- Property assignment: "Lucas is 14." / "Leo likes football." ---
-        _pa = self.property_assigner.detect_assignment(_effective_request)
-        if _pa is not None:
-            _store = self.property_recall.store(_pa)
-            # Update active entity in conversation state
-            self.conversation_state.update_entity(_pa.subject.title(), self.session)
-            # Genesis-029 Sprint-003: track recent entities for clarification
-            _entity_name = _pa.subject.title()
-            if _entity_name not in self._recent_entities:
-                self._recent_entities.append(_entity_name)
-            if len(self._recent_entities) > 5:
-                self._recent_entities.pop(0)
-            if _store.success:
+        # JTI-001 Fix 2 (P2): use detect_assignments() to handle conjunction
+        # statements like "Lucas is 14 and Leo is 8" as two independent facts.
+        _assignments = self.property_assigner.detect_assignments(_effective_request)
+        if _assignments:
+            _last_store = None
+            for _pa in _assignments:
+                _last_store = self.property_recall.store(_pa)
+                # Update active entity in conversation state
+                self.conversation_state.update_entity(_pa.subject.title(), self.session)
+                # Genesis-029 Sprint-003: track recent entities for clarification
+                _entity_name = _pa.subject.title()
+                if _entity_name not in self._recent_entities:
+                    self._recent_entities.append(_entity_name)
+                if len(self._recent_entities) > 5:
+                    self._recent_entities.pop(0)
                 # Genesis-043: record entity mention in EntityRegistry
                 try:
                     self.jarvis_state.entity_registry.mention(
@@ -1146,7 +1159,11 @@ class Agent:
                     )
                 except Exception:
                     pass
-                return Response(success=True, message=_store.message)
+            if _last_store and _last_store.success:
+                if len(_assignments) == 1:
+                    return Response(success=True, message=_last_store.message)
+                _names = ' and '.join(a.subject.title() for a in _assignments)
+                return Response(success=True, message=f"Got it — noted for {_names}.")
 
         # Genesis-022: Run Conversation Engine pipeline for enriched context.
         try:
