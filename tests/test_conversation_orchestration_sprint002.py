@@ -64,7 +64,7 @@ class TestWhyAndHowSoResolution:
         agent = Agent(ai=ai)
 
         # Prime the context with a previous response
-        agent.context.last_jarvis_response = "Your favourite colour is blue, sir."
+        agent.session.set_last_turn(intent="", response="Your favourite colour is blue, sir.", topic="")
         agent.context.last_user_message = "What is my favourite colour?"
 
         response = agent.process("Why?")
@@ -80,7 +80,7 @@ class TestWhyAndHowSoResolution:
         from core.agent import Agent
         ai = mock_ai("AI answer")
         agent = Agent(ai=ai)
-        agent.context.last_jarvis_response = "Jarvis is an AI assistant."
+        agent.session.set_last_turn(intent="", response="Jarvis is an AI assistant.", topic="")
         response = agent.process("How so?")
         assert response.success
         ai.ask.assert_not_called()
@@ -93,7 +93,7 @@ class TestWhyAndHowSoResolution:
         ai = mock_ai("AI fallback")
         agent = Agent(ai=ai)
         # No prior context set
-        agent.context.last_jarvis_response = None
+        agent.session.set_last_turn(intent="", response=None, topic="")
         response = agent.process("Why?")
         assert response.success
         # Either answered locally or went to AI â€” both are valid
@@ -110,7 +110,7 @@ class TestWhoToldYouResolution:
         from core.agent import Agent
         ai = mock_ai("AI answer")
         agent = Agent(ai=ai)
-        agent.context.last_jarvis_response = "Your name is Ludovic, sir."
+        agent.session.set_last_turn(intent="", response="Your name is Ludovic, sir.", topic="")
 
         response = agent.process("Who told you that?")
         assert response.success
@@ -258,7 +258,7 @@ class TestAIIsLastResort:
         from core.agent import Agent
         ai = mock_ai()
         agent = Agent(ai=ai)
-        agent.context.last_jarvis_response = "Your name is Ludovic."
+        agent.session.set_last_turn(intent="", response="Your name is Ludovic.", topic="")
         agent.process("Why?")
         ai.ask.assert_not_called()
 

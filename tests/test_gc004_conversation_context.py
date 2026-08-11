@@ -36,7 +36,7 @@ class TestHowDoYouKnowThat:
         """After recall, 'How do you know that?' should echo the recall answer."""
         agent = Agent(ai=mock_ai())
         # Prime context with a previous recall response
-        agent.context.last_jarvis_response = "Sarah is your manager."
+        agent.session.set_last_turn(intent="", response="Sarah is your manager.", topic="")
 
         response = agent.process("How do you know that?")
 
@@ -47,7 +47,7 @@ class TestHowDoYouKnowThat:
     def test_who_told_you_references_previous_answer(self):
         """'Who told you that?' should also reference the previous answer."""
         agent = Agent(ai=mock_ai())
-        agent.context.last_jarvis_response = "Rex and Tom are your 2 dogs."
+        agent.session.set_last_turn(intent="", response="Rex and Tom are your 2 dogs.", topic="")
 
         response = agent.process("Who told you that?")
 
@@ -58,7 +58,7 @@ class TestHowDoYouKnowThat:
     def test_who_told_you_with_question_mark(self):
         """'Who told you that?' with question mark should not call AI."""
         agent = Agent(ai=mock_ai())
-        agent.context.last_jarvis_response = "Alex is your son."
+        agent.session.set_last_turn(intent="", response="Alex is your son.", topic="")
 
         response = agent.process("Who told you that?")
 
@@ -80,7 +80,7 @@ class TestHowDoYouKnowThat:
         """'How do you know that?' should never call AI."""
         ai = mock_ai()
         agent = Agent(ai=ai)
-        agent.context.last_jarvis_response = "Your workplace is Academy of Healthcare."
+        agent.session.set_last_turn(intent="", response="Your workplace is Academy of Healthcare.", topic="")
 
         agent.process("How do you know that?")
 
@@ -109,7 +109,7 @@ class TestHowDoYouKnowThat:
     def test_generic_message_not_returned_when_context_exists(self):
         """When context exists, should NOT return the bare generic string."""
         agent = Agent(ai=mock_ai())
-        agent.context.last_jarvis_response = "Rex and Tom are your 2 dogs."
+        agent.session.set_last_turn(intent="", response="Rex and Tom are your 2 dogs.", topic="")
 
         response = agent.process("How do you know that?")
 

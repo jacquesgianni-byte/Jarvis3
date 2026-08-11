@@ -61,17 +61,10 @@ def _restore_session(agent, session_id: str) -> None:
         # Restore recent conversation context
         if ctx.get("last_user_message"):
             agent.context.last_user_message = ctx["last_user_message"]
-        if ctx.get("last_jarvis_response"):
-            agent.context.last_jarvis_response = ctx["last_jarvis_response"]
         if ctx.get("active_topic") and agent.session:
             agent.session.set_topic(ctx["active_topic"], raw=ctx["active_topic"])
         if ctx.get("recent_entities"):
             agent._recent_entities = ctx["recent_entities"]
-        if ctx.get("last_response"):
-            try:
-                agent.session.last_response = ctx["last_response"]
-            except Exception:
-                pass
         if ctx.get("last_intent"):
             try:
                 agent.session.last_intent = ctx["last_intent"]
@@ -80,12 +73,6 @@ def _restore_session(agent, session_id: str) -> None:
         if ctx.get("last_topic"):
             try:
                 agent.session.last_topic = ctx["last_topic"]
-            except Exception:
-                pass
-        # Also restore to agent.context for "say that again" 
-        if ctx.get("last_jarvis_response"):
-            try:
-                agent.context.last_jarvis_response = ctx["last_jarvis_response"]
             except Exception:
                 pass
         # FIX-1: Restore full ConversationState (entity_registry, active slots, etc.)
@@ -111,12 +98,10 @@ def _save_session(agent, session_id: str) -> None:
 
         _sessions[session_id] = {
             "last_user_message":   agent.context.last_user_message,
-            "last_jarvis_response": agent.context.last_jarvis_response,
             "active_topic":        active_topic,
             "recent_entities":     list(agent._recent_entities),
             "last_updated":        time.time(),
             "last_intent":         agent.session.last_intent or "",
-            "last_response":       agent.session.last_response or "",
             "last_topic":          agent.session.last_topic or "",
             # FIX-1: Persist full ConversationState across requests
             "jarvis_state":        agent.jarvis_state,

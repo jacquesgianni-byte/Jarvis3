@@ -404,7 +404,6 @@ class Agent:
         # Step 3 -- If handled, translate decision to Response.
         if decision is not None and decision.handled:
             response = self._respond_to_decision(decision)
-            self.context.last_jarvis_response = response.message
             self._post_turn(request, response.message)
             return response
 
@@ -423,7 +422,6 @@ class Agent:
                     _decl_rec.value, _conv_ref.kind,
                 )
                 _ack = Response(success=True, message="Of course.")
-                self.context.last_jarvis_response = _ack.message
                 self._post_turn(request, _ack.message)
                 return _ack
 
@@ -441,19 +439,16 @@ class Agent:
                 if _pq2 is not None:
                     _r2 = self.property_recall.retrieve(_pq2)
                     if _r2.found:
-                        self.context.last_jarvis_response = _r2.message
                         self._post_turn(request, _r2.message)
                         return Response(success=True, message=_r2.message)
                 _pa2 = self.property_assigner.detect_assignment(_rewritten)
                 if _pa2 is not None:
                     _s2 = self.property_recall.store(_pa2)
                     if _s2.success:
-                        self.context.last_jarvis_response = _s2.message
                         self._post_turn(request, _s2.message)
                         return Response(success=True, message=_s2.message)
             else:
                 _q = self._pending_clarification.question
-                self.context.last_jarvis_response = _q
                 self._post_turn(request, _q)
                 return Response(success=True, message=_q)
 
@@ -474,7 +469,6 @@ class Agent:
                     pronoun=_clarify.pronoun,
                     question=_clarify.question,
                 )
-                self.context.last_jarvis_response = _clarify.question
                 self._post_turn(request, _clarify.question)
                 return Response(success=True, message=_clarify.question)
 
@@ -493,7 +487,6 @@ class Agent:
                 tags=[_tag_label],
             )
             _ack = Response(success=True, message=f"Noted, sir. Tagged as [{_tag_label}].")
-            self.context.last_jarvis_response = _ack.message
             self._post_turn(request, _ack.message)
             return _ack
 
@@ -536,14 +529,12 @@ class Agent:
                     plan=_exec_plan.to_worker_plan(),
                     session_id=_last_outcome.report.session_id[:8] if _last_outcome else "",
                 )
-                self.context.last_jarvis_response = _exec_outcome.markdown
                 self._post_turn(request, _exec_outcome.markdown)
                 return Response(success=True, message=_exec_outcome.markdown)
             else:
                 # No structured plan yet — show approval gate as before
                 _approval_text = self.collaboration_runner.get_pending_approval_text()
                 self.collaboration_runner.clear_pending_approval()
-                self.context.last_jarvis_response = _approval_text
                 self._post_turn(request, _approval_text)
                 return Response(success=True, message=_approval_text)
 
@@ -561,7 +552,6 @@ class Agent:
             _commit_summary = self.execution_runner.get_commit_summary_text()
             self.execution_runner.clear_pending_commit()
             _msg = _commit_summary + "\n\nCommit recorded. Type 'Push to GitHub.' to push."
-            self.context.last_jarvis_response = _msg
             self._post_turn(request, _msg)
             return Response(success=True, message=_msg)
 
@@ -598,7 +588,6 @@ class Agent:
                 _msg = f"✅ Pushed to origin/{_branch}. Genesis-041 complete, sir."
             else:
                 _msg = f"Push failed: {_push_result.error}. You can push manually with 'git push'."
-            self.context.last_jarvis_response = _msg
             self._post_turn(request, _msg)
             return Response(success=True, message=_msg)
 
@@ -627,7 +616,6 @@ class Agent:
         ):
             _cf_summary = self.collaboration_runner.get_session_summary()
             if _cf_summary:
-                self.context.last_jarvis_response = _cf_summary
                 self._post_turn(request, _cf_summary)
                 return Response(success=True, message=_cf_summary)
 
@@ -642,14 +630,12 @@ class Agent:
                                  _followup.resolved_type, _followup.context_hint)
                 if _followup.resolved_type == "repeat" and self.session.last_response:
                     _fu_resp = Response(success=True, message=self.session.last_response)
-                    self.context.last_jarvis_response = _fu_resp.message
                     self._post_turn(request, _fu_resp.message)
                     return _fu_resp
                 elif _followup.suggested_prompt and self.ai is not None:
                     with telemetry.stage("ai_manager"):
                         _fu_resp = self.ai.ask(_followup.suggested_prompt)
                     self.context.last_skill = "followup_resolver"
-                    self.context.last_jarvis_response = _fu_resp.message
                     self._post_turn(request, _fu_resp.message)
                     return _fu_resp
         except Exception:
@@ -682,7 +668,6 @@ class Agent:
             self.session.set_active_topic(_gp_decl, raw=_gp_decl)
             self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
             _gp_resp = Response(success=True, message="Got it, I'll remember that.")
-            self.context.last_jarvis_response = _gp_resp.message
             self._post_turn(request, _gp_resp.message)
             return _gp_resp
 
@@ -713,7 +698,6 @@ class Agent:
             self.session.set_active_topic(_gp_decl, raw=_gp_decl)
             self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
             _gp_resp = Response(success=True, message="Got it, I'll remember that.")
-            self.context.last_jarvis_response = _gp_resp.message
             self._post_turn(request, _gp_resp.message)
             return _gp_resp
 
@@ -752,7 +736,6 @@ class Agent:
         if detection is not None:
             response = self._handle_memory_detection(detection)
             self.context.last_skill = "memory"
-            self.context.last_jarvis_response = response.message
             self._post_turn(request, response.message)
             return response
 
@@ -775,7 +758,6 @@ class Agent:
 
         # Step 8 -- Update context.
         self.context.last_intent = intent.name if intent else None
-        self.context.last_jarvis_response = response.message
 
         # Step 9 -- Post-turn processing.
         self._post_turn(request, response.message)
@@ -1444,7 +1426,7 @@ class Agent:
             })
             req_norm = request.strip().lower().rstrip("?.,!")
             if req_norm in _why_triggers:
-                last_response = self.context.last_jarvis_response
+                last_response = self.session.last_response
                 if last_response:
                     if req_norm in {"how do you know", "how do you know that"}:
                         return Response(
@@ -1500,7 +1482,7 @@ class Agent:
         })
         req_stripped = request.strip().lower().rstrip("?.,!")
         if req_stripped in recent_triggers or request.strip().lower() in recent_triggers:
-            last_response = self.context.last_jarvis_response
+            last_response = self.session.last_response
             last_message  = self.context.last_user_message
 
             if req_stripped in {"why", "how so", "really", "what do you mean"}:
