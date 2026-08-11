@@ -129,8 +129,6 @@ _FOCUS_ENTITY_PATTERNS: list[re.Pattern] = [
     re.compile(r"\b(?:focus|switch)\s+(?:on|to)\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
     # JTI-001 Fix 3b (P5): "Who is Chase?" / "Who is Leo?" -- entity identity queries
     re.compile(r"\bwho\s+is\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
-    # JTI-001 Fix 3b (P5): "Who is Chase?" / "Who is Leo?" -- entity identity queries
-    re.compile(r"\bwho\s+is\s+([A-Za-z][\w\-]*)\b", re.IGNORECASE),
 ]
 
 _FOCUS_GROUP_PATTERNS: list[re.Pattern] = [
