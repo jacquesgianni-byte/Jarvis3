@@ -92,9 +92,10 @@ def _restore_session(agent, session_id: str) -> None:
         if ctx.get("jarvis_state") is not None:
             try:
                 saved_state = ctx["jarvis_state"]
+                # Genesis-044 Sprint-002: self.session IS jarvis_state directly.
+                # Re-pointing agent.jarvis_state is sufficient — no adapter to update.
                 agent.jarvis_state = saved_state
-                # Re-point the SessionContextAdapter to the restored state
-                agent.session._s = saved_state
+                agent.session = saved_state
             except Exception as e:
                 logger.warning("[SESSION] jarvis_state restore failed: %s", e)
     except Exception as e:

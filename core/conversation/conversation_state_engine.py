@@ -45,7 +45,8 @@ from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.conversation.session_context import SessionContext
+        # Genesis-044 Sprint-002: SessionContext = ConversationState directly.
+    from core.conversation.conversation_state import ConversationState as SessionContext  # compat alias -- remove in Genesis-045
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ class ConversationStateEngine:
             return
 
         if change.is_group:
-            session.set_topic(change.entity, raw=change.entity, confidence=change.confidence)
+            session.set_active_topic(change.entity, raw=change.entity, confidence=change.confidence)
             logger.info("[STATE] Focus → group %r", change.entity)
             # Genesis-043 Sprint-003: record in TopicTracker
             self.update_topic(change.entity, session,
@@ -354,7 +355,7 @@ class ConversationStateEngine:
             return
 
         prev = session.active_topic
-        session.set_topic(group_name, raw=group_name, confidence=0.90)
+        session.set_active_topic(group_name, raw=group_name, confidence=0.90)
 
         if not prev or prev.value.lower() != group_name.lower():
             logger.info("[STATE] Active group → %r", group_name)

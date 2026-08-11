@@ -38,7 +38,6 @@ from core.conversation.conversation_observer import ConversationObserver  # Gene
 from core.conversation.conversation_recall import ConversationRecall      # Genesis-020 S1
 from core.conversation.session_context import SessionContext              # Genesis-020 S2 (compat stub)
 from core.conversation.conversation_state import ConversationState           # Genesis-043 canonical state
-from core.conversation.session_context_adapter import SessionContextAdapter  # Genesis-043 migration adapter
 from core.conversation.context_manager import ContextManager             # Genesis-020 S2
 from core.conversation.context_resolver import ContextResolver           # Genesis-020 S2
 from core.conversation.context_inspector import ContextInspector         # Genesis-020 S2
@@ -227,12 +226,13 @@ class Agent:
         self.conversation_recall = ConversationRecall(self.knowledge)
 
         # Genesis-043 Runtime Integration: ONE shared ConversationState
+        # Genesis-043 Runtime Integration: ONE shared ConversationState
         # Named jarvis_state to avoid collision with self.dialogue_resolver
-        # which is already used for ConversationStateEngine (Genesis-029).
-        # Genesis-044 will clean up this naming once ConversationStateEngine is renamed.
-        # SessionContextAdapter is a temporary migration shim â€” retired in Genesis-044.
+        # (ConversationStateEngine, renamed in Genesis-044 Sprint-001).
+        # Genesis-044 Sprint-002: self.session points directly to jarvis_state.
+        # SessionContextAdapter has been retired -- no adapter in the call chain.
         self.jarvis_state = ConversationState()
-        self.session = SessionContextAdapter(self.jarvis_state)
+        self.session = self.jarvis_state
 
         # Genesis-020 Sprint-002: Active Conversation Context
         # These now write to ConversationState via the adapter.
@@ -417,7 +417,7 @@ class Agent:
             _decl_attr = _KIND_TO_DECLARATION_ATTR.get(_conv_ref.kind, f"group:{_conv_ref.kind}")
             _decl_rec = self.knowledge.recall_memory("user", _decl_attr)
             if _decl_rec:
-                self.session.set_topic(_decl_rec.value, raw=_decl_rec.value)
+                self.session.set_active_topic(_decl_rec.value, raw=_decl_rec.value)
                 self.logger.info(
                     "[CVREF] Restored active_topic=%r for kind=%r",
                     _decl_rec.value, _conv_ref.kind,
@@ -540,7 +540,7 @@ class Agent:
                 self._post_turn(request, _exec_outcome.markdown)
                 return Response(success=True, message=_exec_outcome.markdown)
             else:
-                # No structured plan yet â€” show approval gate as before
+                # No structured plan yet — show approval gate as before
                 _approval_text = self.collaboration_runner.get_pending_approval_text()
                 self.collaboration_runner.clear_pending_approval()
                 self.context.last_jarvis_response = _approval_text
@@ -595,7 +595,7 @@ class Agent:
                     or _push_result.data
                 )
                 _branch = _worker_data.get("branch", "main")
-                _msg = f"âœ… Pushed to origin/{_branch}. Genesis-041 complete, sir."
+                _msg = f"✅ Pushed to origin/{_branch}. Genesis-041 complete, sir."
             else:
                 _msg = f"Push failed: {_push_result.error}. You can push manually with 'git push'."
             self.context.last_jarvis_response = _msg
@@ -631,10 +631,10 @@ class Agent:
                 self._post_turn(request, _cf_summary)
                 return Response(success=True, message=_cf_summary)
 
-        # Genesis-043 Fix 2: FollowUpResolver â€” must run before memory detection
+        # Genesis-043 Fix 2: FollowUpResolver — must run before memory detection
         # so "tell me another one", "make it shorter", "say that again" etc.
         # are handled from session context rather than sent to AI.
-        # FollowUpResolver was instantiated but never called in process() â€” this wires it.
+        # FollowUpResolver was instantiated but never called in process() — this wires it.
         try:
             _followup = self.followup_resolver.resolve(request, self.session)
             if _followup.is_followup:
@@ -653,7 +653,7 @@ class Agent:
                     self._post_turn(request, _fu_resp.message)
                     return _fu_resp
         except Exception:
-            self.logger.debug("[G043-Fix2] FollowUpResolver error â€” continuing.")
+            self.logger.debug("[G043-Fix2] FollowUpResolver error — continuing.")
 
         # FIX-6B: Catch "My [group] are [names]" before Step 4 for group nouns
         # that SlotCompletionEngine doesn't recognise (e.g. "children", "kids").
@@ -679,8 +679,8 @@ class Agent:
                 attribute="people", value=_gp_decl, tags=["user_fact"],
             )
             # Also set active_topic so pronouns resolve
-            self.session.set_topic(_gp_decl, raw=_gp_decl)
-            self.logger.info("[FIX-6B] Group pre-store: %r â†’ %r", _gp_attr, _gp_names)
+            self.session.set_active_topic(_gp_decl, raw=_gp_decl)
+            self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
             _gp_resp = Response(success=True, message="Got it, I'll remember that.")
             self.context.last_jarvis_response = _gp_resp.message
             self._post_turn(request, _gp_resp.message)
@@ -710,8 +710,8 @@ class Agent:
                 attribute="people", value=_gp_decl, tags=["user_fact"],
             )
             # Also set active_topic so pronouns resolve
-            self.session.set_topic(_gp_decl, raw=_gp_decl)
-            self.logger.info("[FIX-6B] Group pre-store: %r â†’ %r", _gp_attr, _gp_names)
+            self.session.set_active_topic(_gp_decl, raw=_gp_decl)
+            self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
             _gp_resp = Response(success=True, message="Got it, I'll remember that.")
             self.context.last_jarvis_response = _gp_resp.message
             self._post_turn(request, _gp_resp.message)
@@ -786,7 +786,7 @@ class Agent:
         # Genesis-042 Sprint-003: track last turn for follow-up resolution
         # FIX-3: Use a meaningful topic hint, not the EntityGroup active_topic.
         # If the last skill was AI fallback, the conversational topic is the
-        # user's request subject â€” not which group of entities is active.
+        # user's request subject — not which group of entities is active.
         # We use last_user_message keywords as a proxy when active_topic is
         # an entity group and the response came from AI.
         try:
@@ -838,7 +838,7 @@ class Agent:
                     _conv_topic = _topic_words[0]
                 else:
                     # CFR-003: No meaningful topic words found and last skill
-                    # is internal — preserve existing last_topic so "Tell me
+                    # is internal � preserve existing last_topic so "Tell me
                     # another one." after a follow-up stays on "joke", not
                     # "followup_resolver". Pass "" so set_last_turn() keeps
                     # the existing _last_topic via its `topic or self._last_topic` guard.
@@ -933,7 +933,7 @@ class Agent:
             detection.key, detection.value, detection.confidence
         )
         if detection.is_group_declaration:
-            self.session.set_topic(detection.value, raw=detection.value)
+            self.session.set_active_topic(detection.value, raw=detection.value)
             self.logger.debug(
                 "[SLOT] active_topic set to %r after group declaration",
                 detection.value,
@@ -1137,7 +1137,7 @@ class Agent:
                     if _profile.found:
                         _summary = _profile.to_text()
                     else:
-                        # SemanticRecallEngine found nothing — format via property formatter
+                        # SemanticRecallEngine found nothing � format via property formatter
                         _parts = [
                             self.property_recall._format_retrieve_response(_focus.entity, k, v)
                             for k, v in _props.items()
@@ -1200,7 +1200,7 @@ class Agent:
                 if len(_assignments) == 1:
                     return Response(success=True, message=_last_store.message)
                 _names = ' and '.join(a.subject.title() for a in _assignments)
-                return Response(success=True, message=f"Got it — noted for {_names}.")
+                return Response(success=True, message=f"Got it � noted for {_names}.")
 
         # Genesis-022: Run Conversation Engine pipeline for enriched context.
         try:
@@ -1298,7 +1298,7 @@ class Agent:
             )
             _who_my_m = _WHO_MY_RE.search(request)
             if _who_my_m:
-                _group_noun = _who_my_m.group(1).lower().rstrip("s")  # dogsâ†’dog, childrenâ†’children
+                _group_noun = _who_my_m.group(1).lower().rstrip("s")  # dogs→dog, children→children
                 # Map common group nouns to attribute keys
                 _GROUP_ATTR = {
                     "dog":    ("pet names", "pets"),
@@ -1322,7 +1322,7 @@ class Agent:
                 if _grp_names and _grp_names.value:
                     _grp_noun_display = _grp_decl.value if _grp_decl else _group_noun + "s"
                     _grp_msg = f"{_grp_names.value} are your {_grp_noun_display}."
-                    self.logger.info("[FIX-4B] Group recall: %r â†’ %r", _names_attr, _grp_names.value)
+                    self.logger.info("[FIX-4B] Group recall: %r → %r", _names_attr, _grp_names.value)
                     return Response(success=True, message=_grp_msg)
                 # Also try the declaration alone
                 if _grp_decl and _grp_decl.value:
@@ -1372,7 +1372,7 @@ class Agent:
                                 _msg = f"{_rec.value}."
                             self.logger.info("[FIX-A] Direct recall: attr=%r value=%r", _attr, _rec.value)
                             return Response(success=True, message=_msg)
-                        # Also try search for group recall (pets â†’ pet names)
+                        # Also try search for group recall (pets → pet names)
                         if _attr == "pet names":
                             _decl = self.knowledge.recall_memory("user", "pets")
                             _names = self.knowledge.recall_memory("user", "pet names")
@@ -1406,7 +1406,7 @@ class Agent:
                                 if _pr_age.found:
                                     return Response(success=True, message=_pr_age.message)
                             else:
-                                # FIX-9B: No active person â€” search all personal records for age values
+                                # FIX-9B: No active person — search all personal records for age values
                                 # Find any record with a numeric value stored under a relationship key
                                 # e.g. subject=user, attribute="son lucas", value="14"
                                 _all_personal = self.knowledge.list_memories(subject="user", category="personal")
@@ -1415,7 +1415,7 @@ class Agent:
                                         # Extract name from attribute like "son lucas" -> "lucas"
                                         _attr_parts = _pr.attribute.split()
                                         # Need 2+ words: first=relationship, last=name
-                                        # e.g. "son lucas" â†’ "Lucas"
+                                        # e.g. "son lucas" → "Lucas"
                                         _REL_WORDS = {"son","daughter","brother","sister","father","mother","wife","husband","friend","partner","child","kid","nephew","niece","cousin","uncle","aunt"}
                                         if len(_attr_parts) >= 2 and _attr_parts[0].lower() in _REL_WORDS:
                                             _name_part = _attr_parts[-1].title()
@@ -1602,7 +1602,7 @@ class Agent:
                 )
 
 
-        # â”€â”€ Section 7.7 â€” Goal & Task Intelligence (Genesis-033 Sprint-002) â”€â”€â”€â”€
+        # ── Section 7.7 — Goal & Task Intelligence (Genesis-033 Sprint-002) ────
         # -- Section 7.6 - Engineering Collaboration Fast-Path (CV-040-002) --
         # Must run before GoalIntelligenceEngine which intercepts "I need to add X".
         _eng_fast = self.engineering_intent_detector.detect(request)
@@ -1675,7 +1675,7 @@ class Agent:
 
 
 
-        # â”€â”€ Section 7.46 â€“ Engineering Collaboration Runner (Genesis-040 Sprint-002) â”€â”€
+        # ── Section 7.46 – Engineering Collaboration Runner (Genesis-040 Sprint-002) ──
         if self.collaboration_runner.can_handle(request):
             _cr_outcome = self.collaboration_runner.run(
                 description=request,
@@ -1683,43 +1683,43 @@ class Agent:
             )
             return Response(success=True, message=_cr_outcome.markdown)
 
-        # â”€â”€ Section 7.38 â€” Worker Intelligence (Genesis-039 Sprint-001) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Section 7.38 — Worker Intelligence (Genesis-039 Sprint-001) ─────────
         if self.worker_intelligence.can_handle(request):
             _wi_response = self.worker_intelligence.handle(request)
             if _wi_response:
                 return Response(success=True, message=_wi_response)
 
-        # â”€â”€ Section 7.39 â€” Worker Collaboration Engine (Genesis-038 Sprint-001) â”€
+        # ── Section 7.39 — Worker Collaboration Engine (Genesis-038 Sprint-001) ─
         if self.collaboration_engine.can_handle(request):
             _wce_response = self.collaboration_engine.handle(request)
             if _wce_response:
                 return Response(success=True, message=_wce_response)
 
-        # â”€â”€ Section 7.40 â€” Planning Engine (Genesis-037 Sprint-001) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Section 7.40 — Planning Engine (Genesis-037 Sprint-001) ────────────
         if self.planning_engine.can_handle(request):
             _pe_plan = self.planning_engine.handle(request)
             if _pe_plan:
                 return Response(success=True, message=_pe_plan)
 
-        # â”€â”€ Section 7.41 â€” Decision Engine (Genesis-036 Sprint-001) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Section 7.41 — Decision Engine (Genesis-036 Sprint-001) ────────────
         if self.decision_engine.can_handle(request):
             _de_response = self.decision_engine.handle(request)
             if _de_response:
                 return Response(success=True, message=_de_response)
 
-        # â”€â”€ Section 7.42 â€” Executive Dashboard (Genesis-035 Sprint-002) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Section 7.42 — Executive Dashboard (Genesis-035 Sprint-002) ─────────
         if self.executive_dashboard.can_handle(request):
             _ed_response = self.executive_dashboard.handle(request)
             if _ed_response:
                 return Response(success=True, message=_ed_response)
 
-        # â”€â”€ Section 7.43 â€” Progress Engine (Genesis-035 Sprint-001) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Section 7.43 — Progress Engine (Genesis-035 Sprint-001) ─────────────
         if self.progress_engine.can_handle(request):
             _pe_response = self.progress_engine.handle(request)
             if _pe_response:
                 return Response(success=True, message=_pe_response)
 
-        # â”€â”€ Section 7.44 â€” Engineering Lifecycle Manager (Genesis-034 Sprint-001) â”€
+        # ── Section 7.44 — Engineering Lifecycle Manager (Genesis-034 Sprint-001) ─
         if self.lifecycle_manager.can_handle(request):
             _lc_response = self.lifecycle_manager.handle(
                 request,
@@ -1729,8 +1729,8 @@ class Agent:
             if _lc_response:
                 return Response(success=True, message=_lc_response)
 
-        # â”€â”€ Section 7.45 â€” Review routing via TaskPlanner (Genesis-033 Integration) â”€â”€
-        # EngineeringIntentDetector does not cover review requests (by design â€”
+        # ── Section 7.45 — Review routing via TaskPlanner (Genesis-033 Integration) ──
+        # EngineeringIntentDetector does not cover review requests (by design —
         # it would break threshold calibration). TaskPlanner's capability signals
         # handle review detection instead. Check the planner first.
         _review_caps = self.task_planner.capabilities_for(request)
@@ -1762,7 +1762,7 @@ class Agent:
         # 7.5 Engineering intent routing (Genesis-027 Sprint-004)
         # CV-040-002: natural language engineering requests (implement/review/fix)
         # are routed through CollaborationRunner so they enter the full
-        # Genesis-040 pipeline: AI worker â†’ engineering review â†’ approval gate.
+        # Genesis-040 pipeline: AI worker → engineering review → approval gate.
         _eng_intent = self.engineering_intent_detector.detect(request)
         if _eng_intent.is_engineering and self.worker_manager.worker_count() > 0:
             _caps = self.task_planner.capabilities_for(request)

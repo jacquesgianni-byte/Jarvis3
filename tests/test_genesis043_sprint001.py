@@ -382,7 +382,7 @@ class TestSessionContextAdapter:
             "active_person", "active_topic", "active_project",
             "active_task", "active_milestone", "current_turn",
             "increment_turn", "is_usable", "fresh", "effective_confidence",
-            "set_person", "set_topic", "set_project", "set_task",
+            "set_person", "set_topic", "set_active_topic", "set_project", "set_task",
             "set_milestone", "last_intent", "last_response", "last_topic",
             "set_last_turn", "reset", "summary",
         }

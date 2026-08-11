@@ -27,7 +27,8 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from core.conversation.session_context import SessionContext
+# Genesis-044 Sprint-002: SessionContext = ConversationState directly.
+from core.conversation.conversation_state import ConversationState as SessionContext  # compat alias -- remove in Genesis-045
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ class ContextManager:
                 value = _clean(m.group(1))
                 if not _is_noise(value) and len(value) > 3:
                     prev = self._session.active_topic
-                    self._session.set_topic(value, raw=text)
+                    self._session.set_active_topic(value, raw=text)
                     if not prev or prev.value.lower() != value.lower():
                         logger.info("[CONTEXT] Active topic → %r", value)
                     return

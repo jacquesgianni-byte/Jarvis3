@@ -19,7 +19,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from core.conversation.session_context import SessionContext
+# Genesis-044 Sprint-002: SessionContext = ConversationState directly.
+from core.conversation.conversation_state import ConversationState as SessionContext  # compat alias -- remove in Genesis-045
 
 
 @dataclass

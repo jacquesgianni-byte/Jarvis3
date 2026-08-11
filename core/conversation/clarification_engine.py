@@ -40,7 +40,8 @@ from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.conversation.session_context import SessionContext
+        # Genesis-044 Sprint-002: SessionContext = ConversationState directly.
+    from core.conversation.conversation_state import ConversationState as SessionContext  # compat alias -- remove in Genesis-045
 
 logger = logging.getLogger(__name__)
 

@@ -1,20 +1,17 @@
 """
 SessionContextAdapter — Genesis-043 Sprint-001
 
-TEMPORARY compatibility adapter.
-Delegates all SessionContext reads/writes to ConversationState.
+DEPRECATED — Genesis-044 Sprint-002
 
-This adapter exists ONLY during the Genesis-043 migration period.
-It will be retired in Genesis-044 Sprint-001.
+This adapter has been retired from active runtime use.
+Agent.session now points directly to ConversationState (jarvis_state).
 
-Every component that currently receives a SessionContext continues to
-work unchanged. They receive this adapter instead. They never know the
-difference.
+This file is retained ONLY because existing test files import it directly.
+It will be deleted once all test references are updated.
 
-DO NOT add business logic here.
-DO NOT make this permanent.
-This class has one job: satisfy the SessionContext interface by
-delegating to ConversationState.
+DO NOT use this adapter in new code.
+DO NOT pass this adapter to any component.
+DO NOT add new methods here.
 """
 
 from __future__ import annotations
@@ -101,6 +98,10 @@ class SessionContextAdapter:
         self._s.set_person(value, raw, confidence)
 
     def set_topic(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
+        self._s.set_active_topic(value, raw, confidence)
+
+    def set_active_topic(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
+        """Alias for set_topic — direct ConversationState API name."""
         self._s.set_active_topic(value, raw, confidence)
 
     def set_project(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
