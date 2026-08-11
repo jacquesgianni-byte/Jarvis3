@@ -101,7 +101,7 @@ class SessionContextAdapter:
         self._s.set_person(value, raw, confidence)
 
     def set_topic(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
-        self._s.set_topic_slot(value, raw, confidence)
+        self._s.set_active_topic(value, raw, confidence)
 
     def set_project(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
         self._s.set_project(value, raw, confidence)

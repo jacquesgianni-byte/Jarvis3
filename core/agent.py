@@ -186,7 +186,7 @@ class Agent:
         self.property_recall = PropertyRecallEngine(self.knowledge)
 
         # Genesis-029: Conversation State Engine
-        self.conversation_state = ConversationStateEngine()
+        self.dialogue_resolver = ConversationStateEngine()
 
         # Genesis-029 Sprint-003: Clarification Engine
         self.clarification_engine = ClarificationEngine()
@@ -227,7 +227,7 @@ class Agent:
         self.conversation_recall = ConversationRecall(self.knowledge)
 
         # Genesis-043 Runtime Integration: ONE shared ConversationState
-        # Named jarvis_state to avoid collision with self.conversation_state
+        # Named jarvis_state to avoid collision with self.dialogue_resolver
         # which is already used for ConversationStateEngine (Genesis-029).
         # Genesis-044 will clean up this naming once ConversationStateEngine is renamed.
         # SessionContextAdapter is a temporary migration shim â€” retired in Genesis-044.
@@ -267,7 +267,10 @@ class Agent:
 
         # Genesis-022: Conversation Engine (owns its own internal ConversationState)
         # Genesis-044 will unify with jarvis_state.
-        self.conversation_engine = ConversationEngine()
+        # Genesis-044 Sprint-001: inject jarvis_state into ConversationEngine.
+        # ConversationEngine now uses the SAME ConversationState as the Agent
+        # instead of creating a shadow empty state.
+        self.conversation_engine = ConversationEngine(state=self.jarvis_state)
 
         # Genesis-027: Worker Operating System
         # WorkerManager owns the registry. WorkerOrchestrator routes tasks.
@@ -431,7 +434,7 @@ class Agent:
         if self._pending_clarification is not None:
             _clf_res = self.clarification_engine.try_resolve(request, self._pending_clarification)
             if _clf_res.resolved:
-                self.conversation_state.update_entity(_clf_res.entity, self.session)
+                self.dialogue_resolver.update_entity(_clf_res.entity, self.session)
                 self._pending_clarification = None
                 _rewritten = _clf_res.rewritten
                 _pq2 = self.property_assigner.detect_query(_rewritten)
@@ -457,7 +460,7 @@ class Agent:
         # 3b. Check for ambiguous pronoun -- only when multiple entities are recent.
         self.logger.debug("[CLARIFY] recent_entities=%r", self._recent_entities)
         if len(self._recent_entities) >= 2:
-            _focus_check = self.conversation_state.detect_focus_change(request)
+            _focus_check = self.dialogue_resolver.detect_focus_change(request)
             _clarify = self.clarification_engine.check(
                 request,
                 self._recent_entities,
@@ -935,7 +938,7 @@ class Agent:
                 "[SLOT] active_topic set to %r after group declaration",
                 detection.value,
             )
-            self.conversation_state.update_group(detection.value, self.session)
+            self.dialogue_resolver.update_group(detection.value, self.session)
 
         # Genesis-031: enrich with temporal metadata if expression found
         temporal_metadata = None
@@ -998,7 +1001,7 @@ class Agent:
                 if (_cand not in _STOP_WORDS
                         and _cand not in _SENTENCE_STARTERS
                         and len(_cand) >= 3):
-                    self.conversation_state.update_entity(_cand, self.session)
+                    self.dialogue_resolver.update_entity(_cand, self.session)
                     try:
                         self.jarvis_state.entity_registry.mention(
                             _cand,
@@ -1103,9 +1106,9 @@ class Agent:
         # are not intercepted as slot fills.
 
         # Genesis-029 Sprint-002: detect explicit focus change BEFORE pronoun resolution
-        _focus = self.conversation_state.detect_focus_change(request)
+        _focus = self.dialogue_resolver.detect_focus_change(request)
         if _focus.detected:
-            self.conversation_state.apply_focus_change(_focus, self.session)
+            self.dialogue_resolver.apply_focus_change(_focus, self.session)
             # Genesis-029 Sprint-003: reset recent entities to just this one
             # so subsequent pronouns don't trigger ambiguity clarification.
             if not _focus.is_group:
@@ -1147,9 +1150,9 @@ class Agent:
             return Response(success=True, message=_summary)
 
         # Resolve pronouns
-        _pronoun_res = self.conversation_state.resolve_pronoun(request, self.session)
+        _pronoun_res = self.dialogue_resolver.resolve_pronoun(request, self.session)
         _effective_request = (
-            self.conversation_state.rewrite_with_entity(request, _pronoun_res)
+            self.dialogue_resolver.rewrite_with_entity(request, _pronoun_res)
             if _pronoun_res.resolved
             else request
         )
@@ -1178,7 +1181,7 @@ class Agent:
             for _pa in _assignments:
                 _last_store = self.property_recall.store(_pa)
                 # Update active entity in conversation state
-                self.conversation_state.update_entity(_pa.subject.title(), self.session)
+                self.dialogue_resolver.update_entity(_pa.subject.title(), self.session)
                 # Genesis-029 Sprint-003: track recent entities for clarification
                 _entity_name = _pa.subject.title()
                 if _entity_name not in self._recent_entities:

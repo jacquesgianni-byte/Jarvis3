@@ -62,10 +62,13 @@ class ConversationEngine:
     def __init__(
         self,
         policy: Optional[ConversationPolicy] = None,
+        state: Optional[ConversationState] = None,
     ) -> None:
-        # Genesis-022: ConversationEngine owns its own ConversationState.
-        # Genesis-044 will unify this with the Agent's shared ConversationState.
-        self._state    = ConversationState()
+        # Genesis-044 Sprint-001: accept external ConversationState so the
+        # Agent can inject jarvis_state rather than creating shadow state.
+        # If no state is provided, create a local one (backward compat).
+        # DO NOT create a new ConversationState if one is injected.
+        self._state    = state if state is not None else ConversationState()
         self._policy   = policy or ConversationPolicy()
         self._pipeline = ConversationPipeline()
         self._router   = ConversationRouter()

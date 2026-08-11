@@ -170,7 +170,7 @@ class ConversationState:
         reset / summary
 
     Public API (Genesis-043, new):
-        set_person / set_topic_slot / set_project / set_task / set_milestone
+        set_person / set_active_topic / set_project / set_task / set_milestone
         increment_turn / current_turn
         is_usable / fresh / effective_confidence
         set_last_turn
@@ -300,7 +300,7 @@ class ConversationState:
         )
         self._touch()
 
-    def set_topic_slot(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
+    def set_active_topic(self, value: str, raw: str = "", confidence: float = 1.0) -> None:
         """Set active_topic as a ContextSlot (different from set_topic which sets Topic object)."""
         self._active_topic = ContextSlot(
             value=value, raw=raw, turn=self._ctx_turn, confidence=confidence

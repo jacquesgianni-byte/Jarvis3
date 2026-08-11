@@ -134,9 +134,9 @@ class TestConversationStateGenesis043:
         s.set_person("Rex")
         assert s.active_person.turn == 1
 
-    def test_set_topic_slot(self):
+    def test_set_active_topic(self):
         s = self._make()
-        s.set_topic_slot("dogs", confidence=0.9)
+        s.set_active_topic("dogs", confidence=0.9)
         assert s.active_topic is not None
         assert s.active_topic.value == "dogs"
 
@@ -235,7 +235,7 @@ class TestConversationStateGenesis043:
     def test_reset_clears_genesis043_fields(self):
         s = self._make()
         s.set_person("Rex")
-        s.set_topic_slot("dogs")
+        s.set_active_topic("dogs")
         s.set_last_turn("memory", "Rex is a dog.", "dogs")
         s.add_recent_entity("Rex")
         s.set_dialogue_act("clarify")
@@ -284,7 +284,7 @@ class TestSessionContextAdapter:
 
     def test_adapter_reads_active_topic(self):
         state, adapter = self._make()
-        state.set_topic_slot("dogs")
+        state.set_active_topic("dogs")
         assert adapter.active_topic.value == "dogs"
 
     def test_adapter_writes_active_topic(self):
@@ -371,7 +371,7 @@ class TestSessionContextAdapter:
         state, adapter = self._make()
         adapter.set_person("Rex")
         assert state.active_person.value == "Rex"
-        state.set_topic_slot("dogs")
+        state.set_active_topic("dogs")
         assert adapter.active_topic.value == "dogs"
 
     def test_no_business_logic_in_adapter(self):
