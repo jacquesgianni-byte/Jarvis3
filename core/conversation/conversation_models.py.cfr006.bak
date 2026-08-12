@@ -44,8 +44,7 @@ class DecisionType(Enum):
     The ConversationRouter produces exactly one Decision per pipeline run.
     Pipeline stages never produce DecisionType values directly.
     """
-    ANSWER_DIRECTLY = auto()
-    FOCUS_CHANGE    = auto()   # CFR-006: Router-authorised focus change   # engine answers from its own knowledge
+    ANSWER_DIRECTLY = auto()   # engine answers from its own knowledge
     ASK_FOLLOW_UP   = auto()   # engine asks the user a clarifying question
     INVOKE_MEMORY   = auto()   # route to KnowledgeEngine
     INVOKE_TOOL     = auto()   # route to ToolManager

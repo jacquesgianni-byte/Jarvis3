@@ -45,7 +45,6 @@ from typing import Any, Optional, TYPE_CHECKING
 from core.conversation.conversation_dialogue import DialogueManager, DialogueResult
 from core.conversation.conversation_recovery import RecoveryHandler, RecoveryResult
 from core.conversation.conversation_resolver import ReferenceResolver, ResolutionResult
-from core.conversation.conversation_state_engine import ConversationStateEngine
 
 if TYPE_CHECKING:
     from core.conversation.conversation_state import ConversationState
@@ -82,61 +81,6 @@ class ProcessingStep:
         return f"{status} {self.stage} ({self.duration_ms:.1f}ms): {self.outcome}"
 
 
-
-
-# ---------------------------------------------------------------------------
-# FocusSignal — linguistic evidence of a possible focus change (CFR-006)
-# ---------------------------------------------------------------------------
-
-
-from dataclasses import dataclass as _dataclass
-
-
-@_dataclass(frozen=True)
-class FocusSignal:
-    """
-    Non-binding evidence that the user may be signalling a focus change.
-
-    Produced by FocusSignalStage. Consumed by ConversationRouter.
-    Does NOT mutate ConversationState. The Router decides whether
-    the signal constitutes an actual focus change.
-
-    CFR-006 architectural fix: detect_focus_change() now produces evidence
-    rather than a binding decision. ConversationRouter is the single
-    authoritative decision point for conversational meaning.
-
-    Attributes:
-        detected:       True if a focus pattern was matched.
-        candidate:      The captured entity/group name.
-        pattern:        Which pattern class fired (entity/group).
-        is_group:       True if a group pattern matched (possessive).
-        possessive:     True if a possessive marker was present.
-        is_return:      True if a "back to" pattern fired.
-        raw_confidence: Pattern-level confidence before context eval.
-    """
-    detected:       bool  = False
-    candidate:      str   = ""
-    pattern:        str   = ""
-    is_group:       bool  = False
-    possessive:     bool  = False
-    is_return:      bool  = False
-    raw_confidence: float = 0.0
-
-    @classmethod
-    def not_detected(cls) -> "FocusSignal":
-        return cls(detected=False)
-
-    def __str__(self) -> str:
-        if not self.detected:
-            return "FocusSignal(not detected)"
-        return (
-            f"FocusSignal(candidate={self.candidate!r}, pattern={self.pattern!r}, "
-            f"group={self.is_group}, possessive={self.possessive}, "
-            f"return={self.is_return}, conf={self.raw_confidence:.2f})"
-        )
-
-
-
 # ---------------------------------------------------------------------------
 # PipelineContext — the mutable processing bag
 # ---------------------------------------------------------------------------
@@ -170,7 +114,6 @@ class PipelineContext:
     recovery_result:   Optional[RecoveryResult]    = None
     resolution_result: Optional[ResolutionResult]  = None
     dialogue_result:   Optional[DialogueResult]    = None
-    focus_signal_result: Optional["FocusSignal"]    = None  # CFR-006
     is_terminal:       bool                        = False
     history:           list[ProcessingStep]        = field(default_factory=list)
     metadata:          dict[str, Any]              = field(default_factory=dict)
@@ -209,7 +152,6 @@ class PipelineContext:
             "recovery":        str(self.recovery_result) if self.recovery_result else None,
             "resolution":      str(self.resolution_result) if self.resolution_result else None,
             "dialogue":        str(self.dialogue_result) if self.dialogue_result else None,
-            "focus_signal":    str(self.focus_signal_result) if self.focus_signal_result else None,
         }
 
 
@@ -302,72 +244,6 @@ class ResolutionStage:
         return ctx
 
 
-
-class FocusSignalStage:
-    """
-    Stage 3 (CFR-006): Detect linguistic evidence of a focus change.
-
-    Runs the existing focus pattern detection from ConversationStateEngine
-    and records the result as a non-binding FocusSignal in PipelineContext.
-
-    Does NOT mutate ConversationState.
-    ConversationRouter reads FocusSignal alongside full ConversationState
-    to decide whether a focus change should be authorised.
-
-    Skipped if context is terminal.
-    """
-
-    NAME = "FocusSignalStage"
-
-    def __init__(self) -> None:
-        self._detector = ConversationStateEngine()
-
-    def process(self, ctx: PipelineContext) -> PipelineContext:
-        if ctx.is_terminal:
-            ctx.append_step(ProcessingStep(
-                stage=self.NAME, executed=False,
-                outcome="skipped (terminal context)",
-            ))
-            return ctx
-
-        import time as _time
-        start = _time.perf_counter()
-
-        raw_change = self._detector.detect_focus_change(ctx.original_input)
-
-        if raw_change.detected:
-            is_return = "back to" in ctx.original_input.lower()
-            signal = FocusSignal(
-                detected=True,
-                candidate=raw_change.entity,
-                pattern="group" if raw_change.is_group else "entity",
-                is_group=raw_change.is_group,
-                possessive=raw_change.is_group,
-                is_return=is_return,
-                raw_confidence=raw_change.confidence,
-            )
-            outcome = f"signal: {signal.candidate!r} (group={signal.is_group})"
-        else:
-            signal = FocusSignal.not_detected()
-            outcome = "no focus signal"
-
-        ctx.focus_signal_result = signal
-        duration = (_time.perf_counter() - start) * 1000
-
-        ctx.append_step(ProcessingStep(
-            stage=self.NAME,
-            executed=True,
-            duration_ms=round(duration, 2),
-            outcome=outcome,
-            metadata={
-                "detected":  signal.detected,
-                "candidate": signal.candidate,
-                "is_group":  signal.is_group,
-            },
-        ))
-        return ctx
-
-
 class DialogueStage:
     """
     Stage 3: Check for pending questions, slot fills, acks, topic changes.
@@ -433,7 +309,6 @@ class ConversationPipeline:
         self._stages = [
             RecoveryStage(),
             ResolutionStage(),
-            FocusSignalStage(),   # CFR-006: evidence only, no state mutation
             DialogueStage(),
         ]
 

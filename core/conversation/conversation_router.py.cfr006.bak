@@ -30,7 +30,7 @@ from typing import Optional, TYPE_CHECKING
 
 from core.conversation.conversation_models import Decision, DecisionType
 from core.conversation.conversation_dialogue import DialogueType
-from core.conversation.conversation_pipeline import PipelineContext, FocusSignal
+from core.conversation.conversation_pipeline import PipelineContext
 from core.conversation.conversation_recovery import RecoveryAction
 from core.intents import Intent
 from core.router import IntentRouter
@@ -53,12 +53,6 @@ _INTENT_TO_DECISION: dict[Intent, DecisionType] = {
 }
 
 
-
-# Contextual confidence thresholds for Router focus change authorisation (CFR-006)
-_FOCUS_GROUNDED_THRESHOLD:    float = 0.70   # minimum to authorise focus change
-_FOCUS_POSSESSIVE_CONFIDENCE: float = 0.88   # possessive 'my X' always grounded
-_FOCUS_RETURN_BOOST:          float = 0.15   # 'back to X' where X is in history
-
 class ConversationRouter:
     """
     Produces a Decision from an enriched PipelineContext.
@@ -74,82 +68,6 @@ class ConversationRouter:
 
     def __init__(self) -> None:
         self._intent_router = IntentRouter()
-
-
-    def _evaluate_focus_signal(self, ctx):
-        """
-        Evaluate a FocusSignal against ConversationState for contextual grounding.
-
-        Returns 0.0-1.0. Above _FOCUS_GROUNDED_THRESHOLD -> FOCUS_CHANGE.
-        Below threshold -> route as information request.
-
-        Grounding signals (no noun lists, context only - CFR-006):
-          - Possessive 'my X'        -> always grounded
-          - Entity in EntityRegistry -> session-grounded
-          - Entity in TopicTracker   -> conversationally anchored
-          - 'back to' with history   -> valid return
-          - Recent entities list     -> recently active
-        """
-        signal = ctx.focus_signal_result
-        if signal is None or not signal.detected:
-            return 0.0
-
-        state = ctx.state
-
-        # Possessive group patterns are unambiguous -- always grounded
-        if signal.possessive or signal.is_group:
-            return _FOCUS_POSSESSIVE_CONFIDENCE
-
-        confidence = signal.raw_confidence * 0.40
-        candidate_lower = signal.candidate.lower()
-
-        # Signal 1: Entity known in EntityRegistry
-        try:
-            current_turn = getattr(state, 'current_turn', 0)
-            active_entities = {
-                e.name.lower()
-                for e in state.entity_registry.active(current_turn)
-            }
-            if candidate_lower in active_entities:
-                confidence += 0.35
-                logger.debug("[ROUTER] Focus grounding: %r in EntityRegistry (+0.35)", signal.candidate)
-        except Exception:
-            pass
-
-        # Signal 2: Entity in TopicTracker history or current
-        try:
-            topic_names = [t.name for t in state.topic_tracker.history]
-            if state.topic_tracker.current:
-                topic_names.append(state.topic_tracker.current.name)
-            if candidate_lower in topic_names:
-                confidence += 0.30
-                logger.debug("[ROUTER] Focus grounding: %r in TopicTracker (+0.30)", signal.candidate)
-        except Exception:
-            pass
-
-        # Signal 3: 'back to' -- valid if entity is in topic history OR current
-        if signal.is_return:
-            try:
-                topic_names = [t.name for t in state.topic_tracker.history]
-                if state.topic_tracker.current:
-                    topic_names.append(state.topic_tracker.current.name)
-                if candidate_lower in topic_names:
-                    confidence += _FOCUS_RETURN_BOOST
-                else:
-                    confidence -= 0.25
-            except Exception:
-                pass
-
-        # Signal 4: Recent entities list
-        try:
-            recent = [e.lower() for e in state.recent_entities]
-            if candidate_lower in recent:
-                confidence += 0.20
-                logger.debug("[ROUTER] Focus grounding: %r in recent_entities (+0.20)", signal.candidate)
-        except Exception:
-            pass
-
-        return max(0.0, min(1.0, confidence))
 
     def decide(self, ctx: PipelineContext) -> Decision:
         """
@@ -215,35 +133,6 @@ class ConversationRouter:
                 reason="User acknowledged. No further action required.",
                 payload={"dialogue_type": "acknowledgement"},
             )
-
-        # 3a. Focus signal -- Router evaluates grounding. (CFR-006)
-        if ctx.focus_signal_result and ctx.focus_signal_result.detected:
-            _focus_conf = self._evaluate_focus_signal(ctx)
-            logger.info(
-                "[ROUTER] FocusSignal candidate=%r contextual_conf=%.2f threshold=%.2f",
-                ctx.focus_signal_result.candidate, _focus_conf, _FOCUS_GROUNDED_THRESHOLD,
-            )
-            if _focus_conf >= _FOCUS_GROUNDED_THRESHOLD:
-                logger.info("[ROUTER] Focus change AUTHORISED: %r", ctx.focus_signal_result.candidate)
-                return Decision(
-                    decision_type=DecisionType.FOCUS_CHANGE,
-                    resolved_input=effective,
-                    raw_input=original,
-                    confidence=_focus_conf,
-                    reason=f"Focus signal grounded: {ctx.focus_signal_result.candidate!r}",
-                    payload={
-                        "focus_candidate": ctx.focus_signal_result.candidate,
-                        "is_group":        ctx.focus_signal_result.is_group,
-                        "possessive":      ctx.focus_signal_result.possessive,
-                        "is_return":       ctx.focus_signal_result.is_return,
-                        "pattern":         ctx.focus_signal_result.pattern,
-                    },
-                )
-            else:
-                logger.info(
-                    "[ROUTER] Focus signal REJECTED (conf=%.2f < %.2f) -- information request",
-                    _focus_conf, _FOCUS_GROUNDED_THRESHOLD,
-                )
 
         # 4. Intent-based routing via existing IntentRouter
         intent = self._intent_router.detect(effective)
