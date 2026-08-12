@@ -1,25 +1,15 @@
-﻿"""
-Improvement Selector â€” Genesis-045 Sprint-001 / Sprint-002 / Sprint-003
+"""
+Improvement Selector — Genesis-045 Sprint-001 / Sprint-002 / Sprint-003 / Sprint-004
 
-Deterministic selection of the single highest-priority improvement
-from an EngineeringReport. No AI. Fully testable.
+Sprint-004 additions:
+  Outcome-aware scoring: reads ProposalOutcomeRecord for each candidate pattern.
+  Recently VALIDATED: score * VALIDATED_SCORE_FACTOR (deprioritise, not suppress).
+  FAILED_VALIDATION: normal score (issue was not resolved; full priority restored).
 
-Selection algorithm:
-  1. Filter to HIGH severity issues only
-  2. Build pattern_signature for each issue
-  3. Check suppression via get_rejection_record_by_signature() (Sprint-003 path)
-     or legacy get_rejection_cycle() fallback (Sprint-002 data)
-  4. Sprint-003 suppression rules:
-       a. If suppression window has not elapsed AND no evidence novelty â†’ skip
-       b. Evidence novelty = new component in affected_components not present
-          in components_at_rejection snapshot
-       c. ACCEPTABLE_TRADEOFF: window-only; evidence novelty does NOT apply
-  5. Skip issues below MIN_CONFIDENCE threshold
-  6. Score remaining: confidence Ã— frequency_boost
-  7. Apply DRR declining boost for ROUTING / MEMORY patterns
-  8. Return top scorer as ImprovementProposal, or None
-
-One proposal at a time. Returns None if one is already PENDING.
+Epistemic boundaries:
+  VALIDATED reduces priority but does not eliminate the pattern.
+  FAILED_VALIDATION restores normal priority; cause remains uncertain.
+  No outcome triggers autonomous action.
 """
 
 from __future__ import annotations
@@ -31,13 +21,8 @@ from core.engineering.intelligence.session_record import DRRTrend
 
 logger = logging.getLogger(__name__)
 
-# Minimum confidence to form a proposal
 MIN_CONFIDENCE: float = 0.50
 
-# ---------------------------------------------------------------------------
-# Sprint-003: differentiated suppression windows per rejection reason code.
-# Defined here as the single authoritative source.
-# ---------------------------------------------------------------------------
 from core.engineering.intelligence.pattern_record import RejectionReasonCode
 
 SUPPRESSION_BY_REASON: dict[RejectionReasonCode, int] = {
@@ -50,12 +35,21 @@ SUPPRESSION_BY_REASON: dict[RejectionReasonCode, int] = {
     RejectionReasonCode.OTHER:                 5,
 }
 
-# Default used when no RejectionRecord exists and the legacy key is absent
 _DEFAULT_SUPPRESSION_CYCLES: int = 5
+
+# Backward-compatibility alias — Sprint-001/002 tests import this name
+REJECTION_SUPPRESSION_CYCLES: int = _DEFAULT_SUPPRESSION_CYCLES
+
+# Sprint-004: VALIDATED pattern score multiplier
+# Reduces priority without eliminating the pattern from future proposals.
+# The improvement may not have been caused by the fix, or may not be permanent.
+VALIDATED_SCORE_FACTOR: float = 0.5
+
+# How many cycles after VALIDATED before full priority is restored
+VALIDATED_GRACE_CYCLES: int = 5
 
 
 def get_suppression_cycles(reason_code: RejectionReasonCode) -> int:
-    """Return the suppression window for the given reason code."""
     return SUPPRESSION_BY_REASON.get(reason_code, _DEFAULT_SUPPRESSION_CYCLES)
 
 
@@ -64,7 +58,7 @@ def _build_inference(issue, frequency: int) -> str:
     return (
         f"The {issue.category.value if hasattr(issue.category, 'value') else issue.category} "
         f"pattern '{issue.title}' suggests a recurring architectural gap{freq_note}. "
-        f"This is an inference â€” it may reflect a transient condition rather than "
+        f"This is an inference — it may reflect a transient condition rather than "
         f"a structural problem."
     )
 
@@ -78,15 +72,12 @@ def _build_uncertainty(issue) -> str:
 
 
 def _build_recommendation(issue) -> tuple[str, str, str]:
-    """Return (proposed_change, expected_benefit, validation_plan)."""
     cat = issue.category.value if hasattr(issue.category, "value") else str(issue.category)
-
     if cat == "ROUTING":
         return (
             "Investigate the intent routing path for utterances that fall back to AI. "
             "Consider whether new intent patterns or slot types would reduce AI_FALLBACK rate.",
-            "Fewer AI fallbacks means faster, more deterministic responses. "
-            "Users receive answers without AI latency.",
+            "Fewer AI fallbacks means faster, more deterministic responses.",
             "Run a session with the same utterance types. "
             "Verify AI_FALLBACK rate drops in the next EngineeringReport.",
         )
@@ -94,8 +85,7 @@ def _build_recommendation(issue) -> tuple[str, str, str]:
         return (
             "Investigate the memory retrieval path for misses or stale data. "
             "Consider whether entity registration or knowledge recency ranking needs improvement.",
-            "Correct memory recall means users get accurate answers from stored knowledge "
-            "without needing to repeat themselves.",
+            "Correct memory recall means users get accurate answers from stored knowledge.",
             "Run a session repeating the failing memory query. "
             "Verify memory hit rate improves in the next EngineeringReport.",
         )
@@ -111,8 +101,7 @@ def _build_recommendation(issue) -> tuple[str, str, str]:
         return (
             "Investigate the exception source identified in likely_files. "
             "Add defensive handling or better error boundaries.",
-            "Fewer unhandled exceptions means more reliable responses "
-            "and better error recovery.",
+            "Fewer unhandled exceptions means more reliable responses.",
             "Run a session that reproduces the error condition. "
             "Verify no exception appears in the next EngineeringReport.",
         )
@@ -127,12 +116,7 @@ def _build_recommendation(issue) -> tuple[str, str, str]:
 class ImprovementSelector:
     """
     Selects one ImprovementProposal from an EngineeringReport.
-
-    Deterministic. No AI. Testable in isolation.
-
-    Public API:
-        select(report, pattern_store, current_cycle, cfr_register) ->
-            Optional[ImprovementProposal]
+    Deterministic. No AI.
     """
 
     def select(
@@ -143,31 +127,18 @@ class ImprovementSelector:
         cfr_register: dict = None,
         drr_trend: "DRRTrend" = None,
     ) -> "Optional[ImprovementProposal]":
-        """
-        Select the single highest-priority improvement from an EngineeringReport.
-
-        Args:
-            report:          EngineeringReport from SessionAnalysisWorker
-            pattern_store:   PatternStore for frequency and rejection history
-            current_cycle:   Current analysis cycle number
-            cfr_register:    Dict of open CFR entries {code: description}
-            drr_trend:       Current DRR trend (Sprint-002)
-
-        Returns:
-            ImprovementProposal or None if no qualifying issue found.
-        """
         from core.workers.engineering_models import Severity
 
         if cfr_register is None:
             cfr_register = {}
 
         if not report.has_issues():
-            logger.info("[SELECTOR] No issues in report â€” no proposal.")
+            logger.info("[SELECTOR] No issues in report — no proposal.")
             return None
 
         high_issues = report.issues_by_severity(Severity.HIGH)
         if not high_issues:
-            logger.info("[SELECTOR] No HIGH severity issues â€” no proposal.")
+            logger.info("[SELECTOR] No HIGH severity issues — no proposal.")
             return None
 
         candidates = []
@@ -176,15 +147,10 @@ class ImprovementSelector:
             cat   = issue.category.value if hasattr(issue.category, "value") else str(issue.category)
             title = issue.title
 
-            # Build pattern signature for this issue
             from core.engineering.intelligence.pattern_record import PatternRecord
             pat_sig = PatternRecord.normalise_signature(cat, title)
 
-            # ------------------------------------------------------------------
-            # Sprint-003 suppression check
-            # Primary path: structured RejectionRecord keyed by pattern_signature
-            # Fallback:     legacy rejected_at_cycle integer
-            # ------------------------------------------------------------------
+            # Suppression check (Sprint-003)
             suppressed = self._check_suppression(
                 pattern_store=pattern_store,
                 pat_sig=pat_sig,
@@ -195,31 +161,34 @@ class ImprovementSelector:
             if suppressed:
                 continue
 
-            # Skip below confidence threshold
             if issue.confidence < MIN_CONFIDENCE:
                 logger.info(
-                    "[SELECTOR] Skipping %r â€” confidence %.2f below threshold %.2f.",
-                    title, issue.confidence, MIN_CONFIDENCE,
+                    "[SELECTOR] Skipping %r — confidence %.2f below threshold.",
+                    title, issue.confidence,
                 )
                 continue
 
-            # Score: confidence Ã— frequency_boost
             frequency  = pattern_store.get_frequency(cat, title)
-            freq_boost = 1.0 + min(frequency * 0.1, 0.5)  # cap at 1.5Ã—
+            freq_boost = 1.0 + min(frequency * 0.1, 0.5)
             score      = issue.confidence * freq_boost
 
-            # Sprint-002: DRR declining boosts ROUTING and MEMORY patterns
             if drr_trend == DRRTrend.DECLINING and cat in ("ROUTING", "MEMORY"):
                 score *= 1.10
-                logger.debug("[SELECTOR] DRR declining boost applied to %r", title)
+
+            # Sprint-004: outcome-aware scoring
+            score = self._apply_outcome_scoring(
+                score=score,
+                pat_sig=pat_sig,
+                pattern_store=pattern_store,
+                current_cycle=current_cycle,
+            )
 
             candidates.append((score, issue, frequency, pat_sig))
 
         if not candidates:
-            logger.info("[SELECTOR] All HIGH issues filtered â€” no proposal.")
+            logger.info("[SELECTOR] All HIGH issues filtered — no proposal.")
             return None
 
-        # Select top scorer
         candidates.sort(key=lambda x: x[0], reverse=True)
         score, top_issue, frequency, pat_sig = candidates[0]
         cat   = top_issue.category.value if hasattr(top_issue.category, "value") else str(top_issue.category)
@@ -230,18 +199,15 @@ class ImprovementSelector:
             title, score, top_issue.confidence, frequency,
         )
 
-        # Build observation layer â€” facts only
         from core.engineering.intelligence.models import Observation
         observation = Observation.from_issue(top_issue)
 
-        # CFR cross-reference (read-only)
         cfr_ref = ""
         for cfr_code, cfr_desc in cfr_register.items():
             if cat.lower() in cfr_desc.lower() or title.lower() in cfr_desc.lower():
                 cfr_ref = cfr_code
                 break
 
-        # Build diagnosis layer â€” inference, explicitly labelled
         from core.engineering.intelligence.models import Diagnosis
         diagnosis = Diagnosis(
             inference         = _build_inference(top_issue, frequency),
@@ -251,7 +217,6 @@ class ImprovementSelector:
             cfr_reference     = cfr_ref,
         )
 
-        # Build recommendation layer â€” proposal, not decision
         from core.engineering.intelligence.models import Recommendation
         proposed, benefit, validation = _build_recommendation(top_issue)
         recommendation = Recommendation(
@@ -261,7 +226,6 @@ class ImprovementSelector:
             validation_plan     = validation,
         )
 
-        # Assemble proposal
         import uuid
         from datetime import UTC, datetime
         from core.engineering.intelligence.models import ImprovementProposal, ProposalStatus
@@ -272,7 +236,7 @@ class ImprovementSelector:
             evidence          = [observation],
             diagnosis         = diagnosis,
             recommendation    = recommendation,
-            confidence        = score / 1.5,  # normalise back to 0â€“1
+            confidence        = score / 1.5,
             session_id        = f"cycle-{current_cycle}",
             pattern_signature = pat_sig,
         )
@@ -292,33 +256,14 @@ class ImprovementSelector:
         title: str,
         current_cycle: int,
     ) -> bool:
-        """
-        Return True if this pattern is currently suppressed.
-
-        Primary path: load RejectionRecord by pattern_signature.
-          - Apply suppression_cycles (pre-computed at rejection time).
-          - If window not elapsed, check evidence novelty.
-          - Evidence novelty = new component in affected_components vs snapshot.
-          - ACCEPTABLE_TRADEOFF: window-only; novelty does NOT apply.
-
-        Fallback path: legacy rejected_at_cycle integer with default 5-cycle window.
-        """
-        # Primary path (Sprint-003)
         rej_record = pattern_store.get_rejection_record_by_signature(pat_sig)
         if rej_record is not None:
             cycles_elapsed = current_cycle - rej_record.cycle
             window         = rej_record.suppression_cycles
 
             if cycles_elapsed >= window:
-                # Window has expired â€” eligible
-                logger.debug(
-                    "[SELECTOR] %r window expired (elapsed=%d, window=%d) â€” eligible.",
-                    pat_sig, cycles_elapsed, window,
-                )
                 return False
 
-            # Window has not elapsed â€” check evidence novelty
-            # ACCEPTABLE_TRADEOFF is window-only; no novelty bypass
             if not rej_record.reason_code.is_novelty_exempt():
                 current_pattern = pattern_store.get_pattern(pat_sig)
                 if current_pattern is not None:
@@ -327,32 +272,73 @@ class ImprovementSelector:
                     new_components = current_comps - snapshot_comps
                     if new_components:
                         logger.info(
-                            "[SELECTOR] %r has new components %s â€” evidence novelty, eligible.",
+                            "[SELECTOR] %r has new components %s — evidence novelty, eligible.",
                             pat_sig, new_components,
                         )
-                        return False  # new evidence â€” not suppressed
+                        return False
 
-            # Still within window, no novelty (or ACCEPTABLE_TRADEOFF)
             logger.info(
-                "[SELECTOR] Skipping %r â€” rejected %d cycle(s) ago (window=%d, reason=%s).",
+                "[SELECTOR] Skipping %r — rejected %d cycle(s) ago (window=%d, reason=%s).",
                 pat_sig, cycles_elapsed, window, rej_record.reason_code.value,
             )
             return True
 
-        # Fallback path (Sprint-002 legacy data)
         rejected_at = pattern_store.get_rejection_cycle(cat, title)
         if rejected_at != -1:
             cycles_since = current_cycle - rejected_at
             if cycles_since < _DEFAULT_SUPPRESSION_CYCLES:
-                logger.info(
-                    "[SELECTOR] Skipping %r â€” legacy rejection %d cycle(s) ago (window=%d).",
-                    title, cycles_since, _DEFAULT_SUPPRESSION_CYCLES,
-                )
                 return True
 
         return False
 
+    # ------------------------------------------------------------------
+    # Sprint-004: outcome-aware scoring
+    # ------------------------------------------------------------------
 
-# Backward-compatibility alias — Sprint-001/002 tests import this name
-REJECTION_SUPPRESSION_CYCLES: int = _DEFAULT_SUPPRESSION_CYCLES
+    def _apply_outcome_scoring(
+        self,
+        score: float,
+        pat_sig: str,
+        pattern_store,
+        current_cycle: int,
+    ) -> float:
+        """
+        Adjust score based on the most recent ProposalOutcomeRecord for this pattern.
 
+        VALIDATED (within grace period):
+            score * VALIDATED_SCORE_FACTOR
+            Rationale: improvement was observed; deprioritise but don't eliminate.
+            Causation is NOT established — the pattern may recur or the improvement
+            may not have been caused by the fix.
+
+        FAILED_VALIDATION:
+            score unchanged (normal priority)
+            Rationale: the expected improvement was NOT observed. The issue remains
+            active. Full priority is correct. Cause is uncertain.
+
+        No outcome record / IMPLEMENTED (still observing):
+            score unchanged
+        """
+        from core.engineering.intelligence.pattern_record import OutcomeStatus
+        try:
+            outcome = pattern_store.get_latest_outcome_for_pattern(pat_sig)
+            if outcome is None:
+                return score
+
+            if outcome.status == OutcomeStatus.VALIDATED:
+                # Only apply grace period if validated_at_cycle is set
+                if outcome.validated_at_cycle is not None:
+                    cycles_since_validated = current_cycle - outcome.validated_at_cycle
+                    if cycles_since_validated < VALIDATED_GRACE_CYCLES:
+                        logger.debug(
+                            "[SELECTOR] %r recently VALIDATED — applying score factor %.1f.",
+                            pat_sig, VALIDATED_SCORE_FACTOR,
+                        )
+                        return score * VALIDATED_SCORE_FACTOR
+
+            # FAILED_VALIDATION or IMPLEMENTED: normal score
+            return score
+
+        except Exception as _e:
+            logger.debug("[SELECTOR] outcome scoring failed for %r: %s", pat_sig, _e)
+            return score

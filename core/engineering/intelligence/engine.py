@@ -1,28 +1,27 @@
 """
-Engineering Intelligence Engine — Genesis-045 Sprint-001 / Sprint-002 / Sprint-003
+Engineering Intelligence Engine — Genesis-045 Sprint-001 / Sprint-002 / Sprint-003 / Sprint-004
 
 Orchestrates the observation → analysis → proposal loop.
 
-Called by Agent after every N turns (configurable, default 10)
-or when /engineering analyse is issued explicitly.
+Sprint-004 additions:
+  approve_proposal() writes a pending-implementation entry after APPROVED.
+  process_session() checks for COMMIT_PENDING via execution_runner reference
+  and transitions proposals to IMPLEMENTED, then monitors for VALIDATED /
+  FAILED_VALIDATION over subsequent cycles.
 
-Pipeline:
-  1. Drain SessionLogBuffer → log lines
-  2. SessionAnalysisWorker.analyse_session(lines) → EngineeringReport
-  3. Increment PatternStore frequency for all found issues
-  4. Build SessionRecord, update PatternRecords (Sprint-002)
-  5. Load existing proposal — if PENDING, check staleness
-  6. ImprovementSelector.select() → ImprovementProposal | None
-  7. Save proposal to PatternStore
-  8. Return proposal (or None)
+IMPLEMENTED detection:
+  ExecutionRunner.has_pending_commit() returns True when _last_outcome has
+  state=COMMIT_PENDING. This is an in-memory signal, not a log line.
+  The engine holds an optional reference to the ExecutionRunner and checks
+  it at the start of each process_session() call.
 
-Sprint-003 additions to reject_proposal():
-  - Load PatternRecord at rejection time; snapshot affected_components
-  - Compute suppression_cycles from RejectionReasonCode via SUPPRESSION_BY_REASON
-  - Store both in RejectionRecord (self-describing audit trail)
+Epistemic boundaries (enforced, not assumed):
+  IMPLEMENTED ≠ diagnosis correct ≠ problem solved
+  VALIDATED = expected improvement observed; causation NOT established
+  FAILED_VALIDATION = improvement not observed; cause uncertain; no auto-retry
+  Every new engineering action requires human approval regardless of outcome
 
-Does NOT call AI. Does NOT modify source code.
-Does NOT create proposals autonomously — only surfaces them.
+Does NOT call AI. Does NOT modify source code autonomously.
 """
 
 from __future__ import annotations
@@ -32,13 +31,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Default number of turns before an analysis cycle triggers
-DEFAULT_CYCLE_TURNS: int = 10
+DEFAULT_CYCLE_TURNS:  int = 10
+STALE_EXPIRY_CYCLES:  int = 3
+VALIDATION_CYCLES:    int = 2   # consecutive cycles without pattern recurrence → VALIDATED
 
-# How many stale cycles before STALE → EXPIRED
-STALE_EXPIRY_CYCLES: int = 3
-
-# Open CFR entries for cross-reference (read-only, updated manually)
 _OPEN_CFRS: dict[str, str] = {
     "CFR-001": "memory stale data KnowledgeEngine",
     "CFR-002": "entity resolution stale property",
@@ -59,14 +55,25 @@ class EngineeringIntelligenceEngine:
         reject_proposal(reason)     -> str
         defer_proposal()            -> str
         status_summary()            -> str
+        set_execution_runner(runner) -> None   (Sprint-004)
     """
 
     def __init__(self, knowledge_engine) -> None:
         from core.engineering.intelligence.pattern_store import PatternStore
         from core.engineering.intelligence.selector import ImprovementSelector
-        self._pattern_store = PatternStore(knowledge_engine)
-        self._selector      = ImprovementSelector()
-        self._cycle_count   = self._pattern_store.get_last_cycle()
+        self._pattern_store     = PatternStore(knowledge_engine)
+        self._selector          = ImprovementSelector()
+        self._cycle_count       = self._pattern_store.get_last_cycle()
+        self._execution_runner  = None   # Sprint-004: set via set_execution_runner()
+
+    def set_execution_runner(self, runner) -> None:
+        """
+        Provide a reference to the ExecutionRunner so the engine can check
+        for COMMIT_PENDING without modifying the execution pipeline.
+        Called by Agent after both are constructed.
+        """
+        self._execution_runner = runner
+        logger.info("[INTEL_ENGINE] ExecutionRunner reference set.")
 
     # ------------------------------------------------------------------
     # Main loop entry point
@@ -75,12 +82,6 @@ class EngineeringIntelligenceEngine:
     def process_session(self, log_lines: list[str]) -> "Optional[ImprovementProposal]":
         """
         Run one analysis cycle on the provided log lines.
-
-        Args:
-            log_lines: Lines captured by SessionLogBuffer during this cycle.
-
-        Returns:
-            A new ImprovementProposal if one was formed, or None.
         """
         from core.workers.session_analysis_worker import SessionAnalysisWorker
         from core.engineering.intelligence.models import ProposalStatus
@@ -90,6 +91,9 @@ class EngineeringIntelligenceEngine:
             "[INTEL_ENGINE] Analysis cycle %d starting (%d lines).",
             self._cycle_count, len(log_lines),
         )
+
+        # Sprint-004: check for pending implementation before anything else
+        self._check_implementation_outcome()
 
         if not log_lines:
             logger.info("[INTEL_ENGINE] No log lines — skipping cycle.")
@@ -168,6 +172,9 @@ class EngineeringIntelligenceEngine:
                 likely_files=_lf2,
             )
 
+        # Sprint-004: check VALIDATED / FAILED_VALIDATION for IMPLEMENTED proposals
+        self._check_validation_outcome(_issues_found)
+
         # Step 3: Check existing proposal staleness
         existing = self._pattern_store.load_proposal()
         if existing is not None and existing.is_pending():
@@ -191,10 +198,9 @@ class EngineeringIntelligenceEngine:
                     )
                 self._pattern_store.save_proposal(updated)
             else:
-                logger.info("[INTEL_ENGINE] Existing PENDING proposal still active — no new proposal.")
+                logger.info("[INTEL_ENGINE] Existing PENDING proposal still active.")
             return None
 
-        # Step 4: If no pending proposal, try to select one
         if existing is not None and existing.is_pending():
             return None
 
@@ -217,11 +223,188 @@ class EngineeringIntelligenceEngine:
         return proposal
 
     # ------------------------------------------------------------------
+    # Sprint-004: Implementation and validation monitoring
+    # ------------------------------------------------------------------
+
+    def _check_implementation_outcome(self) -> None:
+        """
+        Check whether the ExecutionRunner has reached COMMIT_PENDING for a
+        session linked to the pending-implementation entry.
+
+        If yes: transition proposal to IMPLEMENTED, write ProposalOutcomeRecord,
+        clear the pending-implementation entry.
+
+        This is called at the start of every process_session() call.
+        No log-line scanning — uses ExecutionRunner.has_pending_commit() directly.
+        """
+        pending = self._pattern_store.get_pending_implementation()
+        if pending is None:
+            return
+
+        proposal_id       = pending.get("proposal_id", "")
+        pattern_signature = pending.get("pattern_signature", "")
+        approved_at_cycle = pending.get("approved_at_cycle", 0)
+
+        if not proposal_id:
+            return
+
+        # Check ExecutionRunner for COMMIT_PENDING signal
+        runner = self._execution_runner
+        if runner is None or not getattr(runner, "has_pending_commit", lambda: False)():
+            logger.debug(
+                "[INTEL_ENGINE] Pending implementation %s: no COMMIT_PENDING yet.",
+                proposal_id,
+            )
+            return
+
+        # COMMIT_PENDING confirmed — extract summary data if available
+        tests_run     = 0
+        files_changed = 0
+        snapshot_sha  = ""
+        try:
+            last_outcome = getattr(runner, "_last_outcome", None)
+            if last_outcome is not None:
+                summary = getattr(last_outcome, "summary", None)
+                if summary is not None:
+                    tests_run     = getattr(summary, "tests_passed", 0)
+                    files_changed = getattr(summary, "total_files_changed", 0)
+                    snapshot_sha  = getattr(summary, "snapshot_sha", "")
+        except Exception as _e:
+            logger.debug("[INTEL_ENGINE] Could not extract summary data: %s", _e)
+
+        # Write ProposalOutcomeRecord
+        from core.engineering.intelligence.pattern_record import (
+            OutcomeStatus, ProposalOutcomeRecord,
+        )
+        outcome_record = ProposalOutcomeRecord(
+            proposal_id          = proposal_id,
+            pattern_signature    = pattern_signature,
+            status               = OutcomeStatus.IMPLEMENTED,
+            approved_at_cycle    = approved_at_cycle,
+            implemented_at_cycle = self._cycle_count,
+            validated_at_cycle   = None,
+            tests_run            = tests_run,
+            files_changed        = files_changed,
+            snapshot_sha         = snapshot_sha,
+            recorded_genesis     = "Genesis-045",
+        )
+        try:
+            self._pattern_store.save_outcome_record(outcome_record)
+        except Exception as _oe:
+            logger.warning("[INTEL_ENGINE] save_outcome_record failed: %s", _oe)
+            return
+
+        # Update proposal status to IMPLEMENTED
+        import dataclasses
+        from core.engineering.intelligence.models import ProposalStatus
+        proposal = self._pattern_store.load_proposal()
+        if proposal is not None and proposal.proposal_id == proposal_id:
+            updated = dataclasses.replace(proposal, status=ProposalStatus.IMPLEMENTED)
+            self._pattern_store.save_proposal(updated)
+
+        # Clear the pending-implementation entry
+        self._pattern_store.clear_pending_implementation()
+        logger.info(
+            "[INTEL_ENGINE] Proposal %s marked IMPLEMENTED (cycle=%d).",
+            proposal_id, self._cycle_count,
+        )
+
+    def _check_validation_outcome(self, issues_found: list[dict]) -> None:
+        """
+        For any IMPLEMENTED proposal, check whether the pattern has improved.
+
+        VALIDATED:        pattern not in issues_found for VALIDATION_CYCLES
+                          consecutive cycles since implementation.
+        FAILED_VALIDATION: pattern recurred within the observation window.
+
+        Observation, not causation. Evidence is never erased.
+        No autonomous action on either outcome.
+        """
+        proposal = self._pattern_store.load_proposal()
+        if proposal is None:
+            return
+        from core.engineering.intelligence.models import ProposalStatus
+        if proposal.status != ProposalStatus.IMPLEMENTED:
+            return
+
+        pat_sig = proposal.pattern_signature
+        if not pat_sig:
+            return
+
+        outcome = self._pattern_store.get_outcome_record(proposal.proposal_id)
+        if outcome is None:
+            return
+
+        # Check if pattern recurred this cycle
+        current_sigs = {iss.get("signature", "") for iss in issues_found}
+        pattern_recurred = pat_sig in current_sigs
+
+        if pattern_recurred:
+            # Pattern still present — FAILED_VALIDATION
+            from core.engineering.intelligence.pattern_record import (
+                OutcomeStatus, ProposalOutcomeRecord,
+            )
+            import dataclasses
+            updated_outcome = ProposalOutcomeRecord(
+                proposal_id          = outcome.proposal_id,
+                pattern_signature    = outcome.pattern_signature,
+                status               = OutcomeStatus.FAILED_VALIDATION,
+                approved_at_cycle    = outcome.approved_at_cycle,
+                implemented_at_cycle = outcome.implemented_at_cycle,
+                validated_at_cycle   = self._cycle_count,
+                tests_run            = outcome.tests_run,
+                files_changed        = outcome.files_changed,
+                snapshot_sha         = outcome.snapshot_sha,
+                recorded_genesis     = outcome.recorded_genesis,
+            )
+            self._pattern_store.save_outcome_record(updated_outcome)
+            updated_proposal = dataclasses.replace(
+                proposal, status=ProposalStatus.FAILED_VALIDATION,
+            )
+            self._pattern_store.save_proposal(updated_proposal)
+            logger.info(
+                "[INTEL_ENGINE] Proposal %s: FAILED_VALIDATION — pattern recurred at cycle %d. "
+                "Cause uncertain. Evidence intact. Pattern remains eligible.",
+                proposal.proposal_id, self._cycle_count,
+            )
+            return
+
+        # Pattern absent — check if we have enough consecutive clear cycles
+        impl_cycle    = outcome.implemented_at_cycle
+        cycles_clear  = self._cycle_count - impl_cycle
+        if cycles_clear >= VALIDATION_CYCLES:
+            from core.engineering.intelligence.pattern_record import (
+                OutcomeStatus, ProposalOutcomeRecord,
+            )
+            import dataclasses
+            updated_outcome = ProposalOutcomeRecord(
+                proposal_id          = outcome.proposal_id,
+                pattern_signature    = outcome.pattern_signature,
+                status               = OutcomeStatus.VALIDATED,
+                approved_at_cycle    = outcome.approved_at_cycle,
+                implemented_at_cycle = outcome.implemented_at_cycle,
+                validated_at_cycle   = self._cycle_count,
+                tests_run            = outcome.tests_run,
+                files_changed        = outcome.files_changed,
+                snapshot_sha         = outcome.snapshot_sha,
+                recorded_genesis     = outcome.recorded_genesis,
+            )
+            self._pattern_store.save_outcome_record(updated_outcome)
+            updated_proposal = dataclasses.replace(
+                proposal, status=ProposalStatus.VALIDATED,
+            )
+            self._pattern_store.save_proposal(updated_proposal)
+            logger.info(
+                "[INTEL_ENGINE] Proposal %s: VALIDATED — pattern absent for %d cycles. "
+                "Outcome observation only; causation not established.",
+                proposal.proposal_id, cycles_clear,
+            )
+
+    # ------------------------------------------------------------------
     # Proposal access
     # ------------------------------------------------------------------
 
     def get_pending_proposal(self) -> "Optional[ImprovementProposal]":
-        """Return the current active proposal, or None."""
         from core.engineering.intelligence.models import ProposalStatus
         proposal = self._pattern_store.load_proposal()
         if proposal is None:
@@ -236,19 +419,15 @@ class EngineeringIntelligenceEngine:
 
     def approve_proposal(self) -> str:
         """
-        Mark pending proposal as APPROVED. Returns response string.
+        Mark pending proposal as APPROVED.
 
-        APPROVED means: the human authorised this proposal to proceed to
-        the collaboration pipeline.
+        APPROVED means: the human authorised this proposal to proceed.
+        It does NOT mean: diagnosis correct / recommendation will work /
+        problem solved.
 
-        It does NOT mean:
-          - the diagnosis was correct
-          - the recommendation will work
-          - the problem is solved
-
-        The pattern continues to be observed. The evidence continues to
-        accumulate. The selector may produce a new proposal for the same
-        pattern in future cycles if the issue recurs.
+        Sprint-004: writes a pending-implementation entry so that
+        process_session() can detect COMMIT_PENDING and transition to
+        IMPLEMENTED without any changes to ExecutionRunner.
         """
         import dataclasses
         from core.engineering.intelligence.models import ProposalStatus
@@ -264,6 +443,17 @@ class EngineeringIntelligenceEngine:
             decided_at = datetime.now(UTC),
         )
         self._pattern_store.save_proposal(updated)
+
+        # Sprint-004: record pending-implementation entry
+        try:
+            self._pattern_store.save_pending_implementation(
+                proposal_id       = proposal.proposal_id,
+                pattern_signature = proposal.pattern_signature,
+                approved_at_cycle = self._cycle_count,
+            )
+        except Exception as _pe:
+            logger.warning("[INTEL_ENGINE] save_pending_implementation failed: %s", _pe)
+
         logger.info("[INTEL_ENGINE] Proposal APPROVED: %s", proposal.proposal_id)
         return (
             f"Proposal {proposal.proposal_id} approved. "
@@ -272,19 +462,10 @@ class EngineeringIntelligenceEngine:
 
     def reject_proposal(self, reason: str = "") -> str:
         """
-        Mark pending proposal as REJECTED.
+        Mark pending proposal as REJECTED. Differentiated suppression per reason code.
 
-        Sprint-003:
-          1. Parse RejectionReasonCode from the reason string first word.
-          2. Snapshot PatternRecord.affected_components at this moment.
-          3. Compute suppression_cycles from the reason code.
-          4. Save RejectionRecord with snapshot + computed window.
-          5. Also write the legacy suppression key (backward-compat).
-
-        The pattern evidence is NOT modified. Recurrence of the same issue
-        will continue to increment frequency, but will not override the
-        suppression window unless evidence novelty is detected (new component).
-        Frequency growth alone does not bypass a human rejection decision.
+        Evidence is NOT modified. Frequency continues to accumulate.
+        Rejection does not resolve the underlying issue.
         """
         import dataclasses
         from core.engineering.intelligence.models import ProposalStatus
@@ -298,22 +479,17 @@ class EngineeringIntelligenceEngine:
         if proposal is None or not proposal.is_pending():
             return "No pending proposal to reject."
 
-        # Parse reason code
-        _parts     = reason.strip().split(None, 1) if reason.strip() else []
-        _code      = RejectionReasonCode.from_string(_parts[0]) if _parts else RejectionReasonCode.OTHER
-        _rtext     = _parts[1] if len(_parts) > 1 else ""
+        _parts  = reason.strip().split(None, 1) if reason.strip() else []
+        _code   = RejectionReasonCode.from_string(_parts[0]) if _parts else RejectionReasonCode.OTHER
+        _rtext  = _parts[1] if len(_parts) > 1 else ""
+        _window = get_suppression_cycles(_code)
 
-        # Compute suppression window for this reason code
-        _window    = get_suppression_cycles(_code)
-
-        # Snapshot affected_components from PatternRecord at rejection time
         _components_snapshot: list = []
         if proposal.pattern_signature:
             _pat = self._pattern_store.get_pattern(proposal.pattern_signature)
             if _pat is not None:
                 _components_snapshot = list(_pat.affected_components)
 
-        # Build and save structured RejectionRecord (Sprint-003 path)
         _rej = RejectionRecord(
             proposal_id             = proposal.proposal_id,
             pattern_signature       = proposal.pattern_signature,
@@ -329,7 +505,6 @@ class EngineeringIntelligenceEngine:
         except Exception as _re:
             logger.warning("[INTEL_ENGINE] RejectionRecord save failed: %s", _re)
 
-        # Legacy suppression key (backward-compat for Sprint-002 selector path)
         cat   = proposal.evidence[0].category if proposal.evidence else ""
         title = proposal.evidence[0].title    if proposal.evidence else ""
         try:
@@ -337,7 +512,6 @@ class EngineeringIntelligenceEngine:
         except Exception as _le:
             logger.warning("[INTEL_ENGINE] Legacy rejection record failed: %s", _le)
 
-        # Update proposal status
         updated = dataclasses.replace(
             proposal,
             status           = ProposalStatus.REJECTED,
@@ -358,11 +532,8 @@ class EngineeringIntelligenceEngine:
 
     def defer_proposal(self) -> str:
         """
-        Keep proposal PENDING. Deferred means no change.
-
-        DEFERRED semantics: the human chose not to decide yet.
-        The proposal remains visible. No suppression occurs.
-        The pattern continues to be observed normally.
+        Keep proposal PENDING. No suppression. No evidence change.
+        DEFERRED: human chose not to decide yet.
         """
         proposal = self._pattern_store.load_proposal()
         if proposal is None or not proposal.is_pending():
@@ -379,14 +550,13 @@ class EngineeringIntelligenceEngine:
     # ------------------------------------------------------------------
 
     def status_summary(self) -> str:
-        """Return status with DRR history and pending proposal."""
         from core.engineering.intelligence.session_record import compute_drr_trend
         proposal = self.get_pending_proposal()
         sessions = self._pattern_store.get_session_records(n=6)
         drr_parts = []
         for r in sessions[-3:]:
             drr_parts.append("cycle %d: %d%%" % (r.cycle, int(r.drr * 100)))
-        trend = compute_drr_trend(sessions)
+        trend    = compute_drr_trend(sessions)
         drr_line = (
             "DRR (" + trend.label() + "): " + ", ".join(drr_parts)
             if drr_parts else "DRR: no data"

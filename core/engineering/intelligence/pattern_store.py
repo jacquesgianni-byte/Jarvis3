@@ -1,31 +1,28 @@
 """
-Pattern Store — Genesis-045 Sprint-001 / Sprint-002 / Sprint-003
+Pattern Store — Genesis-045 Sprint-001 / Sprint-002 / Sprint-003 / Sprint-004
 
 Thin persistence adapter over KnowledgeEngine.
-Stores issue frequency, rejection history, session records, patterns,
-and proposal history across analysis cycles.
 
-Sprint-003 additions:
-  REJECTION_SIG_SUBJECT  — secondary index keyed by pattern_signature;
-                           stores the most-recent RejectionRecord for fast
-                           lookup without chained reads (Option B from review)
-  save_rejection_record  — updated to also write the sig-indexed entry
-  get_rejection_record_by_signature — new; primary suppression-check path
-  Legacy fallback        — get_rejection_cycle() retained for data written
-                           by Sprint-002; new path takes precedence
-
-Does NOT modify KnowledgeEngine architecture.
-Uses standard store_memory / recall_memory / update_memory API.
+Sprint-004 additions:
+  OUTCOME_SUBJECT      — ProposalOutcomeRecord keyed by proposal_id
+  PENDING_IMPL_SUBJECT — single pending-implementation entry; written at
+                         approve time, cleared when IMPLEMENTED is confirmed
+  save_outcome_record()
+  get_outcome_record(proposal_id)
+  save_pending_implementation(proposal_id, pattern_signature, approved_at_cycle)
+  get_pending_implementation()
+  clear_pending_implementation()
+  get_latest_outcome_for_pattern(pattern_signature)
 
 Subjects used:
-  "eng_pattern_freq"    — issue frequency by category+title key
-                          (also legacy rejection suppression key)
-  "eng_proposal"        — serialised ImprovementProposal state
-  "eng_session"         — SessionRecord per cycle
-  "eng_pattern"         — PatternRecord per signature
-  "eng_rejection"       — RejectionRecord keyed by proposal_id (audit trail)
-  "eng_rejection_sig"   — RejectionRecord keyed by pattern_signature
-                          (Sprint-003; most-recent rejection per pattern)
+  eng_pattern_freq    — issue frequency + legacy rejection suppression
+  eng_proposal        — active ImprovementProposal
+  eng_session         — SessionRecord per cycle
+  eng_pattern         — PatternRecord per signature
+  eng_rejection       — RejectionRecord keyed by proposal_id (audit trail)
+  eng_rejection_sig   — RejectionRecord keyed by pattern_signature (Sprint-003)
+  eng_outcome         — ProposalOutcomeRecord keyed by proposal_id (Sprint-004)
+  eng_pending_impl    — single pending-implementation entry (Sprint-004)
 """
 
 from __future__ import annotations
@@ -37,9 +34,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-FREQ_SUBJECT      = "eng_pattern_freq"
-PROPOSAL_SUBJECT  = "eng_proposal"
-CATEGORY          = "engineering"
+FREQ_SUBJECT        = "eng_pattern_freq"
+PROPOSAL_SUBJECT    = "eng_proposal"
+CATEGORY            = "engineering"
 
 
 class PatternStoreError(Exception):
@@ -51,33 +48,16 @@ class PatternStore:
     Persistence for engineering intelligence pattern data.
 
     Thin adapter over KnowledgeEngine. All reads/writes use
-    the standard KnowledgeEngine public API. Architecture unchanged.
-
-    Public API:
-        increment_frequency(category, title) -> int
-        get_frequency(category, title)       -> int
-        get_rejection_cycle(category, title) -> int  (0 = not rejected; legacy)
-        record_rejection(category, title, cycle, reason)  (legacy write)
-        save_rejection_record(record)        -> None  (Sprint-002+)
-        get_rejection_record_by_signature(signature) -> Optional[RejectionRecord]
-        save_proposal(proposal)
-        load_proposal()                      -> Optional[ImprovementProposal]
-        clear_proposal()
-        save_session_record(record)
-        get_session_records(n)               -> list
-        get_last_cycle()                     -> int
-        get_window_occurrences(sig, cycle, window) -> int
-        update_pattern(signature, ...)
-        get_active_patterns(window, min_occurrences) -> list
-        link_proposal_to_pattern(signature, proposal_id)
+    the standard KnowledgeEngine public API.
     """
 
-    # Sprint-002 subjects (class-level so subclasses can read them)
-    SESSION_SUBJECT    = "eng_session"
-    PATTERN_SUBJECT    = "eng_pattern"
-    REJECTION_SUBJECT  = "eng_rejection"
-    # Sprint-003: secondary index for signature-based lookup
+    SESSION_SUBJECT       = "eng_session"
+    PATTERN_SUBJECT       = "eng_pattern"
+    REJECTION_SUBJECT     = "eng_rejection"
     REJECTION_SIG_SUBJECT = "eng_rejection_sig"
+    # Sprint-004
+    OUTCOME_SUBJECT       = "eng_outcome"
+    PENDING_IMPL_SUBJECT  = "eng_pending_impl"
 
     def __init__(self, knowledge_engine) -> None:
         self._ke = knowledge_engine
@@ -87,11 +67,9 @@ class PatternStore:
     # ------------------------------------------------------------------
 
     def _freq_key(self, category: str, title: str) -> str:
-        """Stable key for a category+title pair."""
         return f"{category}:{title[:40]}"
 
     def increment_frequency(self, category: str, title: str) -> int:
-        """Increment the seen-count for this issue type. Returns new count."""
         key = self._freq_key(category, title)
         try:
             record = self._ke.recall_memory(FREQ_SUBJECT, key)
@@ -103,9 +81,9 @@ class PatternStore:
                 )
                 return 1
             else:
-                existing = json.loads(record.value)
+                existing  = json.loads(record.value)
                 new_count = existing.get("count", 0) + 1
-                data = {"count": new_count, "last_seen": datetime.now(UTC).isoformat()}
+                data      = {"count": new_count, "last_seen": datetime.now(UTC).isoformat()}
                 self._ke.update_memory(
                     subject=FREQ_SUBJECT, attribute=key,
                     value=json.dumps(data), source="system",
@@ -115,20 +93,17 @@ class PatternStore:
             raise PatternStoreError(f"increment_frequency failed: {e}") from e
 
     def get_frequency(self, category: str, title: str) -> int:
-        """Return the number of times this issue has been seen. 0 if never."""
         key = self._freq_key(category, title)
         try:
             record = self._ke.recall_memory(FREQ_SUBJECT, key)
             if record is None:
                 return 0
-            data = json.loads(record.value)
-            return data.get("count", 0)
+            return json.loads(record.value).get("count", 0)
         except Exception:
             return 0
 
     # ------------------------------------------------------------------
-    # Legacy rejection history (Sprint-001 / Sprint-002 path)
-    # Retained for backward-compatibility with data written before Sprint-003.
+    # Legacy rejection history
     # ------------------------------------------------------------------
 
     def _rejection_key(self, category: str, title: str) -> str:
@@ -137,18 +112,11 @@ class PatternStore:
     def record_rejection(
         self, category: str, title: str, cycle: int, reason: str = ""
     ) -> None:
-        """
-        Record that this issue type was rejected at the given cycle.
-
-        Legacy path — retained for backward-compatibility.
-        Sprint-003 callers also invoke save_rejection_record() for the
-        richer structured record.
-        """
-        key = self._rejection_key(category, title)
+        key  = self._rejection_key(category, title)
         data = {
             "rejected_at_cycle": cycle,
-            "reason": reason,
-            "recorded_at": datetime.now(UTC).isoformat(),
+            "reason":            reason,
+            "recorded_at":       datetime.now(UTC).isoformat(),
         }
         try:
             record = self._ke.recall_memory(FREQ_SUBJECT, key)
@@ -166,43 +134,22 @@ class PatternStore:
             raise PatternStoreError(f"record_rejection failed: {e}") from e
 
     def get_rejection_cycle(self, category: str, title: str) -> int:
-        """
-        Return the cycle number when this issue was last rejected (legacy).
-        Returns -1 if never rejected via the legacy path.
-
-        Sprint-003 selector uses get_rejection_record_by_signature() first
-        and falls back to this only when no structured RejectionRecord exists.
-        """
         key = self._rejection_key(category, title)
         try:
             record = self._ke.recall_memory(FREQ_SUBJECT, key)
             if record is None:
                 return -1
-            data = json.loads(record.value)
-            return data.get("rejected_at_cycle", 0)
+            return json.loads(record.value).get("rejected_at_cycle", 0)
         except Exception:
             return -1
 
     # ------------------------------------------------------------------
-    # Structured rejection records (Sprint-002+)
+    # Structured rejection records (Sprint-002/003)
     # ------------------------------------------------------------------
 
     def save_rejection_record(self, record) -> None:
-        """
-        Persist a RejectionRecord.
-
-        Sprint-003: writes two entries —
-          (a) audit trail keyed by proposal_id under REJECTION_SUBJECT
-          (b) signature index keyed by pattern_signature under
-              REJECTION_SIG_SUBJECT (most-recent rejection per pattern;
-              overwrites previous entry for the same signature)
-
-        The signature index (b) is what the selector reads at proposal
-        time for O(1) suppression lookup without chained reads.
-        """
         key_by_id  = record.proposal_id
         key_by_sig = record.pattern_signature
-
         data = {
             "proposal_id":              record.proposal_id,
             "pattern_signature":        record.pattern_signature,
@@ -210,15 +157,12 @@ class PatternStore:
             "reason_text":              record.reason_text,
             "cycle":                    record.cycle,
             "recorded_at":              record.recorded_at,
-            # Sprint-003 fields
             "components_at_rejection":  list(getattr(record, "components_at_rejection", [])),
             "suppression_cycles":       getattr(record, "suppression_cycles", 5),
             "recorded_genesis":         getattr(record, "recorded_genesis", ""),
         }
         serialised = json.dumps(data)
-
         try:
-            # (a) audit entry keyed by proposal_id
             existing = self._ke.recall_memory(self.REJECTION_SUBJECT, key_by_id)
             if existing is None:
                 self._ke.store_memory(
@@ -230,8 +174,6 @@ class PatternStore:
                     subject=self.REJECTION_SUBJECT,
                     attribute=key_by_id, value=serialised, source="system",
                 )
-
-            # (b) signature index — always overwrite with most recent rejection
             existing_sig = self._ke.recall_memory(self.REJECTION_SIG_SUBJECT, key_by_sig)
             if existing_sig is None:
                 self._ke.store_memory(
@@ -243,7 +185,6 @@ class PatternStore:
                     subject=self.REJECTION_SIG_SUBJECT,
                     attribute=key_by_sig, value=serialised, source="system",
                 )
-
             logger.info(
                 "[PATTERN_STORE] RejectionRecord saved: %s (%s) window=%d",
                 record.proposal_id, record.reason_code.value,
@@ -253,14 +194,6 @@ class PatternStore:
             raise PatternStoreError(f"save_rejection_record failed: {e}") from e
 
     def get_rejection_record_by_signature(self, signature: str):
-        """
-        Return the most-recent RejectionRecord for a pattern_signature.
-
-        Returns None if the pattern has never been rejected (Sprint-003 path)
-        or if no structured record exists (fall back to legacy path in selector).
-
-        This is the primary suppression-check path for Sprint-003.
-        """
         from core.engineering.intelligence.pattern_record import (
             RejectionRecord, RejectionReasonCode,
         )
@@ -292,7 +225,6 @@ class PatternStore:
     # ------------------------------------------------------------------
 
     def save_proposal(self, proposal) -> None:
-        """Persist the current proposal to KnowledgeEngine."""
         from core.engineering.intelligence.models import ProposalStatus
         try:
             data = {
@@ -345,7 +277,6 @@ class PatternStore:
             raise PatternStoreError(f"save_proposal failed: {e}") from e
 
     def load_proposal(self):
-        """Load the active proposal from KnowledgeEngine. None if none."""
         from core.engineering.intelligence.models import (
             Diagnosis, ImprovementProposal, Observation,
             ProposalStatus, Recommendation,
@@ -354,8 +285,8 @@ class PatternStore:
             record = self._ke.recall_memory(PROPOSAL_SUBJECT, "active")
             if record is None:
                 return None
-            data = json.loads(record.value)
-            status   = ProposalStatus[data["status"]]
+            data   = json.loads(record.value)
+            status = ProposalStatus[data["status"]]
             evidence = [
                 Observation(
                     category   = e["category"],
@@ -398,7 +329,6 @@ class PatternStore:
             return None
 
     def clear_proposal(self) -> None:
-        """Remove the active proposal from KnowledgeEngine."""
         try:
             self._ke.update_memory(
                 subject=PROPOSAL_SUBJECT, attribute="active",
@@ -406,18 +336,17 @@ class PatternStore:
             )
             logger.info("[PATTERN_STORE] Active proposal cleared.")
         except Exception:
-            pass  # No proposal to clear is not an error
+            pass
 
     # ------------------------------------------------------------------
-    # Genesis-045 Sprint-002: Session records, patterns
+    # Session records / patterns / links (Sprint-002)
     # ------------------------------------------------------------------
 
     def _session_key(self, cycle: int) -> str:
         return f"cycle-{cycle}"
 
     def save_session_record(self, record) -> None:
-        """Persist a SessionRecord for this analysis cycle."""
-        key = self._session_key(record.cycle)
+        key  = self._session_key(record.cycle)
         data = {
             "cycle":               record.cycle,
             "timestamp":           record.timestamp,
@@ -444,7 +373,6 @@ class PatternStore:
             raise PatternStoreError(f"save_session_record failed: {e}") from e
 
     def get_session_records(self, n: int = 10) -> list:
-        """Return last N SessionRecord objects, oldest first."""
         from core.engineering.intelligence.session_record import SessionRecord
         try:
             all_records = self._ke.list_memories(subject=self.SESSION_SUBJECT)
@@ -468,7 +396,6 @@ class PatternStore:
             return []
 
     def get_last_cycle(self) -> int:
-        """Return the highest persisted cycle number. 0 if none."""
         records = self.get_session_records(n=1000)
         if not records:
             return 0
@@ -477,7 +404,6 @@ class PatternStore:
     def get_window_occurrences(
         self, signature: str, current_cycle: int, window: int = 20
     ) -> int:
-        """Count how many of the last `window` cycles contained this signature."""
         records = self.get_session_records(n=window)
         cutoff  = current_cycle - window
         count   = 0
@@ -494,7 +420,6 @@ class PatternStore:
         self, signature: str, category: str,
         display_title: str, cycle: int, likely_files: list = None,
     ) -> None:
-        """Create or update a PatternRecord for this signature."""
         try:
             existing_rec = self._ke.recall_memory(self.PATTERN_SUBJECT, signature)
             if existing_rec is None:
@@ -529,7 +454,6 @@ class PatternStore:
             logger.warning("[PATTERN_STORE] update_pattern failed: %s", e)
 
     def get_active_patterns(self, window: int = 20, min_occurrences: int = 2) -> list:
-        """Return PatternRecords with window_occurrences >= min_occurrences."""
         from core.engineering.intelligence.pattern_record import PatternRecord
         current_cycle = self.get_last_cycle()
         try:
@@ -537,9 +461,9 @@ class PatternStore:
             result   = []
             for rec in all_recs:
                 try:
-                    d            = json.loads(rec.value)
-                    sig          = d["signature"]
-                    window_occ   = self.get_window_occurrences(sig, current_cycle, window)
+                    d          = json.loads(rec.value)
+                    sig        = d["signature"]
+                    window_occ = self.get_window_occurrences(sig, current_cycle, window)
                     if window_occ >= min_occurrences:
                         result.append(PatternRecord(
                             signature           = sig,
@@ -559,7 +483,6 @@ class PatternStore:
             return []
 
     def get_pattern(self, signature: str):
-        """Return the PatternRecord for this signature, or None."""
         from core.engineering.intelligence.pattern_record import PatternRecord
         try:
             rec = self._ke.recall_memory(self.PATTERN_SUBJECT, signature)
@@ -582,7 +505,6 @@ class PatternStore:
             return None
 
     def link_proposal_to_pattern(self, signature: str, proposal_id: str) -> None:
-        """Record that a proposal was generated from this pattern."""
         try:
             rec = self._ke.recall_memory(self.PATTERN_SUBJECT, signature)
             if rec is None:
@@ -598,3 +520,184 @@ class PatternStore:
                 )
         except Exception as e:
             logger.warning("[PATTERN_STORE] link_proposal_to_pattern failed: %s", e)
+
+    # ------------------------------------------------------------------
+    # Sprint-004: Outcome records
+    # ------------------------------------------------------------------
+
+    def save_outcome_record(self, record) -> None:
+        """
+        Persist a ProposalOutcomeRecord under OUTCOME_SUBJECT keyed by proposal_id.
+
+        Overwrites an existing record for the same proposal_id (update semantics).
+        The record tracks the chronology via approved_at_cycle, implemented_at_cycle,
+        and validated_at_cycle.
+        """
+        key  = record.proposal_id
+        data = {
+            "proposal_id":          record.proposal_id,
+            "pattern_signature":    record.pattern_signature,
+            "status":               record.status.value,
+            "approved_at_cycle":    record.approved_at_cycle,
+            "implemented_at_cycle": record.implemented_at_cycle,
+            "validated_at_cycle":   record.validated_at_cycle,
+            "tests_run":            record.tests_run,
+            "files_changed":        record.files_changed,
+            "snapshot_sha":         record.snapshot_sha,
+            "recorded_genesis":     record.recorded_genesis,
+        }
+        try:
+            existing = self._ke.recall_memory(self.OUTCOME_SUBJECT, key)
+            if existing is None:
+                self._ke.store_memory(
+                    subject=self.OUTCOME_SUBJECT, category=CATEGORY,
+                    attribute=key, value=json.dumps(data), source="system",
+                )
+            else:
+                self._ke.update_memory(
+                    subject=self.OUTCOME_SUBJECT,
+                    attribute=key, value=json.dumps(data), source="system",
+                )
+            logger.info(
+                "[PATTERN_STORE] OutcomeRecord saved: %s status=%s",
+                record.proposal_id, record.status.value,
+            )
+        except Exception as e:
+            raise PatternStoreError(f"save_outcome_record failed: {e}") from e
+
+    def get_outcome_record(self, proposal_id: str):
+        """
+        Load a ProposalOutcomeRecord by proposal_id.
+        Returns None if not found.
+        """
+        from core.engineering.intelligence.pattern_record import (
+            OutcomeStatus, ProposalOutcomeRecord,
+        )
+        try:
+            rec = self._ke.recall_memory(self.OUTCOME_SUBJECT, proposal_id)
+            if rec is None:
+                return None
+            d = json.loads(rec.value)
+            return ProposalOutcomeRecord(
+                proposal_id          = d["proposal_id"],
+                pattern_signature    = d["pattern_signature"],
+                status               = OutcomeStatus(d["status"]),
+                approved_at_cycle    = d["approved_at_cycle"],
+                implemented_at_cycle = d["implemented_at_cycle"],
+                validated_at_cycle   = d.get("validated_at_cycle"),
+                tests_run            = d.get("tests_run", 0),
+                files_changed        = d.get("files_changed", 0),
+                snapshot_sha         = d.get("snapshot_sha", ""),
+                recorded_genesis     = d.get("recorded_genesis", ""),
+            )
+        except Exception as e:
+            logger.warning(
+                "[PATTERN_STORE] get_outcome_record failed for %s: %s",
+                proposal_id, e,
+            )
+            return None
+
+    def get_latest_outcome_for_pattern(self, pattern_signature: str):
+        """
+        Return the most recent ProposalOutcomeRecord for a pattern_signature.
+        Scans all outcome records; returns the one with highest implemented_at_cycle.
+        Returns None if no outcomes exist for this pattern.
+        """
+        from core.engineering.intelligence.pattern_record import (
+            OutcomeStatus, ProposalOutcomeRecord,
+        )
+        try:
+            all_recs = self._ke.list_memories(subject=self.OUTCOME_SUBJECT)
+            best     = None
+            for rec in all_recs:
+                try:
+                    d = json.loads(rec.value)
+                    if d.get("pattern_signature") != pattern_signature:
+                        continue
+                    candidate = ProposalOutcomeRecord(
+                        proposal_id          = d["proposal_id"],
+                        pattern_signature    = d["pattern_signature"],
+                        status               = OutcomeStatus(d["status"]),
+                        approved_at_cycle    = d["approved_at_cycle"],
+                        implemented_at_cycle = d["implemented_at_cycle"],
+                        validated_at_cycle   = d.get("validated_at_cycle"),
+                        tests_run            = d.get("tests_run", 0),
+                        files_changed        = d.get("files_changed", 0),
+                        snapshot_sha         = d.get("snapshot_sha", ""),
+                        recorded_genesis     = d.get("recorded_genesis", ""),
+                    )
+                    if best is None or candidate.implemented_at_cycle > best.implemented_at_cycle:
+                        best = candidate
+                except Exception:
+                    pass
+            return best
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # Sprint-004: Pending implementation tracker
+    # ------------------------------------------------------------------
+
+    def save_pending_implementation(
+        self,
+        proposal_id:       str,
+        pattern_signature: str,
+        approved_at_cycle: int,
+    ) -> None:
+        """
+        Record that a proposal has been approved and is awaiting execution.
+
+        Written by approve_proposal(). Cleared when IMPLEMENTED is confirmed
+        in process_session(). Only one pending implementation at a time
+        (one proposal at a time is already enforced upstream).
+        """
+        data = {
+            "proposal_id":       proposal_id,
+            "pattern_signature": pattern_signature,
+            "approved_at_cycle": approved_at_cycle,
+            "recorded_at":       datetime.now(UTC).isoformat(),
+        }
+        try:
+            existing = self._ke.recall_memory(self.PENDING_IMPL_SUBJECT, "pending")
+            if existing is None:
+                self._ke.store_memory(
+                    subject=self.PENDING_IMPL_SUBJECT, category=CATEGORY,
+                    attribute="pending", value=json.dumps(data), source="system",
+                )
+            else:
+                self._ke.update_memory(
+                    subject=self.PENDING_IMPL_SUBJECT,
+                    attribute="pending", value=json.dumps(data), source="system",
+                )
+            logger.info(
+                "[PATTERN_STORE] Pending implementation saved: %s", proposal_id,
+            )
+        except Exception as e:
+            raise PatternStoreError(f"save_pending_implementation failed: {e}") from e
+
+    def get_pending_implementation(self) -> Optional[dict]:
+        """
+        Return the pending implementation entry, or None if none exists.
+        Returns a dict with keys: proposal_id, pattern_signature, approved_at_cycle.
+        """
+        try:
+            rec = self._ke.recall_memory(self.PENDING_IMPL_SUBJECT, "pending")
+            if rec is None:
+                return None
+            d = json.loads(rec.value)
+            if not d.get("proposal_id"):
+                return None
+            return d
+        except Exception:
+            return None
+
+    def clear_pending_implementation(self) -> None:
+        """Clear the pending implementation entry after IMPLEMENTED is confirmed."""
+        try:
+            self._ke.update_memory(
+                subject=self.PENDING_IMPL_SUBJECT,
+                attribute="pending", value=json.dumps({}), source="system",
+            )
+            logger.info("[PATTERN_STORE] Pending implementation cleared.")
+        except Exception:
+            pass
