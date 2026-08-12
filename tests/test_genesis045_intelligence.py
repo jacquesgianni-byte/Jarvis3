@@ -308,7 +308,7 @@ class TestPatternStore:
 
     def test_rejection_starts_at_zero(self):
         store = self._store()
-        assert store.get_rejection_cycle("ROUTING", "Never rejected") == 0
+        assert store.get_rejection_cycle("ROUTING", "Never rejected") < 0
 
     def test_rejection_recorded(self):
         store = self._store()

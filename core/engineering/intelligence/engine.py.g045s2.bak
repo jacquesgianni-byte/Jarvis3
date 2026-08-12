@@ -61,8 +61,7 @@ class EngineeringIntelligenceEngine:
         from core.engineering.intelligence.selector import ImprovementSelector
         self._pattern_store = PatternStore(knowledge_engine)
         self._selector      = ImprovementSelector()
-        # Genesis-045 Sprint-002: resume from last persisted cycle
-        self._cycle_count   = self._pattern_store.get_last_cycle()
+        self._cycle_count   = 0
 
     # ------------------------------------------------------------------
     # Main loop entry point
@@ -102,70 +101,6 @@ class EngineeringIntelligenceEngine:
             cat   = issue.category.value if hasattr(issue.category, "value") else str(issue.category)
             self._pattern_store.increment_frequency(cat, issue.title)
 
-        # Step 2b: Build SessionRecord and update PatternRecords (Sprint-002)
-        from core.engineering.intelligence.session_record import (
-            SessionRecord as _SessionRecord, compute_drr_trend as _compute_drr
-        )
-        from core.engineering.intelligence.pattern_record import PatternRecord as _PR
-        import datetime as _dt
-
-        _total = _det = _ai = _err = 0
-        for _ln in log_lines:
-            if "[TURN_TYPE] type=" not in _ln:
-                continue
-            if any(x in _ln for x in (
-                "INTENTIONAL", "SYSTEM_CMD", "EMPTY_INPUT", "INTERRUPTED"
-            )):
-                continue
-            _total += 1
-            if "CONVERSATION_AI" in _ln:
-                _ai += 1
-            elif "CONVERSATION_ERROR" in _ln:
-                _err += 1
-            elif "TOOL_EXTERNAL" not in _ln:
-                _det += 1
-
-        _issues_found = []
-        for _iss in report.issues:
-            _c = _iss.category.value if hasattr(_iss.category, "value") else str(_iss.category)
-            _sig = _PR.normalise_signature(_c, _iss.title)
-            _issues_found.append({"signature": _sig, "category": _c,
-                                   "confidence": _iss.confidence})
-
-        _sess_rec = _SessionRecord(
-            cycle=self._cycle_count,
-            timestamp=_dt.datetime.now(_dt.timezone.utc).isoformat(),
-            total_turns=_total,
-            deterministic_turns=_det,
-            ai_called_turns=_ai,
-            error_turns=_err,
-            issues_found=_issues_found,
-        )
-        try:
-            self._pattern_store.save_session_record(_sess_rec)
-        except Exception as _se:
-            logger.warning("[INTEL_ENGINE] SessionRecord save failed: %s", _se)
-
-        _all_sess = self._pattern_store.get_session_records(n=10)
-        _drr_trend = _compute_drr(_all_sess)
-        logger.info("[INTEL_ENGINE] DRR=%.2f trend=%s", _sess_rec.drr, _drr_trend.value)
-
-        for _iss2 in _issues_found:
-            _lf2 = []
-            for _orig2 in report.issues:
-                _c2 = (_orig2.category.value
-                       if hasattr(_orig2.category, "value") else str(_orig2.category))
-                if _PR.normalise_signature(_c2, _orig2.title) == _iss2["signature"]:
-                    _lf2 = _orig2.likely_files or []
-                    break
-            self._pattern_store.update_pattern(
-                signature=_iss2["signature"],
-                category=_iss2["category"],
-                display_title=_iss2["signature"].split(":", 1)[-1],
-                cycle=self._cycle_count,
-                likely_files=_lf2,
-            )
-
         # Step 3: Check existing proposal staleness
         existing = self._pattern_store.load_proposal()
         if existing is not None and existing.is_pending():
@@ -204,15 +139,10 @@ class EngineeringIntelligenceEngine:
             self._pattern_store,
             current_cycle=self._cycle_count,
             cfr_register=_OPEN_CFRS,
-            drr_trend=_drr_trend,
         )
 
         if proposal is not None:
             self._pattern_store.save_proposal(proposal)
-            if proposal.pattern_signature:
-                self._pattern_store.link_proposal_to_pattern(
-                    proposal.pattern_signature, proposal.proposal_id
-                )
             logger.info("[INTEL_ENGINE] New proposal saved: %s", proposal.proposal_id)
 
         return proposal
@@ -278,25 +208,6 @@ class EngineeringIntelligenceEngine:
             rejection_reason = reason,
         )
         self._pattern_store.save_proposal(updated)
-        try:
-            from core.engineering.intelligence.pattern_record import (
-                RejectionRecord as _RR, RejectionReasonCode as _RC
-            )
-            _parts = reason.strip().split(None, 1) if reason.strip() else []
-            _code = _RC.from_string(_parts[0]) if _parts else _RC.OTHER
-            _rtext = _parts[1] if len(_parts) > 1 else ""
-            _rej = _RR(
-                proposal_id=proposal.proposal_id,
-                pattern_signature=proposal.pattern_signature,
-                reason_code=_code,
-                reason_text=_rtext,
-                cycle=self._cycle_count,
-            )
-            self._pattern_store.save_rejection_record(_rej)
-        except Exception as _re:
-            logger.warning("[INTEL_ENGINE] RejectionRecord save failed: %s", _re)
-        # Also record in legacy suppression store so ImprovementSelector works
-        self._pattern_store.record_rejection(cat, title, self._cycle_count, reason)
         logger.info("[INTEL_ENGINE] Proposal REJECTED: %s reason=%r", proposal.proposal_id, reason)
         return (
             f"Proposal {proposal.proposal_id} rejected. "
@@ -321,21 +232,10 @@ class EngineeringIntelligenceEngine:
     # ------------------------------------------------------------------
 
     def status_summary(self) -> str:
-        """Return status with DRR history and pending proposal."""
-        from core.engineering.intelligence.session_record import compute_drr_trend
+        """Return a one-line status string for display."""
         proposal = self.get_pending_proposal()
-        sessions = self._pattern_store.get_session_records(n=6)
-        drr_parts = []
-        for r in sessions[-3:]:
-            drr_parts.append("cycle %d: %d%%" % (r.cycle, int(r.drr * 100)))
-        trend = compute_drr_trend(sessions)
-        if drr_parts:
-            drr_line = "DRR (" + trend.label() + "): " + ", ".join(drr_parts)
-        else:
-            drr_line = "DRR: no data"
         if proposal is None:
-            return ("Engineering Intelligence: cycle %d — no pending proposal. %s"
-                    % (self._cycle_count, drr_line))
+            return f"Engineering Intelligence: cycle {self._cycle_count} — no pending proposal."
         from core.engineering.intelligence.models import ProposalStatus
         if proposal.status == ProposalStatus.STALE:
             return (
