@@ -1,5 +1,5 @@
 """
-Engineering Intelligence Engine — Genesis-045 Sprint-001
+Engineering Intelligence Engine — Genesis-045 Sprint-001 / Sprint-002 / Sprint-003
 
 Orchestrates the observation → analysis → proposal loop.
 
@@ -10,10 +10,16 @@ Pipeline:
   1. Drain SessionLogBuffer → log lines
   2. SessionAnalysisWorker.analyse_session(lines) → EngineeringReport
   3. Increment PatternStore frequency for all found issues
-  4. Load existing proposal — if PENDING, check staleness
-  5. ImprovementSelector.select() → ImprovementProposal | None
-  6. Save proposal to PatternStore
-  7. Return proposal (or None)
+  4. Build SessionRecord, update PatternRecords (Sprint-002)
+  5. Load existing proposal — if PENDING, check staleness
+  6. ImprovementSelector.select() → ImprovementProposal | None
+  7. Save proposal to PatternStore
+  8. Return proposal (or None)
+
+Sprint-003 additions to reject_proposal():
+  - Load PatternRecord at rejection time; snapshot affected_components
+  - Compute suppression_cycles from RejectionReasonCode via SUPPRESSION_BY_REASON
+  - Store both in RejectionRecord (self-describing audit trail)
 
 Does NOT call AI. Does NOT modify source code.
 Does NOT create proposals autonomously — only surfaces them.
@@ -33,7 +39,6 @@ DEFAULT_CYCLE_TURNS: int = 10
 STALE_EXPIRY_CYCLES: int = 3
 
 # Open CFR entries for cross-reference (read-only, updated manually)
-# Maps CFR code → brief description for matching
 _OPEN_CFRS: dict[str, str] = {
     "CFR-001": "memory stale data KnowledgeEngine",
     "CFR-002": "entity resolution stale property",
@@ -61,7 +66,6 @@ class EngineeringIntelligenceEngine:
         from core.engineering.intelligence.selector import ImprovementSelector
         self._pattern_store = PatternStore(knowledge_engine)
         self._selector      = ImprovementSelector()
-        # Genesis-045 Sprint-002: resume from last persisted cycle
         self._cycle_count   = self._pattern_store.get_last_cycle()
 
     # ------------------------------------------------------------------
@@ -82,8 +86,10 @@ class EngineeringIntelligenceEngine:
         from core.engineering.intelligence.models import ProposalStatus
 
         self._cycle_count += 1
-        logger.info("[INTEL_ENGINE] Analysis cycle %d starting (%d lines).",
-                    self._cycle_count, len(log_lines))
+        logger.info(
+            "[INTEL_ENGINE] Analysis cycle %d starting (%d lines).",
+            self._cycle_count, len(log_lines),
+        )
 
         if not log_lines:
             logger.info("[INTEL_ENGINE] No log lines — skipping cycle.")
@@ -99,12 +105,12 @@ class EngineeringIntelligenceEngine:
 
         # Step 2: Increment frequency for all found issues
         for issue in report.issues:
-            cat   = issue.category.value if hasattr(issue.category, "value") else str(issue.category)
+            cat = issue.category.value if hasattr(issue.category, "value") else str(issue.category)
             self._pattern_store.increment_frequency(cat, issue.title)
 
         # Step 2b: Build SessionRecord and update PatternRecords (Sprint-002)
         from core.engineering.intelligence.session_record import (
-            SessionRecord as _SessionRecord, compute_drr_trend as _compute_drr
+            SessionRecord as _SessionRecord, compute_drr_trend as _compute_drr,
         )
         from core.engineering.intelligence.pattern_record import PatternRecord as _PR
         import datetime as _dt
@@ -113,9 +119,7 @@ class EngineeringIntelligenceEngine:
         for _ln in log_lines:
             if "[TURN_TYPE] type=" not in _ln:
                 continue
-            if any(x in _ln for x in (
-                "INTENTIONAL", "SYSTEM_CMD", "EMPTY_INPUT", "INTERRUPTED"
-            )):
+            if any(x in _ln for x in ("INTENTIONAL", "SYSTEM_CMD", "EMPTY_INPUT", "INTERRUPTED")):
                 continue
             _total += 1
             if "CONVERSATION_AI" in _ln:
@@ -127,10 +131,9 @@ class EngineeringIntelligenceEngine:
 
         _issues_found = []
         for _iss in report.issues:
-            _c = _iss.category.value if hasattr(_iss.category, "value") else str(_iss.category)
+            _c   = _iss.category.value if hasattr(_iss.category, "value") else str(_iss.category)
             _sig = _PR.normalise_signature(_c, _iss.title)
-            _issues_found.append({"signature": _sig, "category": _c,
-                                   "confidence": _iss.confidence})
+            _issues_found.append({"signature": _sig, "category": _c, "confidence": _iss.confidence})
 
         _sess_rec = _SessionRecord(
             cycle=self._cycle_count,
@@ -146,15 +149,14 @@ class EngineeringIntelligenceEngine:
         except Exception as _se:
             logger.warning("[INTEL_ENGINE] SessionRecord save failed: %s", _se)
 
-        _all_sess = self._pattern_store.get_session_records(n=10)
+        _all_sess  = self._pattern_store.get_session_records(n=10)
         _drr_trend = _compute_drr(_all_sess)
         logger.info("[INTEL_ENGINE] DRR=%.2f trend=%s", _sess_rec.drr, _drr_trend.value)
 
         for _iss2 in _issues_found:
             _lf2 = []
             for _orig2 in report.issues:
-                _c2 = (_orig2.category.value
-                       if hasattr(_orig2.category, "value") else str(_orig2.category))
+                _c2 = _orig2.category.value if hasattr(_orig2.category, "value") else str(_orig2.category)
                 if _PR.normalise_signature(_c2, _orig2.title) == _iss2["signature"]:
                     _lf2 = _orig2.likely_files or []
                     break
@@ -169,22 +171,19 @@ class EngineeringIntelligenceEngine:
         # Step 3: Check existing proposal staleness
         existing = self._pattern_store.load_proposal()
         if existing is not None and existing.is_pending():
-            # Check if the issue is still present
-            issue_titles = {i.title for i in report.issues}
+            issue_titles   = {i.title for i in report.issues}
             proposal_title = existing.evidence[0].title if existing.evidence else ""
             if proposal_title not in issue_titles:
-                # Issue not reproduced — mark STALE
                 new_stale = existing.stale_cycles + 1
+                import dataclasses
                 if new_stale >= STALE_EXPIRY_CYCLES:
-                    import dataclasses
                     updated = dataclasses.replace(
-                        existing, status=ProposalStatus.EXPIRED, stale_cycles=new_stale
+                        existing, status=ProposalStatus.EXPIRED, stale_cycles=new_stale,
                     )
                     logger.info("[INTEL_ENGINE] Proposal EXPIRED after %d stale cycles.", new_stale)
                 else:
-                    import dataclasses
                     updated = dataclasses.replace(
-                        existing, status=ProposalStatus.STALE, stale_cycles=new_stale
+                        existing, status=ProposalStatus.STALE, stale_cycles=new_stale,
                     )
                     logger.info(
                         "[INTEL_ENGINE] Proposal marked STALE (cycle %d/%d).",
@@ -197,7 +196,7 @@ class EngineeringIntelligenceEngine:
 
         # Step 4: If no pending proposal, try to select one
         if existing is not None and existing.is_pending():
-            return None  # already handled above
+            return None
 
         proposal = self._selector.select(
             report,
@@ -211,7 +210,7 @@ class EngineeringIntelligenceEngine:
             self._pattern_store.save_proposal(proposal)
             if proposal.pattern_signature:
                 self._pattern_store.link_proposal_to_pattern(
-                    proposal.pattern_signature, proposal.proposal_id
+                    proposal.pattern_signature, proposal.proposal_id,
                 )
             logger.info("[INTEL_ENGINE] New proposal saved: %s", proposal.proposal_id)
 
@@ -236,7 +235,21 @@ class EngineeringIntelligenceEngine:
     # ------------------------------------------------------------------
 
     def approve_proposal(self) -> str:
-        """Mark pending proposal as APPROVED. Returns response string."""
+        """
+        Mark pending proposal as APPROVED. Returns response string.
+
+        APPROVED means: the human authorised this proposal to proceed to
+        the collaboration pipeline.
+
+        It does NOT mean:
+          - the diagnosis was correct
+          - the recommendation will work
+          - the problem is solved
+
+        The pattern continues to be observed. The evidence continues to
+        accumulate. The selector may produce a new proposal for the same
+        pattern in future cycles if the issue recurs.
+        """
         import dataclasses
         from core.engineering.intelligence.models import ProposalStatus
         from datetime import UTC, datetime
@@ -258,19 +271,73 @@ class EngineeringIntelligenceEngine:
         )
 
     def reject_proposal(self, reason: str = "") -> str:
-        """Mark pending proposal as REJECTED. Suppresses for N cycles."""
+        """
+        Mark pending proposal as REJECTED.
+
+        Sprint-003:
+          1. Parse RejectionReasonCode from the reason string first word.
+          2. Snapshot PatternRecord.affected_components at this moment.
+          3. Compute suppression_cycles from the reason code.
+          4. Save RejectionRecord with snapshot + computed window.
+          5. Also write the legacy suppression key (backward-compat).
+
+        The pattern evidence is NOT modified. Recurrence of the same issue
+        will continue to increment frequency, but will not override the
+        suppression window unless evidence novelty is detected (new component).
+        Frequency growth alone does not bypass a human rejection decision.
+        """
         import dataclasses
         from core.engineering.intelligence.models import ProposalStatus
+        from core.engineering.intelligence.pattern_record import (
+            RejectionRecord, RejectionReasonCode,
+        )
+        from core.engineering.intelligence.selector import get_suppression_cycles
         from datetime import UTC, datetime
 
         proposal = self._pattern_store.load_proposal()
         if proposal is None or not proposal.is_pending():
             return "No pending proposal to reject."
 
+        # Parse reason code
+        _parts     = reason.strip().split(None, 1) if reason.strip() else []
+        _code      = RejectionReasonCode.from_string(_parts[0]) if _parts else RejectionReasonCode.OTHER
+        _rtext     = _parts[1] if len(_parts) > 1 else ""
+
+        # Compute suppression window for this reason code
+        _window    = get_suppression_cycles(_code)
+
+        # Snapshot affected_components from PatternRecord at rejection time
+        _components_snapshot: list = []
+        if proposal.pattern_signature:
+            _pat = self._pattern_store.get_pattern(proposal.pattern_signature)
+            if _pat is not None:
+                _components_snapshot = list(_pat.affected_components)
+
+        # Build and save structured RejectionRecord (Sprint-003 path)
+        _rej = RejectionRecord(
+            proposal_id             = proposal.proposal_id,
+            pattern_signature       = proposal.pattern_signature,
+            reason_code             = _code,
+            reason_text             = _rtext,
+            cycle                   = self._cycle_count,
+            components_at_rejection = _components_snapshot,
+            suppression_cycles      = _window,
+            recorded_genesis        = "Genesis-045",
+        )
+        try:
+            self._pattern_store.save_rejection_record(_rej)
+        except Exception as _re:
+            logger.warning("[INTEL_ENGINE] RejectionRecord save failed: %s", _re)
+
+        # Legacy suppression key (backward-compat for Sprint-002 selector path)
         cat   = proposal.evidence[0].category if proposal.evidence else ""
         title = proposal.evidence[0].title    if proposal.evidence else ""
-        self._pattern_store.record_rejection(cat, title, self._cycle_count, reason)
+        try:
+            self._pattern_store.record_rejection(cat, title, self._cycle_count, reason)
+        except Exception as _le:
+            logger.warning("[INTEL_ENGINE] Legacy rejection record failed: %s", _le)
 
+        # Update proposal status
         updated = dataclasses.replace(
             proposal,
             status           = ProposalStatus.REJECTED,
@@ -278,34 +345,25 @@ class EngineeringIntelligenceEngine:
             rejection_reason = reason,
         )
         self._pattern_store.save_proposal(updated)
-        try:
-            from core.engineering.intelligence.pattern_record import (
-                RejectionRecord as _RR, RejectionReasonCode as _RC
-            )
-            _parts = reason.strip().split(None, 1) if reason.strip() else []
-            _code = _RC.from_string(_parts[0]) if _parts else _RC.OTHER
-            _rtext = _parts[1] if len(_parts) > 1 else ""
-            _rej = _RR(
-                proposal_id=proposal.proposal_id,
-                pattern_signature=proposal.pattern_signature,
-                reason_code=_code,
-                reason_text=_rtext,
-                cycle=self._cycle_count,
-            )
-            self._pattern_store.save_rejection_record(_rej)
-        except Exception as _re:
-            logger.warning("[INTEL_ENGINE] RejectionRecord save failed: %s", _re)
-        # Also record in legacy suppression store so ImprovementSelector works
-        self._pattern_store.record_rejection(cat, title, self._cycle_count, reason)
-        logger.info("[INTEL_ENGINE] Proposal REJECTED: %s reason=%r", proposal.proposal_id, reason)
+        logger.info(
+            "[INTEL_ENGINE] Proposal REJECTED: %s reason=%r window=%d",
+            proposal.proposal_id, reason, _window,
+        )
         return (
             f"Proposal {proposal.proposal_id} rejected. "
-            f"This finding will be suppressed for {5} analysis cycles."
-            + (f" Reason recorded: {reason}" if reason else "")
+            f"This pattern will be suppressed for {_window} analysis cycles. "
+            f"Reason: {_code.label()}."
+            + (f" Notes: {_rtext}" if _rtext else "")
         )
 
     def defer_proposal(self) -> str:
-        """Keep proposal PENDING. Deferred means no change."""
+        """
+        Keep proposal PENDING. Deferred means no change.
+
+        DEFERRED semantics: the human chose not to decide yet.
+        The proposal remains visible. No suppression occurs.
+        The pattern continues to be observed normally.
+        """
         proposal = self._pattern_store.load_proposal()
         if proposal is None or not proposal.is_pending():
             return "No pending proposal to defer."
@@ -329,13 +387,15 @@ class EngineeringIntelligenceEngine:
         for r in sessions[-3:]:
             drr_parts.append("cycle %d: %d%%" % (r.cycle, int(r.drr * 100)))
         trend = compute_drr_trend(sessions)
-        if drr_parts:
-            drr_line = "DRR (" + trend.label() + "): " + ", ".join(drr_parts)
-        else:
-            drr_line = "DRR: no data"
+        drr_line = (
+            "DRR (" + trend.label() + "): " + ", ".join(drr_parts)
+            if drr_parts else "DRR: no data"
+        )
         if proposal is None:
-            return ("Engineering Intelligence: cycle %d — no pending proposal. %s"
-                    % (self._cycle_count, drr_line))
+            return (
+                "Engineering Intelligence: cycle %d — no pending proposal. %s"
+                % (self._cycle_count, drr_line)
+            )
         from core.engineering.intelligence.models import ProposalStatus
         if proposal.status == ProposalStatus.STALE:
             return (
