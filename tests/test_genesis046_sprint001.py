@@ -54,6 +54,11 @@ class _StubManager:
     def workers(self):
         return self._registry.workers()
 
+    def workers_for(self, capability: str):
+        """Required by Sprint-002 PluginLoader for capability conflict detection."""
+        return [w for w in self._registry.workers()
+                if capability in getattr(w, "capabilities", [])]
+
 
 # ---------------------------------------------------------------------------
 # Helpers

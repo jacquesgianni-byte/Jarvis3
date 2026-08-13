@@ -1,5 +1,9 @@
 """
-HelloWorker — Genesis-046 proof-of-concept plugin worker.
+HelloWorker — Genesis-046 Sprint-002 proof-of-concept plugin worker.
+
+Sprint-002: accepts config dict from PluginLoader.
+Plugin is responsible for interpreting config keys.
+Jarvis Core never inspects HelloWorker-specific config.
 """
 
 from __future__ import annotations
@@ -10,6 +14,13 @@ from core.workers.models import WorkerTask, WorkerResult
 
 class HelloWorker(Worker):
     """Proof-of-concept plugin worker. Says hello."""
+
+    def __init__(self, config: dict | None = None) -> None:
+        super().__init__()
+        # Plugin owns config interpretation entirely.
+        # Example: greeting can be overridden via config.json.
+        cfg = config or {}
+        self._greeting: str = cfg.get("greeting", "Hello from HelloWorker!")
 
     @property
     def name(self) -> str:
@@ -34,7 +45,9 @@ class HelloWorker(Worker):
             task_id=task.task_id,
             worker_name=self.name,
             success=True,
-            observations=(f"Hello from HelloWorker! Instruction received: '{instruction}'",),
+            observations=(
+                f"{self._greeting} Instruction received: '{instruction}'",
+            ),
             requires_approval=True,
         )
         return self._succeed(result)

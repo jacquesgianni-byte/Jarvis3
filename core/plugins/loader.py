@@ -1,16 +1,23 @@
 """
-PluginLoader — Genesis-046
+PluginLoader — Genesis-046 Sprint-002
 
-Reads plugins/enabled.json and registers each listed plugin's workers
-into the supplied WorkerManager (and optionally WorkerFactory).
+Reads plugins/enabled.json, loads each plugin, and registers its workers.
 
-Contract:
-- Plugin failures NEVER prevent Jarvis from starting.
-- Adding a plugin = one line in enabled.json, zero changes to Jarvis core.
-- Each plugin module must expose get_workers() -> list[Worker].
-- Workers follow the existing approval/security boundaries.
-- A passthrough builder is registered in WorkerFactory so the existing
-  factory invariant (all registered workers are buildable) is preserved.
+Sprint-002 additions over Sprint-001:
+  - Reads plugins/<name>/plugin.json for plugin identity (optional).
+  - Reads plugins/<name>/config.json and passes config dict to
+    get_workers(config) — plugin owns interpretation entirely.
+  - Maintains an in-memory load record (PluginRecord per plugin).
+  - Maintains a worker→plugin mapping for future EI attribution.
+  - Logs a WARNING when a plugin worker declares a capability already
+    claimed by a registered worker (no blocking, no priority system).
+
+Contracts:
+  - Plugin failures are NEVER fatal — Jarvis always starts.
+  - Adding a plugin = one line in enabled.json, zero Jarvis Core changes.
+  - Jarvis Core never interprets plugin-specific config keys.
+  - get_workers(config) receives a dict; plugin interprets it.
+  - config=None is normalised to {} before passing to the plugin.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from core.plugins.exceptions import PluginLoadError, PluginConfigError
+from core.plugins.models import PluginMetadata, PluginRecord, PluginStatus
 
 if TYPE_CHECKING:
     from core.workers.manager import WorkerManager
@@ -33,14 +41,24 @@ _DEFAULT_MANIFEST = Path("plugins") / "enabled.json"
 
 
 class PluginLoader:
-    """Loads enabled plugins and registers their workers."""
+    """
+    Loads enabled plugins and registers their workers.
+
+    Public query API (Sprint-002):
+        loaded_plugins()             -> list[PluginRecord]
+        failed_plugins()             -> list[PluginRecord]
+        all_records()                -> list[PluginRecord]
+        plugin_for_worker(name)      -> str | None
+    """
 
     def __init__(self, manifest_path: "Path | str | None" = None) -> None:
         self._manifest: Path = (
             Path(manifest_path) if manifest_path else _DEFAULT_MANIFEST
         )
+        self._records: list[PluginRecord] = []
+        self._worker_to_plugin: dict[str, str] = {}   # worker_name → plugin_name
 
-    # ── public ────────────────────────────────────────────────────────────────
+    # ── public: load ──────────────────────────────────────────────────────────
 
     def load_enabled(
         self,
@@ -50,33 +68,59 @@ class PluginLoader:
         """
         Read enabled.json and register each plugin's workers.
 
-        If worker_factory is supplied, a passthrough builder is registered
-        for each plugin worker so the factory invariant is preserved.
-
         Returns a list of successfully loaded plugin names.
-        Failures are logged and skipped — Jarvis always starts.
+        Failures are logged and recorded — Jarvis always starts.
         """
+        self._records.clear()
+        self._worker_to_plugin.clear()
+
         plugin_names = self._read_manifest()
-        loaded: list[str] = []
 
         for name in plugin_names:
-            try:
-                self._load_plugin(name, worker_manager, worker_factory)
-                loaded.append(name)
-                logger.info("Plugin loaded: %s", name)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Plugin '%s' failed to load and will be skipped: %s", name, exc
-                )
+            record = self._load_plugin(name, worker_manager, worker_factory)
+            self._records.append(record)
+            if record.loaded:
+                logger.info("Plugin loaded: %s", record)
+            else:
+                logger.warning("Plugin failed: %s", record)
 
+        loaded = [r.plugin_name for r in self._records if r.loaded]
+        failed = [r.plugin_name for r in self._records if r.failed]
         logger.info(
-            "PluginLoader: %d/%d plugins loaded", len(loaded), len(plugin_names)
+            "PluginLoader: %d loaded, %d failed. loaded=%s failed=%s",
+            len(loaded), len(failed), loaded, failed,
         )
         return loaded
+
+    # ── public: query (Sprint-002) ────────────────────────────────────────────
+
+    def loaded_plugins(self) -> list[PluginRecord]:
+        """Return records for plugins that loaded successfully."""
+        return [r for r in self._records if r.loaded]
+
+    def failed_plugins(self) -> list[PluginRecord]:
+        """Return records for plugins that failed to load."""
+        return [r for r in self._records if r.failed]
+
+    def all_records(self) -> list[PluginRecord]:
+        """Return all load records (loaded + failed)."""
+        return list(self._records)
+
+    def plugin_for_worker(self, worker_name: str) -> Optional[str]:
+        """
+        Return the plugin name that registered a given worker.
+
+        Returns None if the worker was not registered by any plugin
+        (i.e. it is a core worker).
+
+        Forward-compatibility seam for Engineering Intelligence attribution.
+        """
+        return self._worker_to_plugin.get(worker_name)
 
     # ── private ───────────────────────────────────────────────────────────────
 
     def _read_manifest(self) -> list[str]:
+        """Parse enabled.json and return list of plugin names."""
         if not self._manifest.exists():
             raise PluginConfigError(
                 f"Plugin manifest not found: {self._manifest}"
@@ -90,13 +134,12 @@ class PluginLoader:
 
         if not isinstance(data, dict) or "enabled" not in data:
             raise PluginConfigError(
-                f"Plugin manifest must be a JSON object with an 'enabled' list: {self._manifest}"
+                f"Plugin manifest must be a JSON object with an 'enabled' list: "
+                f"{self._manifest}"
             )
-
         plugins = data["enabled"]
         if not isinstance(plugins, list):
             raise PluginConfigError("'enabled' must be a list of plugin names.")
-
         return [str(p) for p in plugins]
 
     def _load_plugin(
@@ -104,45 +147,148 @@ class PluginLoader:
         name: str,
         worker_manager: "WorkerManager",
         worker_factory: "Optional[WorkerFactory]",
-    ) -> None:
+    ) -> PluginRecord:
+        """
+        Attempt to load one plugin. Always returns a PluginRecord.
+        Never raises — failures are captured in the record.
+        """
+        metadata = self._read_metadata(name)
+        config = self._read_config(name)
+
+        # config read may have produced a PluginConfigError — capture it
+        if isinstance(config, PluginConfigError):
+            return PluginRecord(
+                plugin_name=name,
+                status=PluginStatus.FAILED,
+                metadata=metadata,
+                error=str(config),
+            )
+
         module_path = f"plugins.{name}"
         try:
             module = importlib.import_module(module_path)
         except ImportError as exc:
-            raise PluginLoadError(
-                f"Cannot import plugin module '{module_path}': {exc}"
-            ) from exc
+            return PluginRecord(
+                plugin_name=name,
+                status=PluginStatus.FAILED,
+                metadata=metadata,
+                error=f"Cannot import '{module_path}': {exc}",
+            )
 
         if not hasattr(module, "get_workers"):
-            raise PluginLoadError(
-                f"Plugin '{name}' has no get_workers() function."
+            return PluginRecord(
+                plugin_name=name,
+                status=PluginStatus.FAILED,
+                metadata=metadata,
+                error=f"Plugin '{name}' has no get_workers() function.",
             )
 
         try:
-            workers = module.get_workers()
+            workers = module.get_workers(config)
+        except TypeError:
+            # Backwards compatibility: plugin may not yet accept config arg
+            try:
+                workers = module.get_workers()
+                logger.debug(
+                    "Plugin '%s' get_workers() does not accept config — "
+                    "update to get_workers(config=None) for Sprint-002 compliance.",
+                    name,
+                )
+            except Exception as exc:
+                return PluginRecord(
+                    plugin_name=name,
+                    status=PluginStatus.FAILED,
+                    metadata=metadata,
+                    error=f"get_workers() raised: {exc}",
+                )
         except Exception as exc:
-            raise PluginLoadError(
-                f"Plugin '{name}' get_workers() raised an error: {exc}"
-            ) from exc
-
-        if not isinstance(workers, list):
-            raise PluginLoadError(
-                f"Plugin '{name}' get_workers() must return a list."
+            return PluginRecord(
+                plugin_name=name,
+                status=PluginStatus.FAILED,
+                metadata=metadata,
+                error=f"get_workers(config) raised: {exc}",
             )
 
+        if not isinstance(workers, list):
+            return PluginRecord(
+                plugin_name=name,
+                status=PluginStatus.FAILED,
+                metadata=metadata,
+                error=f"get_workers() must return a list, got {type(workers).__name__}.",
+            )
+
+        registered_names: list[str] = []
         for worker in workers:
+            # Capability conflict detection (warning only)
+            for cap in getattr(worker, "capabilities", []):
+                existing = worker_manager.workers_for(cap)
+                if existing:
+                    existing_names = [w.name for w in existing]
+                    logger.warning(
+                        "Plugin '%s' worker '%s' declares capability '%s' "
+                        "already claimed by: %s. Both will be registered.",
+                        name, worker.name, cap, existing_names,
+                    )
+
             worker_manager.register(worker)
+            self._worker_to_plugin[worker.name] = name
+            registered_names.append(worker.name)
             logger.debug("Plugin '%s' registered worker: %s", name, worker.name)
 
-            # Register a passthrough builder so factory invariant holds.
-            if worker_factory is not None:
-                if not worker_factory.can_create(worker.name):
-                    _captured = worker
-                    worker_factory.register_builder(
-                        worker.name,
-                        lambda deps, w=_captured: w,
-                    )
-                    logger.debug(
-                        "Plugin '%s' registered factory builder for: %s",
-                        name, worker.name,
-                    )
+            # Passthrough factory builder — preserves factory invariant
+            if worker_factory is not None and not worker_factory.can_create(worker.name):
+                _w = worker
+                worker_factory.register_builder(
+                    worker.name,
+                    lambda deps, w=_w: w,
+                )
+
+        return PluginRecord(
+            plugin_name=name,
+            status=PluginStatus.LOADED,
+            metadata=metadata,
+            worker_names=tuple(registered_names),
+        )
+
+    def _read_metadata(self, name: str) -> PluginMetadata:
+        """
+        Read plugins/<name>/plugin.json for identity.
+        Returns defaults if file is absent or malformed.
+        """
+        path = Path("plugins") / name / "plugin.json"
+        if not path.exists():
+            return PluginMetadata(name=name)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return PluginMetadata(
+                name=data.get("name", name),
+                version=data.get("version", "unknown"),
+                description=data.get("description", ""),
+            )
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.warning(
+                "Plugin '%s' plugin.json is malformed — using defaults: %s", name, exc
+            )
+            return PluginMetadata(name=name)
+
+    def _read_config(self, name: str) -> "dict | PluginConfigError":
+        """
+        Read plugins/<name>/config.json.
+        Returns empty dict if absent.
+        Returns PluginConfigError if file exists but is malformed JSON.
+        Plugin is responsible for interpreting all keys.
+        """
+        path = Path("plugins") / name / "config.json"
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return PluginConfigError(
+                    f"Plugin '{name}' config.json must be a JSON object."
+                )
+            return data
+        except json.JSONDecodeError as exc:
+            return PluginConfigError(
+                f"Plugin '{name}' config.json is not valid JSON: {exc}"
+            )

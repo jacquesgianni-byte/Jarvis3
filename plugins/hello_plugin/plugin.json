@@ -1,0 +1,5 @@
+{
+  "name": "hello_plugin",
+  "version": "1.0.0",
+  "description": "Genesis-046 proof-of-concept plugin. Demonstrates the plugin contract."
+}
