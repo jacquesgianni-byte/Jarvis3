@@ -41,6 +41,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
+import uuid
 from typing import Any
 
 
@@ -111,6 +112,7 @@ class TimelineEvent:
     notes:      str            = ""
     version:    int            = 1
     payload:    dict[str, Any] = field(default_factory=dict)
+    event_id:   str            = field(default_factory=lambda: str(uuid.uuid4()))  # Genesis-047
 
     def __str__(self) -> str:
         return f"[Turn {self.turn}] {self.event_type.label()}: {self.value}"
@@ -145,4 +147,5 @@ class TimelineEvent:
             notes=self.notes,
             version=self.version,
             payload=merged,
+            event_id=self.event_id,  # Genesis-047: preserve identity
         )

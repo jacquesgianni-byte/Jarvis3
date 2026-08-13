@@ -18,6 +18,7 @@ from core.ai.providers.openai_provider import OpenAIProvider
 from core.ai.providers.anthropic_provider import AnthropicProvider
 from core.ai.streaming import StreamCallbacks
 from core.settings.settings import Settings
+from core.conversation.json_timeline_repository import JsonTimelineRepository  # Genesis-047
 
 
 class JarvisCore:
@@ -34,7 +35,24 @@ class JarvisCore:
         if not self.ai.activate(_settings.default_ai_provider):
             self.ai.activate("openai")
 
-        self.agent = Agent(ai=self.ai)
+        # Genesis-047 Sprint-001: Timeline persistence wiring
+        try:
+            from datetime import UTC, datetime, timedelta
+            from core.config import TIMELINE_RETENTION_DAYS
+            _tl_repo = JsonTimelineRepository()
+            if TIMELINE_RETENTION_DAYS > 0:
+                _cutoff = (
+                    datetime.now(UTC) - timedelta(days=TIMELINE_RETENTION_DAYS)
+                ).strftime("%Y-%m-%d")
+                _tl_repo.purge_before(_cutoff)
+            self.agent = Agent(ai=self.ai, timeline_repository=_tl_repo)
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).error(
+                "[JARVIS CORE] Timeline repository init failed: %s "
+                "— starting without persistence.", _exc
+            )
+            self.agent = Agent(ai=self.ai)
 
         self.voice = VoiceManager()
         self.voice.set_provider(SystemTTSProvider())

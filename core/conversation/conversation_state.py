@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Conversation State
 Genesis-022 Sprint-002 (original) — evolved in Genesis-043 Sprint-001
 
@@ -30,6 +30,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import uuid  # Genesis-047
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -219,6 +220,7 @@ class ConversationState:
         # ── Genesis-043 new fields (PAPER-001) ─────────────────────────
         self._dialogue_act:   str                       = "inform"
         self._session_summary: str                      = ""
+        self._session_id:      str                      = str(__import__("uuid").uuid4())  # Genesis-047
 
         # ── Genesis-043 Sprint-002: EntityRegistry (PROP-0001) ─────────
         from core.conversation.entity_registry import EntityRegistry
@@ -389,6 +391,11 @@ class ConversationState:
 
     def set_session_summary(self, summary: str) -> None:
         self._session_summary = summary
+    @property
+    def session_id(self) -> str:  # Genesis-047
+        """Unique identifier for this session (UUID4). Immutable."""
+        return self._session_id
+
         self._touch()
 
     # ------------------------------------------------------------------

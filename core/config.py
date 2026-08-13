@@ -43,6 +43,11 @@ CACHE_DIR = DATA_DIR / "cache"
 CONVERSATIONS_DIR = DATA_DIR / "conversations"
 
 
+# Genesis-047 Sprint-001: Timeline retention window in days.
+# Set to 0 to disable purge entirely (development only).
+TIMELINE_RETENTION_DAYS: int = 90
+
+
 def print_config():
     """Display the current Jarvis configuration."""
     print(f"{APP_NAME} {VERSION}")

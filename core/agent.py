@@ -852,7 +852,7 @@ class Agent:
 
 
 
-    def __init__(self, ai=None):
+    def __init__(self, ai=None, timeline_repository=None):  # Genesis-047
 
 
 
@@ -1488,7 +1488,8 @@ class Agent:
 
 
 
-        self.timeline = ConversationTimeline()
+        self.timeline = ConversationTimeline(repository=timeline_repository)  # Genesis-047
+        self.timeline.set_session_id(self.session.session_id)  # Genesis-047
 
 
 

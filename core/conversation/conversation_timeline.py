@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Conversation Timeline (Genesis-020 Sprint-003)
 
 Append-only, in-memory record of significant conversation events.
@@ -36,6 +36,10 @@ from typing import Optional
 from core.conversation.fact_extractor import ExtractedFact, FactType
 from core.conversation.timeline_event import EventType, TimelineEvent
 from core.conversation.projection import Projection
+from core.conversation.timeline_repository import (  # Genesis-047
+    TimelineRepository,
+    PersistedTimelineEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +97,10 @@ class ConversationTimeline:
         summary()                        — human-readable dict
     """
 
-    def __init__(self) -> None:
+    def __init__(self, repository: "TimelineRepository | None" = None) -> None:
         self._events: list[TimelineEvent] = []
+        self._repository: "TimelineRepository | None" = repository  # Genesis-047
+        self._session_id: str = ""  # set by Agent via set_session_id()
 
     # ------------------------------------------------------------------
     # Write API — append only
@@ -110,6 +116,7 @@ class ConversationTimeline:
         """
         try:
             self._events.append(event)
+            self._persist(event)  # Genesis-047
             logger.info("[TIMELINE] %s", event)
         except Exception:
             logger.exception("[TIMELINE] Failed to record event.")
@@ -305,6 +312,42 @@ class ConversationTimeline:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+
+    # ------------------------------------------------------------------
+    # Genesis-047 Sprint-001 — persistence helpers
+    # ------------------------------------------------------------------
+
+    def set_session_id(self, session_id: str) -> None:
+        """Set the session_id stamped on persisted events. Called by Agent."""
+        self._session_id = session_id
+
+    def _persist(self, event: TimelineEvent) -> None:
+        """
+        Persist an event to the repository if one is configured.
+
+        Failure is swallowed and logged — persistence failure must NEVER
+        interrupt the conversation system.
+        """
+        if self._repository is None:
+            return
+        try:
+            persisted = PersistedTimelineEvent(
+                event_id=   event.event_id,
+                session_id= self._session_id,
+                event_type= event.event_type.label(),
+                value=      event.value,
+                turn=       event.turn,
+                timestamp=  event.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                source=     event.source,
+                raw=        event.raw,
+            )
+            self._repository.save(persisted)
+        except Exception:
+            logger.warning(
+                "[TIMELINE] Persistence failed for event_id=%s — continuing.",
+                event.event_id,
+            )
 
     def _fact_to_event(
         self, fact: ExtractedFact, turn: int
