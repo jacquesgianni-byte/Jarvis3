@@ -151,6 +151,33 @@ def register_routes(app) -> None:
             return jsonify({"current_genesis": "Android Alpha"}), 200
         return jsonify(sr.engineering_dict()), 200
 
+
+    @app.route("/plugins", methods=["GET"])
+    def plugins():
+        """Plugin ecosystem status. Read-only diagnostic endpoint."""
+        agent = _agent()
+        loader = getattr(agent, "plugin_loader", None)
+        if loader is None:
+            return jsonify({"loaded": [], "failed": [], "note": "PluginLoader not available"}), 200
+
+        loaded = [
+            {
+                "name":        r.metadata.name,
+                "version":     r.metadata.version,
+                "description": r.metadata.description,
+                "workers":     list(r.worker_names),
+            }
+            for r in loader.loaded_plugins()
+        ]
+        failed = [
+            {
+                "name":  r.plugin_name,
+                "error": r.error,
+            }
+            for r in loader.failed_plugins()
+        ]
+        return jsonify({"loaded": loaded, "failed": failed}), 200
+
     @app.route("/session", methods=["GET"])
     def session_log():
         """Today's operational event log."""

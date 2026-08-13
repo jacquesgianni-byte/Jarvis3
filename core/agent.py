@@ -2006,14 +2006,15 @@ class Agent:
 
         # Genesis-046: Plugin Ecosystem — load enabled plugins after core workers
         from core.plugins.loader import PluginLoader
-        _plugin_loader = PluginLoader()
+        self.plugin_loader = PluginLoader()
         try:
-            _loaded_plugins = _plugin_loader.load_enabled(
+            _loaded_plugins = self.plugin_loader.load_enabled(
                         self.worker_manager, self.worker_factory
                     )
             self.logger.info("Plugins loaded: %s", _loaded_plugins)
         except Exception as _plugin_exc:  # noqa: BLE001
             self.logger.warning("Plugin loading failed (Jarvis continues): %s", _plugin_exc)
+            self.plugin_loader = PluginLoader()  # empty loader — no plugins active
 
         # Genesis-027 Sprint-003: WorkerCoordinator for multi-worker workflows
 
