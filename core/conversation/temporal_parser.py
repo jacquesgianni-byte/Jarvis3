@@ -62,6 +62,28 @@ class TemporalTense(str, Enum):
     UNKNOWN = "unknown"
 
 
+class TimeOfDaySlot(str, Enum):  # Genesis-047 Sprint-003
+    """Structured sub-day slot for temporal expressions.
+
+    Populated only when the user explicitly names a part of the day.
+    UNSPECIFIED is the default — never inferred from the current clock time.
+
+    Mapping:
+        "this morning"   -> MORNING
+        "this afternoon" -> AFTERNOON
+        "this evening"   -> EVENING
+        "tonight"        -> NIGHT
+        "last night"     -> NIGHT
+        "today" (alone)  -> UNSPECIFIED
+        "earlier today"  -> UNSPECIFIED (time not specified)
+    """
+    MORNING     = "morning"
+    AFTERNOON   = "afternoon"
+    EVENING     = "evening"
+    NIGHT       = "night"
+    UNSPECIFIED = "unspecified"
+
+
 # ---------------------------------------------------------------------------
 # Day name mapping
 # ---------------------------------------------------------------------------
@@ -109,13 +131,15 @@ class TemporalContext:
     enrich KnowledgeEngine records without creating new storage.
 
     Fields:
-        expression:    The raw temporal phrase found ("last Tuesday")
-        temporal_type: Classification of the expression
-        tense:         Past / present / future
-        resolved_date: Absolute date if resolvable, else None
-        offset_days:   Days from reference_date (negative = past)
-        reference_date: The date used for resolution
-        confidence:    How confident we are in the resolution
+        expression:       The raw temporal phrase found ("last Tuesday")
+        temporal_type:    Classification of the expression
+        tense:            Past / present / future
+        resolved_date:    Absolute date if resolvable, else None
+        offset_days:      Days from reference_date (negative = past)
+        reference_date:   The date used for resolution
+        confidence:       How confident we are in the resolution
+        time_of_day_slot: Sub-day slot when explicitly named; UNSPECIFIED otherwise.
+                          Never inferred from clock time — only from the user's words.
     """
     expression:    str
     temporal_type: TemporalType
@@ -123,7 +147,14 @@ class TemporalContext:
     resolved_date: Optional[date]
     offset_days:   Optional[int]
     reference_date: date
-    confidence:    float = 0.90
+    confidence:       float          = 0.90
+    time_of_day_slot: "TimeOfDaySlot" = None  # Genesis-047 Sprint-003; populated by __post_init__
+
+    def __post_init__(self) -> None:  # Genesis-047 Sprint-003
+        # Frozen dataclass — use object.__setattr__ for default resolution.
+        # Converts None sentinel to UNSPECIFIED so callers can omit the field.
+        if self.time_of_day_slot is None:
+            object.__setattr__(self, "time_of_day_slot", TimeOfDaySlot.UNSPECIFIED)
 
     def to_metadata(self) -> dict:
         """
@@ -135,6 +166,7 @@ class TemporalContext:
             "temporal_expression": self.expression,
             "temporal_type":       self.temporal_type.value,
             "temporal_tense":      self.tense.value,
+            "time_of_day_slot":    self.time_of_day_slot.value,  # Genesis-047 Sprint-003
         }
         if self.resolved_date:
             m["resolved_date"] = self.resolved_date.isoformat()
@@ -549,14 +581,37 @@ class TemporalParser:
             resolved = ref - timedelta(days=1)
             tense = TemporalTense.PAST
             offset = -1
+            slot = TimeOfDaySlot.NIGHT  # Genesis-047 Sprint-003
         elif "tomorrow" in expr:
             resolved = ref + timedelta(days=1)
             tense = TemporalTense.FUTURE
             offset = 1
+            slot = TimeOfDaySlot.UNSPECIFIED  # Genesis-047 Sprint-003
+        elif "morning" in expr:
+            resolved = ref
+            tense = TemporalTense.PRESENT
+            offset = 0
+            slot = TimeOfDaySlot.MORNING  # Genesis-047 Sprint-003
+        elif "afternoon" in expr:
+            resolved = ref
+            tense = TemporalTense.PRESENT
+            offset = 0
+            slot = TimeOfDaySlot.AFTERNOON  # Genesis-047 Sprint-003
+        elif "evening" in expr:
+            resolved = ref
+            tense = TemporalTense.PRESENT
+            offset = 0
+            slot = TimeOfDaySlot.EVENING  # Genesis-047 Sprint-003
+        elif "tonight" in expr:
+            resolved = ref
+            tense = TemporalTense.PRESENT
+            offset = 0
+            slot = TimeOfDaySlot.NIGHT  # Genesis-047 Sprint-003
         else:
             resolved = ref
             tense = TemporalTense.PRESENT
             offset = 0
+            slot = TimeOfDaySlot.UNSPECIFIED  # Genesis-047 Sprint-003
         return TemporalContext(
             expression=expr,
             temporal_type=TemporalType.PRESENT if tense == TemporalTense.PRESENT else (
@@ -566,6 +621,7 @@ class TemporalParser:
             resolved_date=resolved,
             offset_days=offset,
             reference_date=ref,
+            time_of_day_slot=slot,  # Genesis-047 Sprint-003
         )
 
     def _handle_earlier(self, m: re.Match, ref: date) -> TemporalContext:

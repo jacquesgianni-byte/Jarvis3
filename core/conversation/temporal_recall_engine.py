@@ -149,8 +149,9 @@ class TemporalRecallEngine:
         for record in results:
             # Check metadata first (future-proof)
             metadata = getattr(record, "metadata", None) or {}
-            resolved_date = metadata.get("resolved_date")
-            temporal_expr = metadata.get("temporal_expression")
+            resolved_date    = metadata.get("resolved_date")
+            temporal_expr    = metadata.get("temporal_expression")
+            time_of_day_slot = metadata.get("time_of_day_slot", "unspecified")  # Genesis-047 Sprint-003
 
             # Fall back to tags encoding: "resolved:2026-07-27", "expr:last monday"
             if not resolved_date:
@@ -162,8 +163,8 @@ class TemporalRecallEngine:
 
             if resolved_date:
                 answer_text = self._format_answer(
-                    record.value, resolved_date, temporal_expr
-                )
+                    record.value, resolved_date, temporal_expr, time_of_day_slot
+                )  # Genesis-047 Sprint-003
                 logger.info(
                     "[TEMPORAL_RECALL] Found: value=%r date=%r",
                     record.value, resolved_date,
@@ -202,14 +203,18 @@ class TemporalRecallEngine:
         memory_value: str,
         resolved_date: str,
         original_expression: Optional[str],
+        time_of_day_slot: str = "unspecified",  # Genesis-047 Sprint-003
     ) -> str:
         """
         Format a natural language answer from a memory record.
 
         Args:
-            memory_value:       The stored fact ("started new job")
-            resolved_date:      ISO date string ("2026-07-27")
+            memory_value:        The stored fact ("started new job")
+            resolved_date:       ISO date string ("2026-07-27")
             original_expression: The original temporal phrase ("last Monday")
+            time_of_day_slot:    Structured sub-day slot from metadata.
+                                 When set produces "Friday morning" instead of
+                                 "Friday (this morning)". Genesis-047 Sprint-003.
 
         Returns:
             A natural language answer string.
@@ -219,6 +224,18 @@ class TemporalRecallEngine:
             date_str = d.strftime("%A, %d %B %Y")  # e.g. "Monday, 27 July 2026"
         except (ValueError, TypeError):
             date_str = resolved_date
+
+        # Genesis-047 Sprint-003: use structured slot for natural phrasing.
+        # "Friday morning" is more natural than "Friday (this morning)".
+        _SLOT_LABELS = {
+            "morning":   "morning",
+            "afternoon": "afternoon",
+            "evening":   "evening",
+            "night":     "night",
+        }
+        slot_label = _SLOT_LABELS.get(time_of_day_slot)
+        if slot_label:
+            return f"That was on {date_str} {slot_label}."
 
         if original_expression:
             return f"That was on {date_str} ({original_expression})."
