@@ -40,6 +40,7 @@ from core.conversation.timeline_repository import (  # Genesis-047
     TimelineRepository,
     PersistedTimelineEvent,
 )
+from core.conversation.interface_source import InterfaceSource  # Genesis-047 Sprint-002
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ class ConversationTimeline:
         self._events: list[TimelineEvent] = []
         self._repository: "TimelineRepository | None" = repository  # Genesis-047
         self._session_id: str = ""  # set by Agent via set_session_id()
+        self._interface_source: InterfaceSource = InterfaceSource.UNKNOWN  # Genesis-047 Sprint-002
 
     # ------------------------------------------------------------------
     # Write API — append only
@@ -322,6 +324,14 @@ class ConversationTimeline:
         """Set the session_id stamped on persisted events. Called by Agent."""
         self._session_id = session_id
 
+    def set_interface_source(self, source: InterfaceSource) -> None:
+        """Set the interface source stamped on persisted events. Called by Agent.  # Genesis-047 Sprint-002
+
+        Only wired call site in Sprint-002: InterfaceSource.HTTP (apps/server/routes.py).
+        DESKTOP, VOICE, and ANDROID are reserved for future real call sites.
+        """
+        self._interface_source = source
+
     def _persist(self, event: TimelineEvent) -> None:
         """
         Persist an event to the repository if one is configured.
@@ -333,14 +343,15 @@ class ConversationTimeline:
             return
         try:
             persisted = PersistedTimelineEvent(
-                event_id=   event.event_id,
-                session_id= self._session_id,
-                event_type= event.event_type.label(),
-                value=      event.value,
-                turn=       event.turn,
-                timestamp=  event.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                source=     event.source,
-                raw=        event.raw,
+                event_id=         event.event_id,
+                session_id=       self._session_id,
+                event_type=       event.event_type.label(),
+                value=            event.value,
+                turn=             event.turn,
+                timestamp=        event.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                source=           event.source,
+                raw=              event.raw,
+                interface_source= self._interface_source.value,  # Genesis-047 Sprint-002
             )
             self._repository.save(persisted)
         except Exception:

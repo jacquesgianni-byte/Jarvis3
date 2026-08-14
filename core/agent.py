@@ -257,6 +257,7 @@ from core.conversation.context_inspector import ContextInspector         # Genes
 
 
 from core.conversation.conversation_timeline import ConversationTimeline  # Genesis-020 S3
+from core.conversation.interface_source import InterfaceSource             # Genesis-047 Sprint-002
 
 
 
@@ -2239,7 +2240,12 @@ class Agent:
 
 
 
-    def process(self, request: str, token=None) -> Response:
+    def process(
+        self,
+        request: str,
+        token=None,
+        source: InterfaceSource = InterfaceSource.UNKNOWN,  # Genesis-047 Sprint-002
+    ) -> Response:
 
 
 
@@ -2396,6 +2402,7 @@ class Agent:
 
 
         self.context.last_user_message = request
+        self.timeline.set_interface_source(source)  # Genesis-047 Sprint-002
 
 
 

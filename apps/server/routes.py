@@ -22,6 +22,7 @@ import logging
 import time
 import uuid
 from flask import current_app, jsonify, request
+from core.conversation.interface_source import InterfaceSource  # Genesis-047 Sprint-002
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,7 @@ def register_routes(app) -> None:
             # Restore conversation context for this session
             _restore_session(agent, session_id)
 
-            response = agent.process(user_message)
+            response = agent.process(user_message, source=InterfaceSource.HTTP)  # Genesis-047 Sprint-002
 
             # Log to session registry
             try:
@@ -315,7 +316,7 @@ def register_routes(app) -> None:
                     ai_response = agent.ai.ask(combined_message)
                     agent_reply = ai_response.message
                 else:
-                    response = agent.process(combined_message)
+                    response = agent.process(combined_message, source=InterfaceSource.HTTP)  # Genesis-047 Sprint-002
                     agent_reply = response.message
 
                 _save_session(agent, session_id)

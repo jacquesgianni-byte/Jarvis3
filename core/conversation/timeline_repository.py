@@ -12,10 +12,13 @@ Privacy guarantee (structural, not advisory):
     value hard-capped at 500 chars in __post_init__
     No full message text may ever be stored here.
 
+Schema versions:
+    v1 — original fields (Sprint-001)
+    v2 — adds interface_source (Sprint-002); v1 records load as UNKNOWN
+
 Intentionally absent (deferred):
     load_sessions() — Sprint-004 will request this formally
-    interface_source — Sprint-002
-    time_of_day      — Sprint-003
+    time_of_day     — Sprint-003
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+
+from core.conversation.interface_source import InterfaceSource
 
 
 @dataclass(frozen=True)
@@ -32,16 +37,20 @@ class PersistedTimelineEvent:
 
     Privacy hard caps enforced in __post_init__ — structural, not advisory.
     schema_version enables future migration without breaking readers.
+
+    Schema v2 (Genesis-047 Sprint-002):
+        interface_source added. v1 records (no key) load as UNKNOWN.
     """
-    event_id:       str
-    session_id:     str
-    event_type:     str    # EventType.label() — e.g. "Decision"
-    value:          str
-    turn:           int
-    timestamp:      str    # ISO 8601 UTC — e.g. "2026-08-13T07:23:41Z"
-    source:         str    # "auto" | "manual" | "system"
-    raw:            str    = ""
-    schema_version: int    = 1
+    event_id:         str
+    session_id:       str
+    event_type:       str    # EventType.label() — e.g. "Decision"
+    value:            str
+    turn:             int
+    timestamp:        str    # ISO 8601 UTC — e.g. "2026-08-13T07:23:41Z"
+    source:           str    # "auto" | "manual" | "system"
+    raw:              str    = ""
+    interface_source: str    = InterfaceSource.UNKNOWN.value  # Genesis-047 Sprint-002
+    schema_version:   int    = 2
 
     def __post_init__(self) -> None:
         # Hard privacy caps — structural enforcement.
@@ -52,15 +61,16 @@ class PersistedTimelineEvent:
     def to_dict(self) -> dict:
         """Serialise to a plain dict for JSON storage."""
         return {
-            "event_id":       self.event_id,
-            "session_id":     self.session_id,
-            "event_type":     self.event_type,
-            "value":          self.value,
-            "turn":           self.turn,
-            "timestamp":      self.timestamp,
-            "source":         self.source,
-            "raw":            self.raw,
-            "schema_version": self.schema_version,
+            "event_id":         self.event_id,
+            "session_id":       self.session_id,
+            "event_type":       self.event_type,
+            "value":            self.value,
+            "turn":             self.turn,
+            "timestamp":        self.timestamp,
+            "source":           self.source,
+            "raw":              self.raw,
+            "interface_source": self.interface_source,
+            "schema_version":   self.schema_version,
         }
 
     @classmethod
@@ -68,17 +78,20 @@ class PersistedTimelineEvent:
         """
         Deserialise from a plain dict.
         Missing fields default gracefully. Unknown extra keys are ignored.
+
+        v1 compat: records without interface_source load as UNKNOWN.
         """
         return cls(
-            event_id=       str(d.get("event_id",       str(uuid.uuid4()))),
-            session_id=     str(d.get("session_id",     "")),
-            event_type=     str(d.get("event_type",     "General")),
-            value=          str(d.get("value",          "")),
-            turn=           int(d.get("turn",           0)),
-            timestamp=      str(d.get("timestamp",      "")),
-            source=         str(d.get("source",         "auto")),
-            raw=            str(d.get("raw",            "")),
-            schema_version= int(d.get("schema_version", 1)),
+            event_id=         str(d.get("event_id",         str(uuid.uuid4()))),
+            session_id=       str(d.get("session_id",       "")),
+            event_type=       str(d.get("event_type",       "General")),
+            value=            str(d.get("value",            "")),
+            turn=             int(d.get("turn",             0)),
+            timestamp=        str(d.get("timestamp",        "")),
+            source=           str(d.get("source",           "auto")),
+            raw=              str(d.get("raw",              "")),
+            interface_source= str(d.get("interface_source", InterfaceSource.UNKNOWN.value)),
+            schema_version=   int(d.get("schema_version",   1)),
         )
 
 
