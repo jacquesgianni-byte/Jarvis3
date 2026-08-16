@@ -47,6 +47,12 @@ CONVERSATIONS_DIR = DATA_DIR / "conversations"
 # Set to 0 to disable purge entirely (development only).
 TIMELINE_RETENTION_DAYS: int = 90
 
+# Default retention window for implicit user-world events (FactType.EVENT).
+# Events are time-bounded by nature — this is policy, not architecture.
+# Different event types may eventually use different windows; this is the
+# safe default. Set to 0 to disable event memory persistence entirely.
+EVENT_MEMORY_RETENTION_DAYS: int = 30
+
 
 def print_config():
     """Display the current Jarvis configuration."""

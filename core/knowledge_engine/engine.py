@@ -164,6 +164,13 @@ class KnowledgeEngine:
 
         # Check for existing record — avoid duplicates.
         existing = self._storage.find_by_subject_and_attribute(subject, attribute)
+        # EVENT memory lifecycle fix: treat expired record as absent.
+        # A new event (e.g. second meeting with client) must not resurrect
+        # an expired record from a previous meeting via update_memory().
+        # Also delete it so find_by_subject_and_attribute returns the new record.
+        if existing is not None and existing.is_expired():
+            self._storage.delete(existing.id)
+            existing = None
         if existing is not None:
             logger.debug(
                 "store_memory: duplicate detected for subject=%r attribute=%r — updating.",

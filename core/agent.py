@@ -1183,7 +1183,7 @@ class Agent:
 
 
 
-        self.temporal_recall = TemporalRecallEngine()
+        self.temporal_recall = TemporalRecallEngine(temporal_parser=self.temporal_parser)  # Bug 1 fix
 
 
 
@@ -9907,6 +9907,47 @@ class Agent:
 
 
 
+        # Genesis-031: Temporal recall -- "When did I start my job?"
+
+
+
+
+
+        _tq = self.temporal_recall.detect_query(request)
+
+
+
+
+
+        if _tq is not None:
+
+
+
+
+
+            _ta = self.temporal_recall.answer(_tq, self.knowledge)
+
+
+
+
+
+            if _ta.found:
+
+
+
+
+
+                return Response(success=True, message=_ta.answer)
+
+
+
+
+
+            # Not found -- fall through to AI
+
+
+
+
         # Genesis-032 Sprint-003: Episodic recall -- "What happened during Genesis-027?"
 
 
@@ -9931,7 +9972,13 @@ class Agent:
 
 
 
-            return Response(success=True, message=self.episodic_memory.format_response(_es))
+            if _es is not None and _es.memory_count > 0:  # found-gate: detection != resolution
+
+
+
+
+
+                return Response(success=True, message=self.episodic_memory.format_response(_es))
 
 
 
@@ -10009,7 +10056,13 @@ class Agent:
 
 
 
-            return Response(success=True, message=_profile.to_text())
+            if _profile.found:  # found-gate: detection != resolution
+
+
+
+
+
+                return Response(success=True, message=_profile.to_text())
 
 
 
@@ -10017,47 +10070,6 @@ class Agent:
 
 
 
-
-
-
-
-        # Genesis-031: Temporal recall -- "When did I start my job?"
-
-
-
-
-
-        _tq = self.temporal_recall.detect_query(request)
-
-
-
-
-
-        if _tq is not None:
-
-
-
-
-
-            _ta = self.temporal_recall.answer(_tq, self.knowledge)
-
-
-
-
-
-            if _ta.found:
-
-
-
-
-
-                return Response(success=True, message=_ta.answer)
-
-
-
-
-
-            # Not found -- fall through to AI
 
 
 

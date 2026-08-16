@@ -17,6 +17,7 @@ from core.knowledge_engine.engine import KnowledgeEngine
 from core.knowledge_engine.models import MemorySource
 from core.models.response import Response
 from core.skills.base import Skill
+from core.conversation.temporal_parser import TemporalParser  # Stabilisation: Test A
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +41,27 @@ _PET_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Stop words for generic event key extraction (Stabilisation: Test A)
+# Used by _extract_event_key() — not phrase-specific rules.
+_EVENT_KEY_STOP_WORDS = frozenset({
+    "i", "we", "a", "an", "the", "my", "our", "your", "their",
+    "and", "or", "but", "to", "for", "of", "in", "on", "at",
+    "with", "this", "that", "it", "its", "was", "were", "am",
+    "is", "be", "been", "being", "had", "have", "has", "did",
+    "do", "does", "will", "would", "could", "should", "may",
+    "might", "shall", "must", "can",
+})
+
+# Explicit-memory trigger words (Stabilisation: Test A)
+# Restricted to the explicit memory pathway only.
+_EXPLICIT_MEMORY_TRIGGERS = frozenset({"remember", "note", "store", "save"})
+
+# Pattern: "remember that [clause]" or "remember [clause]" where clause has no "is"
+_EVENT_MEMORY_RE = re.compile(
+    r"(?:remember|note|store|save)\s+(?:that\s+)?(.+)",
+    re.IGNORECASE,
+)
+
 
 def _canonicalise(key: str) -> str:
     key_stripped = key.strip().rstrip(".")
@@ -53,8 +75,9 @@ class MemorySkill(Skill):
 
     name = "memory"
 
-    def __init__(self, knowledge: KnowledgeEngine):
+    def __init__(self, knowledge: KnowledgeEngine, temporal_parser: Optional["TemporalParser"] = None):  # Stabilisation: Test A
         self.knowledge = knowledge
+        self._temporal_parser = temporal_parser  # None -> no auto-enrichment (all existing callers)
 
     # ------------------------------------------------------------------
     # Public API
@@ -70,7 +93,19 @@ class MemorySkill(Skill):
         """
         Store a memory. Genesis-031: temporal_tags appended if provided.
         temporal_metadata is accepted for API compatibility and encoded as tags.
+
+        Stabilisation (Test A): if temporal_metadata is not supplied by the
+        caller and self._temporal_parser is set, parse value for an explicit
+        temporal expression and auto-enrich. Caller-supplied metadata wins.
+        Time-of-day is never inferred from the clock — only from the value text.
         """
+        # Stabilisation: auto-enrich when caller did not supply temporal_metadata
+        if temporal_metadata is None and self._temporal_parser is not None:
+            from datetime import date as _date
+            _ctx = self._temporal_parser.parse(value, _date.today())
+            if _ctx is not None and _ctx.expression:  # explicit expression found
+                temporal_metadata = _ctx.to_metadata()
+
         tags = ["user_fact"]
         if temporal_tags:
             tags = tags + [t for t in temporal_tags if t not in tags]
@@ -79,6 +114,8 @@ class MemorySkill(Skill):
                 tags.append(f"resolved:{temporal_metadata['resolved_date']}")
             if "temporal_expression" in temporal_metadata:
                 tags.append(f"expr:{temporal_metadata['temporal_expression']}")
+            if "time_of_day_slot" in temporal_metadata:  # Stabilisation: Test A
+                tags.append(f"tod:{temporal_metadata['time_of_day_slot']}")
 
         self.knowledge.store_memory(
             subject="user",
@@ -103,6 +140,21 @@ class MemorySkill(Skill):
                 value = m.group(2).strip().rstrip(".")
                 # JTI-001 Fix 1 (P1): route corrections to entity records
                 return self._remember_entity_aware(key, value)
+
+            # Stabilisation: Test A — event-style explicit memory.
+            # Handles "Remember that I met the client this morning."
+            # where the clause has no "is" (not a key/value fact).
+            # Explicit memory pathway only — does NOT handle implicit
+            # conversational memory ("I met the client this morning.")
+            # which is a separate future architecture investigation.
+            ev = _EVENT_MEMORY_RE.match(request.strip())
+            if ev:
+                clause = ev.group(1).strip().rstrip(".")
+                # Only treat as event if clause contains no "is" (key/value already handled above)
+                if " is " not in clause.lower() and not clause.lower().startswith("is "):
+                    key = self._extract_event_key(clause)
+                    if key:
+                        return self.remember(key, clause)
 
         # Forget / delete
         if any(w in req_lower for w in ["forget", "delete", "remove", "clear"]):
@@ -220,6 +272,22 @@ class MemorySkill(Skill):
     # ------------------------------------------------------------------
     # Private helpers (used by execute and existing tests)
     # ------------------------------------------------------------------
+
+    def _extract_event_key(self, clause: str) -> str:
+        """Extract a generic searchable key from an event clause.
+
+        Strips stop words and returns the 1-3 most meaningful words.
+        Generic stop-word approach — no phrase-specific rules.
+        Stabilisation: Test A.
+
+        Examples:
+            "I met the client this morning" -> "met client"
+            "I finished the sprint last night" -> "finished sprint"
+            "we had a meeting yesterday"      -> "meeting"
+        """
+        words = re.sub(r"[^a-z0-9 ]+", " ", clause.lower()).split()
+        meaningful = [w for w in words if w not in _EVENT_KEY_STOP_WORDS and len(w) >= 3]
+        return " ".join(meaningful[:3]) or clause.strip()[:30].lower()
 
     def _forget(self, key: str) -> Response:
         canonical = _canonicalise(key)

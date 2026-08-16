@@ -75,5 +75,12 @@
     "description": "General knowledge.",
     "default_importance": 0.5,
     "default_visibility": "private"
+  },
+  {
+    "id": "event",
+    "label": "Event",
+    "description": "User-world events: meetings, completions, plans, occurrences. Time-bounded by default — not permanent personal facts.",
+    "default_importance": 0.4,
+    "default_visibility": "private"
   }
 ]

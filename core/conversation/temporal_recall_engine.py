@@ -36,6 +36,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.knowledge_engine.engine import KnowledgeEngine
+    from core.conversation.temporal_parser import TemporalParser
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,8 @@ _WHEN_PATTERNS: list[re.Pattern] = [
     re.compile(r"\bwhat\s+day\s+did\s+i\s+(.+?)\??$", re.IGNORECASE),
     # "What date did I ..."
     re.compile(r"\bwhat\s+date\s+did\s+i\s+(.+?)\??$", re.IGNORECASE),
+    # "What did I do last Saturday?" / "What did I finish last night?"
+    re.compile(r"\bwhat\s+did\s+i\s+(.+?)\??$", re.IGNORECASE),  # EVENT recall
 ]
 
 # Keywords to extract from the query for memory search
@@ -82,14 +85,22 @@ class TemporalAnswer:
 
 class TemporalRecallEngine:
     """
-    Answers when-did-I queries from temporal metadata in KnowledgeEngine.
+    Answers when-did-I and what-did-I queries from temporal metadata in KnowledgeEngine.
 
-    Stateless. KnowledgeEngine injected at call time.
+    KnowledgeEngine injected at call time.
+    TemporalParser optionally injected for date-tag fallback retrieval.
 
     Public API:
         detect_query(text) -> Optional[TemporalQuery]
         answer(query, knowledge) -> TemporalAnswer
     """
+
+    def __init__(self, temporal_parser=None) -> None:
+        """Optional TemporalParser for date-tag fallback in answer().
+        When None: date-tag fallback disabled (backward compatible).
+        Single TemporalParser authority Ã¢â‚¬â€ never construct a parser internally.
+        """
+        self._temporal_parser = temporal_parser
 
     def detect_query(self, text: str) -> Optional[TemporalQuery]:
         """
@@ -131,22 +142,37 @@ class TemporalRecallEngine:
         Returns:
             TemporalAnswer with a natural language response.
         """
-        # Search for matching memories
-        results = knowledge.search_memory(
-            query=query.search_hint,
-            subject="user",
-            limit=10,
-        )
-
-        # Also try broader search if narrow search yields nothing
+        # PRIMARY PATH: resolve temporal expression -> search by resolved:YYYY-MM-DD tag.
+        # subject='user' filter excludes journal records. Authoritative for dated queries.
+        results = []
+        if self._temporal_parser is not None:
+            from datetime import date as _date
+            _ctx = self._temporal_parser.parse(query.raw_text, _date.today())
+            if _ctx is not None and _ctx.resolved_date is not None:
+                _date_tag = f"resolved:{_ctx.resolved_date.isoformat()}"
+                _candidates = knowledge.search_memory(query=_date_tag, subject="user", limit=20)
+                results = [r for r in _candidates if _date_tag in getattr(r, "tags", [])]
+                if results:
+                    logger.info("[TEMPORAL_RECALL] Date-tag primary: %s -> %d results", _date_tag, len(results))
+        # SECONDARY PATH: keyword search - only when date-tag primary yields nothing.
         if not results:
-            results = knowledge.search_memory(
-                query=query.search_hint,
-                limit=10,
-            )
+            results = knowledge.search_memory(query=query.search_hint, subject="user", limit=10)
+        if not results:
+            results = knowledge.search_memory(query=query.search_hint, limit=10)
+        if not results:
+            _seen_ids = set(); _accumulated = []
+            for keyword in query.search_hint.split():
+                if len(keyword) >= 3:
+                    for _r in knowledge.search_memory(query=keyword, limit=10):
+                        _rid = getattr(_r, "event_id", id(_r))
+                        if _rid not in _seen_ids:
+                            _seen_ids.add(_rid); _accumulated.append(_r)
+            results = _accumulated
 
         # Find records with temporal information in tags
         for record in results:
+            if getattr(record, "subject", None) != "user":
+                continue  # only user memories qualify as temporal answers
             # Check metadata first (future-proof)
             metadata = getattr(record, "metadata", None) or {}
             resolved_date    = metadata.get("resolved_date")
@@ -160,6 +186,8 @@ class TemporalRecallEngine:
                         resolved_date = tag[len("resolved:"):]
                     elif tag.startswith("expr:"):
                         temporal_expr = tag[len("expr:"):]
+                    elif tag.startswith("tod:"):  # Stabilisation: Test A
+                        time_of_day_slot = tag[len("tod:"):]
 
             if resolved_date:
                 answer_text = self._format_answer(

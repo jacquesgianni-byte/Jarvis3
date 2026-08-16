@@ -39,6 +39,7 @@ class FactType(Enum):
     PREFERENCE  = auto()   # a stated preference or like/dislike
     PET         = auto()   # a pet or animal owned
     WORKPLACE   = auto()   # where the user works
+    EVENT       = auto()   # user-world event: implicit, time-bounded
     UNKNOWN     = auto()   # could not be classified
 
 
@@ -54,6 +55,7 @@ class ExtractedFact:
     extracted_at: datetime = field(
         default_factory=lambda: datetime.now(UTC)
     )
+    metadata:   dict = field(default_factory=dict)  # supplementary data (e.g. temporal_ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +171,34 @@ _WORKPLACE_PATTERNS = [
     re.compile(r"\bi(?:'m| am)\s+employed\s+(?:at|by)\s+(.+)", re.IGNORECASE),
 ]
 
+# ---------------------------------------------------------------------------
+# EVENT detection — structural patterns, no verb vocabulary
+# TemporalParser is the single authority on temporal expressions.
+# ---------------------------------------------------------------------------
+
+_EVENT_FIRST_PERSON_RE = re.compile(r"\b(?:i|we)\b", re.IGNORECASE)
+
+_EVENT_PAST_FORM_RE = re.compile(
+    r"\b\w+ed\b"
+    r"|"
+    r"\b(?:was|were|had|got|felt|became|seemed)\b"
+    r"|"
+    r"\b(?:was|were|am|is|are|i'm)\s+\w+ing\b",
+    re.IGNORECASE,
+)
+
+_EVENT_INTENT_MODAL_RE = re.compile(
+    r"\b(?:need|want|have|plan|going|intend|hope|expect|"
+    r"try|must|should|will|shall)\s+to\b",
+    re.IGNORECASE,
+)
+
+# Explicit memory/command verbs at sentence start — handled by MemorySkill, not EVENT
+_EVENT_COMMAND_RE = re.compile(
+    r"^\s*(?:remember|note|save|store|forget|tell|show|find|get|set|remind)\b",
+    re.IGNORECASE,
+)
+
 # Noise words that indicate an extraction isn't useful
 _NOISE_VALUES = {
     "it", "that", "this", "them", "something", "anything",
@@ -198,6 +228,12 @@ class FactExtractor:
     Designed to be called on every user message in the conversation.
     Fast enough for synchronous use (no I/O, no LLM, pure regex).
     """
+
+    def __init__(self, temporal_parser=None) -> None:
+        """Optional TemporalParser injection for EVENT extraction.
+        When None (default), EVENT extraction disabled.
+        """
+        self._temporal_parser = temporal_parser
 
     # Interrogative words that signal a question rather than a statement.
     _QUESTION_START = re.compile(
@@ -236,6 +272,7 @@ class FactExtractor:
         facts.extend(self._extract_achievements(text))
         facts.extend(self._extract_possessions(text))
         facts.extend(self._extract_workplace(text))
+        facts.extend(self._extract_events(text))  # EVENT memory
 
         # Deduplicate by (attribute, value)
         seen: set[tuple[str, str]] = set()
@@ -395,6 +432,65 @@ class FactExtractor:
         """
         return []
 
+
+    def _extract_events(self, text: str) -> list[ExtractedFact]:
+        """Detect implicit user-world events using structural grammar signals.
+
+        No verb vocabulary. TemporalParser is the single authority.
+
+        Required:
+            (a) First-person subject: I or we
+            (b) Temporal expression detected by TemporalParser
+        Excluded:
+            Questions, commands, intent/modal (need to / want to / going to)
+        Confidence:
+            0.75 if past verb form also present (stronger signal)
+            0.65 if temporal expression alone (e.g. irregular past: met, saw)
+
+        Past verb form is a confidence booster, not a gate. TemporalParser
+        finding an expression is the authoritative signal.
+        Returns [] when temporal_parser is None (all existing callers).
+        """
+        if self._temporal_parser is None:
+            return []
+        if self._QUESTION_END.search(text):
+            return []
+        if self._QUESTION_START.match(text):
+            return []
+        if _EVENT_INTENT_MODAL_RE.search(text):
+            return []
+        if _EVENT_COMMAND_RE.match(text):
+            return []  # Explicit command — handled by MemorySkill, not EVENT
+        if not _EVENT_FIRST_PERSON_RE.search(text):
+            return []
+        # TemporalParser is the authority — call it before checking past form
+        from datetime import date as _date
+        ctx = self._temporal_parser.parse(text, _date.today())
+        if ctx is None or not ctx.expression:
+            return []  # No temporal signal — not an event worth storing
+        # Past verb form boosts confidence but is not required
+        # (covers irregular past: met, saw, had, went — not ending in -ed)
+        has_past = bool(_EVENT_PAST_FORM_RE.search(text))
+        confidence = 0.75 if has_past else 0.65
+        _STOP = frozenset({
+            "i", "we", "a", "an", "the", "my", "our", "and", "or", "to",
+            "for", "of", "in", "on", "at", "with", "this", "that", "it",
+            "was", "were", "am", "is", "are", "be", "been", "had", "have",
+            "has", "did", "do", "just", "very", "really", "so", "then",
+        })
+        words = re.sub(r"[^a-z0-9 ]+", " ", text.lower()).split()
+        key_words = [w for w in words if w not in _STOP and len(w) >= 3]
+        key = " ".join(key_words[:3]) or text.strip()[:30].lower()
+        clause = text.strip().rstrip(".")
+        return [ExtractedFact(
+            fact_type=FactType.EVENT,
+            subject="user",
+            attribute=key,
+            value=clause,
+            confidence=confidence,
+            raw=text,
+            metadata={"temporal_ctx": ctx.to_metadata()},
+        )]
 
     def _extract_workplace(self, text: str) -> list[ExtractedFact]:
         facts = []
