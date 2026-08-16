@@ -171,6 +171,7 @@ class PipelineContext:
     resolution_result: Optional[ResolutionResult]  = None
     dialogue_result:   Optional[DialogueResult]    = None
     focus_signal_result: Optional["FocusSignal"]    = None  # CFR-006
+    understanding_result: Optional[list]            = None  # Genesis-048: pre-response understanding
     is_terminal:       bool                        = False
     history:           list[ProcessingStep]        = field(default_factory=list)
     metadata:          dict[str, Any]              = field(default_factory=dict)
@@ -210,6 +211,7 @@ class PipelineContext:
             "resolution":      str(self.resolution_result) if self.resolution_result else None,
             "dialogue":        str(self.dialogue_result) if self.dialogue_result else None,
             "focus_signal":    str(self.focus_signal_result) if self.focus_signal_result else None,
+            "understanding":   f"{len(self.understanding_result)} fact(s)" if self.understanding_result else None,
         }
 
 
@@ -368,6 +370,71 @@ class FocusSignalStage:
         return ctx
 
 
+class UnderstandingStage:
+    """
+    Genesis-048: Pre-response understanding stage.
+
+    Runs FactExtractor on the user's raw input BEFORE routing and AI.
+    Populates PipelineContext.understanding_result with extracted facts.
+
+    Follows the FocusSignalStage pattern exactly:
+    - Pure detection, no state mutation.
+    - Sets a named field on PipelineContext.
+    - ConversationRouter reads the field and makes the decision.
+    - Skipped if context is terminal.
+
+    The result is reused by Agent._post_turn() so FactExtractor
+    runs exactly once per turn.
+    """
+
+    NAME = "UnderstandingStage"
+
+    def __init__(self) -> None:
+        # Import here to keep pipeline lightweight at module load
+        from core.conversation.fact_extractor import FactExtractor
+        from core.conversation.temporal_parser import TemporalParser
+        self._extractor = FactExtractor(temporal_parser=TemporalParser())
+
+    def process(self, ctx: PipelineContext) -> PipelineContext:
+        if ctx.is_terminal:
+            ctx.append_step(ProcessingStep(
+                stage=self.NAME, executed=False,
+                outcome="skipped (terminal context)",
+            ))
+            return ctx
+
+        import time as _time
+        start = _time.perf_counter()
+
+        try:
+            facts = self._extractor.extract(ctx.original_input)
+        except Exception:
+            import logging as _log
+            _log.getLogger(__name__).exception("[UNDERSTANDING] FactExtractor error")
+            facts = []
+
+        ctx.understanding_result = facts if facts else None
+        duration = (_time.perf_counter() - start) * 1000
+
+        if facts:
+            types = ", ".join(sorted({f.fact_type.name for f in facts}))
+            outcome = f"{len(facts)} fact(s): {types}"
+        else:
+            outcome = "no structured facts detected"
+
+        ctx.append_step(ProcessingStep(
+            stage=self.NAME,
+            executed=True,
+            duration_ms=round(duration, 2),
+            outcome=outcome,
+            metadata={
+                "fact_count": len(facts),
+                "fact_types": [f.fact_type.name for f in facts],
+            },
+        ))
+        return ctx
+
+
 class DialogueStage:
     """
     Stage 3: Check for pending questions, slot fills, acks, topic changes.
@@ -433,6 +500,7 @@ class ConversationPipeline:
         self._stages = [
             RecoveryStage(),
             ResolutionStage(),
+            UnderstandingStage(),  # Genesis-048: pre-response fact extraction
             FocusSignalStage(),   # CFR-006: evidence only, no state mutation
             DialogueStage(),
         ]

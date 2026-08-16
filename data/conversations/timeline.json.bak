@@ -94,5 +94,29 @@
     "raw": "I demolished the old shed last Saturday.",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "832e67da-43e1-4c1e-8c78-97c121ad4155",
+    "session_id": "969dffff-2742-4122-86d7-f3dc514e699a",
+    "event_type": "General",
+    "value": "I demolished the old shed last Saturday",
+    "turn": 0,
+    "timestamp": "2026-08-16T01:40:37Z",
+    "source": "auto",
+    "raw": "I demolished the old shed last Saturday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "0c9f3e90-d6c3-4efd-b575-6ceff011655c",
+    "session_id": "47de7743-63d6-4427-964a-620876d653d7",
+    "event_type": "General",
+    "value": "I replaced the broken tap yesterday",
+    "turn": 0,
+    "timestamp": "2026-08-16T10:34:01Z",
+    "source": "auto",
+    "raw": "I replaced the broken tap yesterday.",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]

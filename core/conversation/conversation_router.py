@@ -216,6 +216,38 @@ class ConversationRouter:
                 payload={"dialogue_type": "acknowledgement"},
             )
 
+        # 3b. Genesis-048: Understood declarative statement -> ANSWER_DIRECTLY
+        # UnderstandingStage detected structured facts before AI was called.
+        # Core understands the input - no AI needed for the routing decision.
+        _ur = getattr(ctx, "understanding_result", None)
+        if _ur:
+            _inp = ctx.original_input
+            _is_question = _inp.rstrip().endswith("?")
+            _is_q_word = bool(__import__("re").match(
+                r"(?i)^\s*(?:what|who|where|when|why|how|which|can|could|would|should|will|did|do|does|is|are|have|has|had)\b",
+                _inp))
+            _is_cmd = bool(__import__("re").match(
+                r"(?i)^\s*(?:remember|note|save|store|forget|tell|show|find|get|set|remind)\b",
+                _inp))
+            if not _is_question and not _is_q_word and not _is_cmd:
+                from core.conversation.fact_extractor import FactType as _FT
+                _UNDERSTOOD = frozenset({_FT.EVENT, _FT.MILESTONE, _FT.ACHIEVEMENT,
+                                         _FT.PREFERENCE, _FT.PROJECT, _FT.TASK,
+                                         _FT.PERSON, _FT.WORKPLACE})
+                _types = {fct.fact_type for fct in _ur if fct.fact_type in _UNDERSTOOD}
+                if _types:
+                    _names = ", ".join(t.name for t in _types)
+                    logger.info("[ROUTER] Understood declarative: %s -> ANSWER_DIRECTLY", _names)
+                    return Decision(
+                        decision_type=DecisionType.ANSWER_DIRECTLY,
+                        resolved_input=effective,
+                        raw_input=original,
+                        confidence=0.80,
+                        reason=f"Core understands: {_names}",
+                        payload={"understood_types": [t.name for t in _types],
+                                 "fact_count": len(_ur)},
+                    )
+
         # 3a. Focus signal -- Router evaluates grounding. (CFR-006)
         if ctx.focus_signal_result and ctx.focus_signal_result.detected:
             _focus_conf = self._evaluate_focus_signal(ctx)

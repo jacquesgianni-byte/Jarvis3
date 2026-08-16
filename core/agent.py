@@ -5314,30 +5314,17 @@ class Agent:
 
 
 
+        # Genesis-048: Reuse understanding_result from PipelineContext if available.
+        # UnderstandingStage already ran FactExtractor this turn — no second run.
         try:
-
-
-
-
-
-            facts = FactExtractor().extract(request)
-
-
-
-
-
+            _last_ctx = getattr(self.conversation_engine, "last_ctx", None)
+            if _last_ctx is not None and getattr(_last_ctx, "understanding_result", None) is not None:
+                facts = _last_ctx.understanding_result
+                self.logger.debug("[MEMORY] Reusing understanding_result (%d facts)", len(facts))
+            else:
+                facts = FactExtractor(temporal_parser=self.temporal_parser).extract(request)
         except Exception:
-
-
-
-
-
             self.logger.exception("[MEMORY] FactExtractor error.")
-
-
-
-
-
             facts = []
 
 
@@ -7405,6 +7392,28 @@ class Agent:
 
 
 
+
+
+
+
+
+
+        # Genesis-048: Handle ANSWER_DIRECTLY from ConversationRouter.
+        # Fires when UnderstandingStage detected structured facts in a declarative
+        # statement. Core understands the input — no AI needed for this turn.
+        # Response is a brief acknowledgement; EVENT memory still stores in _post_turn.
+        if conv_decision.decision_type == DecisionType.ANSWER_DIRECTLY:
+            _understood = conv_decision.payload.get("understood_types", [])
+            if _understood:
+                self.logger.info(
+                    "[AGENT] ANSWER_DIRECTLY: understood %s",
+                    ", ".join(_understood),
+                )
+                _ack = Response(success=True, message="Got it.")
+                self.context.last_skill = "understanding"
+                self._post_turn(request, _ack.message)
+                self._check_intel_cycle()
+                return _ack
 
 
 
