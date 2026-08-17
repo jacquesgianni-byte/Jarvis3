@@ -5317,7 +5317,7 @@ class Agent:
         # Genesis-048: Reuse understanding_result from PipelineContext if available.
         # UnderstandingStage already ran FactExtractor this turn — no second run.
         try:
-            _last_ctx = getattr(self.conversation_engine, "last_ctx", None)
+            _last_ctx = getattr(self.conversation_engine, "last_context", None)
             if _last_ctx is not None and getattr(_last_ctx, "understanding_result", None) is not None:
                 facts = _last_ctx.understanding_result
                 self.logger.debug("[MEMORY] Reusing understanding_result (%d facts)", len(facts))
@@ -5576,6 +5576,53 @@ class Agent:
 
 
 
+
+    def _compose_acknowledgement(self, facts: list, raw_input: str) -> str:
+        """
+        Genesis-049: Compose a short content-aware acknowledgement.
+
+        Uses the actual understood content, not just the FactType label.
+        Keeps responses short and grounded in what was said.
+        Falls back to "Got it." when content cannot be extracted cleanly.
+
+        Rules:
+        - Use the fact value where it is short enough to echo naturally.
+        - Strip leading "I " / "We " to avoid "Got it, I demolished..."
+        - Never exceed ~60 chars in the grounded part.
+        - No FactType-to-phrase dictionary — use actual content.
+        """
+        if not facts:
+            return "Got it."
+
+        import re as _re
+        from core.conversation.fact_extractor import FactType as _FT
+
+        # Pick the most informative fact — EVENT first, then any other
+        fact = next((f for f in facts if f.fact_type == _FT.EVENT), facts[0])
+
+        value = (fact.value or "").strip().rstrip(".")
+
+        # Strip leading subject pronoun for natural echo
+        # "I demolished the old shed last Saturday" -> "demolished the old shed last Saturday"
+        value_stripped = _re.sub(r"^(?:i|we)\s+", "", value, flags=_re.IGNORECASE).strip()
+
+        # Keep it short — truncate at 50 chars on a word boundary
+        if len(value_stripped) > 50:
+            words = value_stripped.split()
+            truncated = ""
+            for w in words:
+                if len(truncated) + len(w) + 1 > 50:
+                    break
+                truncated = (truncated + " " + w).strip()
+            value_stripped = truncated
+
+        if not value_stripped:
+            return "Got it."
+
+        # Capitalise first letter
+        value_stripped = value_stripped[0].upper() + value_stripped[1:]
+
+        return f"Got it — {value_stripped}."
 
     def _handle_memory_detection(self, detection: MemoryDetection) -> Response:
 
@@ -7409,7 +7456,10 @@ class Agent:
                     "[AGENT] ANSWER_DIRECTLY: understood %s",
                     ", ".join(_understood),
                 )
-                _ack = Response(success=True, message="Got it.")
+                _ctx = getattr(self.conversation_engine, "last_context", None)
+                _facts = getattr(_ctx, "understanding_result", None) or []
+                _msg = self._compose_acknowledgement(_facts, request)
+                _ack = Response(success=True, message=_msg)
                 self.context.last_skill = "understanding"
                 self._post_turn(request, _ack.message)
                 self._check_intel_cycle()

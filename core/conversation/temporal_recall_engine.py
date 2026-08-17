@@ -169,49 +169,93 @@ class TemporalRecallEngine:
                             _seen_ids.add(_rid); _accumulated.append(_r)
             results = _accumulated
 
-        # Find records with temporal information in tags
+        # Genesis-049: Collect ALL user records matching the resolved date.
+        # Do not return on first match — a day may have multiple activities.
+        # Order by time-of-day slot (chronological), then importance.
+        _TOD_ORDER = {"morning": 0, "afternoon": 1, "evening": 2, "night": 3, "unspecified": 4}
+
+        _matched = []  # list of (record, resolved_date, temporal_expr, tod_slot)
         for record in results:
             if getattr(record, "subject", None) != "user":
                 continue  # only user memories qualify as temporal answers
-            # Check metadata first (future-proof)
             metadata = getattr(record, "metadata", None) or {}
             resolved_date    = metadata.get("resolved_date")
             temporal_expr    = metadata.get("temporal_expression")
-            time_of_day_slot = metadata.get("time_of_day_slot", "unspecified")  # Genesis-047 Sprint-003
-
-            # Fall back to tags encoding: "resolved:2026-07-27", "expr:last monday"
+            time_of_day_slot = metadata.get("time_of_day_slot", "unspecified")
             if not resolved_date:
                 for tag in getattr(record, "tags", []):
                     if tag.startswith("resolved:"):
                         resolved_date = tag[len("resolved:"):]
                     elif tag.startswith("expr:"):
                         temporal_expr = tag[len("expr:"):]
-                    elif tag.startswith("tod:"):  # Stabilisation: Test A
+                    elif tag.startswith("tod:"):
                         time_of_day_slot = tag[len("tod:"):]
-
             if resolved_date:
-                answer_text = self._format_answer(
-                    record.value, resolved_date, temporal_expr, time_of_day_slot
-                )  # Genesis-047 Sprint-003
-                logger.info(
-                    "[TEMPORAL_RECALL] Found: value=%r date=%r",
-                    record.value, resolved_date,
-                )
-                return TemporalAnswer(
-                    found=True,
-                    answer=answer_text,
-                    memory_value=record.value,
-                    resolved_date=resolved_date,
-                )
+                _matched.append((record, resolved_date, temporal_expr, time_of_day_slot))
 
+        if not _matched:
+            return TemporalAnswer(
+                found=False,
+                answer="I don't have a specific date recorded for that.",
+            )
+
+        # Sort: tod slot order first, then importance descending
+        _matched.sort(key=lambda x: (
+            _TOD_ORDER.get(x[3], 4),
+            -(getattr(x[0], "importance", 0.5) or 0.5),
+        ))
+
+        if len(_matched) == 1:
+            # Single record — use existing _format_answer path
+            r, rd, te, tod = _matched[0]
+            logger.info("[TEMPORAL_RECALL] Found: value=%r date=%r", r.value, rd)
+            return TemporalAnswer(
+                found=True,
+                answer=self._format_answer(r.value, rd, te, tod),
+                memory_value=r.value,
+                resolved_date=rd,
+            )
+
+        # Multiple records — compose a natural multi-event answer
+        logger.info("[TEMPORAL_RECALL] Multi-event: %d records for %s", len(_matched), _matched[0][1])
+        answer_text = self._compose_multi_answer(_matched)
         return TemporalAnswer(
-            found=False,
-            answer="I don't have a specific date recorded for that.",
+            found=True,
+            answer=answer_text,
+            memory_value="; ".join(r.value for r, *_ in _matched[:3]),
+            resolved_date=_matched[0][1],
         )
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _compose_multi_answer(self, matched: list) -> str:
+        """
+        Genesis-049: Compose a natural answer from multiple memory records.
+        matched: sorted list of (record, resolved_date, temporal_expr, tod_slot).
+        Caps at 3; overflow note for 4+.
+        Rule: use record.value as-is. No temporal suffix stripping.
+        """
+        _cap = 3
+        _overflow = max(0, len(matched) - _cap)
+        _display = matched[:_cap]
+        import re as _re
+        def _phrase(value: str) -> str:
+            return _re.sub(r"^(?:i|we)\s+", "", value.strip(), flags=_re.IGNORECASE)
+        phrases = [_phrase(r.value) for r, *_ in _display]
+        if len(phrases) == 1:
+            body = phrases[0]
+        elif len(phrases) == 2:
+            body = f"{phrases[0]} and {phrases[1]}"
+        else:
+            body = f"{phrases[0]}, {phrases[1]}, and {phrases[2]}"
+        body = body[0].upper() + body[1:] if body else body
+        result = f"You {body}."
+        if _overflow > 0:
+            more = "thing" if _overflow == 1 else "things"
+            result += f" I have {_overflow} more {more} from that day if you'd like the full list."
+        return result
 
     def _extract_search_hint(self, text: str) -> str:
         """

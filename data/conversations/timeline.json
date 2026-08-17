@@ -130,5 +130,101 @@
     "raw": "I replaced the broken tap yesterday.",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "17c6edfd-ddda-4f22-b14d-747229ced5e7",
+    "session_id": "c832b271-b16d-41a4-ac2b-e4e5c4aff7e8",
+    "event_type": "General",
+    "value": "I replaced the broken tap yesterday",
+    "turn": 0,
+    "timestamp": "2026-08-17T08:44:05Z",
+    "source": "auto",
+    "raw": "I replaced the broken tap yesterday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "77184d4f-724a-47e1-a025-1c69f118df0d",
+    "session_id": "c832b271-b16d-41a4-ac2b-e4e5c4aff7e8",
+    "event_type": "General",
+    "value": "I replaced the broken tap yesterday",
+    "turn": 1,
+    "timestamp": "2026-08-17T08:44:05Z",
+    "source": "auto",
+    "raw": "I replaced the broken tap yesterday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "60b00ac3-b143-4d67-857e-00627cb2c769",
+    "session_id": "c832b271-b16d-41a4-ac2b-e4e5c4aff7e8",
+    "event_type": "General",
+    "value": "I demolished the old shed last Saturday",
+    "turn": 2,
+    "timestamp": "2026-08-17T08:44:26Z",
+    "source": "auto",
+    "raw": "I demolished the old shed last Saturday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "87ce0a99-93fb-48eb-92ef-db79fe7371a3",
+    "session_id": "c832b271-b16d-41a4-ac2b-e4e5c4aff7e8",
+    "event_type": "General",
+    "value": "I demolished the old shed last Saturday",
+    "turn": 3,
+    "timestamp": "2026-08-17T08:44:26Z",
+    "source": "auto",
+    "raw": "I demolished the old shed last Saturday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "5a577ab0-c12e-4d10-aee2-a71857f9a4af",
+    "session_id": "d263e798-c636-4460-b0d3-94a65ea9371c",
+    "event_type": "General",
+    "value": "I replaced the broken tap yesterday",
+    "turn": 0,
+    "timestamp": "2026-08-17T10:10:34Z",
+    "source": "auto",
+    "raw": "I replaced the broken tap yesterday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "aa1278fb-5555-4bff-9a3a-979812b961a7",
+    "session_id": "d263e798-c636-4460-b0d3-94a65ea9371c",
+    "event_type": "General",
+    "value": "I replaced the broken tap yesterday",
+    "turn": 1,
+    "timestamp": "2026-08-17T10:10:34Z",
+    "source": "auto",
+    "raw": "I replaced the broken tap yesterday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "877ffb87-0be6-4ddf-b1d9-cde3028acf75",
+    "session_id": "d263e798-c636-4460-b0d3-94a65ea9371c",
+    "event_type": "General",
+    "value": "I demolished the old shed last Saturday",
+    "turn": 2,
+    "timestamp": "2026-08-17T10:11:23Z",
+    "source": "auto",
+    "raw": "I demolished the old shed last Saturday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "1610c1e0-8840-4555-949f-b63fd97305e5",
+    "session_id": "d263e798-c636-4460-b0d3-94a65ea9371c",
+    "event_type": "General",
+    "value": "I demolished the old shed last Saturday",
+    "turn": 3,
+    "timestamp": "2026-08-17T10:11:23Z",
+    "source": "auto",
+    "raw": "I demolished the old shed last Saturday.",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]
