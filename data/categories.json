@@ -82,5 +82,12 @@
     "description": "User-world events: meetings, completions, plans, occurrences. Time-bounded by default — not permanent personal facts.",
     "default_importance": 0.4,
     "default_visibility": "private"
+  },
+  {
+    "id": "entity_property",
+    "label": "Entity Property",
+    "description": "Properties of named entities (people, pets, devices, servers). Stored as prop:key attributes.",
+    "default_importance": 0.7,
+    "default_visibility": "private"
   }
 ]

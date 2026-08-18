@@ -1,4 +1,4 @@
-"""
+﻿"""
 Memory Skill (Genesis-031 Sprint-002)
 
 Minimal extension of original MemorySkill.
@@ -71,6 +71,118 @@ def _canonicalise(key: str) -> str:
     return _ALIASES.get(lower, key_stripped)
 
 
+
+# ---------------------------------------------------------------------------
+# Genesis-050: Deterministic attribute -> category classification
+# Replaces the accidental personal catch-all with explicit routing.
+# Unknown attributes fall back to "general" intentionally.
+# ---------------------------------------------------------------------------
+
+_IDENTITY_ATTRS = frozenset({
+    "name", "location", "hometown",
+})
+
+_PREFERENCE_ATTRS = frozenset({
+    "favourite colour", "favourite color",
+    "favourite food",   "favourite drink",
+    "favourite sport",  "favourite team",
+    "favourite movie",  "favourite film",
+    "favourite song",   "favourite book",
+    "favourite band",   "favourite restaurant",
+    "colour", "color", "drink", "food", "sport", "movie", "film", "song", "book",
+})
+
+_OCCUPATION_ATTRS = frozenset({
+    "occupation", "workplace",
+})
+
+_DEVICE_ATTRS = frozenset({
+    "car",
+})
+
+_RELATIONSHIP_ATTRS = frozenset({
+    "pets", "pet names",
+    "people", "people names",
+})
+
+_PROJECT_ATTRS = frozenset({
+    "project names",
+})
+
+_DEVICE_SUFFIXES       = ("vehicle names", "server names")
+_RELATIONSHIP_SUFFIXES = ("pet names", "people names")
+_PROJECT_SUFFIXES      = ("project names",)
+_GENERAL_SUFFIXES      = ("instrument names",)   # No possessions category in Genesis-050
+
+_REL_PREFIXES = (
+    "wife", "husband", "partner", "son", "daughter", "brother", "sister",
+    "father", "mother", "friend", "colleague", "manager", "boss",
+    "nephew", "niece", "cousin", "uncle", "aunt", "child", "kid",
+)
+
+
+def _classify_attribute(attribute: str, temporal_metadata=None) -> str:
+    """
+    Return the correct semantic category for a personal fact attribute.
+
+    Genesis-050: explicit deterministic map replacing the old catch-all.
+    Unknown attributes fall back to "general" intentionally.
+
+    Args:
+        attribute:         The canonicalised attribute name.
+        temporal_metadata: If not None, the record is a time-bounded event.
+
+    Returns:
+        A category id declared in categories.json.
+    """
+    if temporal_metadata is not None:
+        return "event"
+
+    attr_lower = attribute.lower().strip()
+
+    if attr_lower in _IDENTITY_ATTRS:
+        return "identity"
+
+    if attr_lower in _PREFERENCE_ATTRS:
+        return "preferences"
+
+    if attr_lower.startswith("favourite ") or attr_lower.startswith("favorite "):
+        return "preferences"
+
+    if attr_lower in _OCCUPATION_ATTRS:
+        return "occupation"
+
+    if attr_lower in _DEVICE_ATTRS:
+        return "devices"
+
+    if attr_lower in _RELATIONSHIP_ATTRS:
+        return "relationships"
+
+    if attr_lower in _PROJECT_ATTRS:
+        return "projects"
+
+    for suffix in _DEVICE_SUFFIXES:
+        if attr_lower.endswith(suffix):
+            return "devices"
+
+    for suffix in _RELATIONSHIP_SUFFIXES:
+        if attr_lower.endswith(suffix):
+            return "relationships"
+
+    for suffix in _PROJECT_SUFFIXES:
+        if attr_lower.endswith(suffix):
+            return "projects"
+
+    for suffix in _GENERAL_SUFFIXES:
+        if attr_lower.endswith(suffix):
+            return "general"
+
+    for prefix in _REL_PREFIXES:
+        if attr_lower.startswith(prefix):
+            return "relationships"
+
+    return "general"
+
 class MemorySkill(Skill):
 
     name = "memory"
@@ -119,7 +231,7 @@ class MemorySkill(Skill):
 
         self.knowledge.store_memory(
             subject="user",
-            category="personal",
+            category=_classify_attribute(_canonicalise(key), temporal_metadata),
             attribute=_canonicalise(key),
             value=value,
             tags=tags,

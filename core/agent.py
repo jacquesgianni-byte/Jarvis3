@@ -4008,7 +4008,7 @@ class Agent:
 
 
 
-                subject="user", category="personal",
+                subject="user", category="relationships",
 
 
 
@@ -4032,187 +4032,7 @@ class Agent:
 
 
 
-                subject="user", category="personal",
-
-
-
-
-
-                attribute="people", value=_gp_decl, tags=["user_fact"],
-
-
-
-
-
-            )
-
-
-
-
-
-            # Also set active_topic so pronouns resolve
-
-
-
-
-
-            self.session.set_active_topic(_gp_decl, raw=_gp_decl)
-
-
-
-
-
-            self.logger.info("[FIX-6B] Group pre-store: %r → %r", _gp_attr, _gp_names)
-
-
-
-
-
-            _gp_resp = Response(success=True, message="Got it, I'll remember that.")
-
-
-
-
-
-            self._post_turn(request, _gp_resp.message)
-
-
-
-
-
-            return _gp_resp
-
-
-
-
-
-
-
-
-
-
-
-        # FIX-6B: Catch "My [group] are [names]" before Step 4 for group nouns
-
-
-
-
-
-        # that SlotCompletionEngine doesn't recognise (e.g. "children", "kids").
-
-
-
-
-
-        import re as _re_group_pre
-
-
-
-
-
-        _GROUP_PRE_RE = _re_group_pre.compile(
-
-
-
-
-
-            r"^my\s+(children|kids|sons?|daughters?|family|relatives?|friends?|colleagues?)"
-
-
-
-
-
-            r"\s+are\s+(.+)$",
-
-
-
-
-
-            _re_group_pre.IGNORECASE,
-
-
-
-
-
-        )
-
-
-
-
-
-        _group_pre_m = _GROUP_PRE_RE.match(request.strip())
-
-
-
-
-
-        if _group_pre_m:
-
-
-
-
-
-            _gp_noun  = _group_pre_m.group(1).lower()
-
-
-
-
-
-            _gp_names = _group_pre_m.group(2).strip().rstrip(".")
-
-
-
-
-
-            # Store as people names + people declaration
-
-
-
-
-
-            _gp_attr  = "people names"
-
-
-
-
-
-            _gp_decl  = _gp_noun  # "children", "kids" etc.
-
-
-
-
-
-            self.knowledge.store_memory(
-
-
-
-
-
-                subject="user", category="personal",
-
-
-
-
-
-                attribute=_gp_attr, value=_gp_names, tags=["user_fact"],
-
-
-
-
-
-            )
-
-
-
-
-
-            self.knowledge.store_memory(
-
-
-
-
-
-                subject="user", category="personal",
+                subject="user", category="relationships",
 
 
 
@@ -8628,7 +8448,7 @@ class Agent:
 
 
 
-                                _all_personal = self.knowledge.list_memories(subject="user", category="personal")
+                                _all_personal = self.knowledge.list_memories(subject="user", category="relationships")
 
 
 

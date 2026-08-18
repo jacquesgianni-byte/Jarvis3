@@ -1,129 +1,21 @@
 """
 Jarvis OS Chat View Widget
 
-The main conversation area displaying message bubbles
-for Jarvis, user and system messages.
+Single-document conversation area — the entire chat history lives in one
+QTextEdit, making the full conversation selectable and copyable as one block.
 """
 
 from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel,
-    QScrollArea, QFrame, QHBoxLayout, QSizePolicy, QTextEdit
+    QScrollArea, QFrame, QHBoxLayout, QSizePolicy,
+    QTextEdit,
 )
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QTextCursor
 
 from apps.desktop.theme import Theme
-
-
-class MessageBubble(QFrame):
-    """
-    A single message bubble in the conversation view.
-
-    Uses QTextEdit for the bubble content to support:
-    - Ctrl+C text copying
-    - Right-click context menu
-    - Multi-line text selection
-    """
-
-    def __init__(self, text: str, role: str, parent=None):
-        """
-        Args:
-            text:   The message text.
-            role:   One of 'jarvis', 'user', 'system'.
-        """
-        super().__init__(parent)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
-        # Sender label
-        if role != "system":
-            sender = "Jarvis" if role == "jarvis" else "You"
-            timestamp = datetime.now().strftime("%H:%M")
-            header = QLabel(f"{sender}  ·  {timestamp}")
-            header.setStyleSheet(f"""
-                color: {Theme.TEXT_MUTED};
-                font-size: {Theme.FONT_XS}px;
-                padding: 0;
-                background: transparent;
-            """)
-            layout.addWidget(header)
-
-        # Colour scheme per role
-        if role == "jarvis":
-            bg = Theme.BUBBLE_JARVIS
-            color = Theme.TEXT
-            border = f"1px solid {Theme.BORDER}"
-        elif role == "user":
-            bg = Theme.BUBBLE_USER
-            color = Theme.TEXT
-            border = f"1px solid {Theme.BORDER_ACCENT}"
-        else:
-            bg = "transparent"
-            color = Theme.TEXT_SECONDARY
-            border = "none"
-
-        # QTextEdit for full desktop text interaction
-        bubble = _BubbleText(text, bg, color, border)
-        layout.addWidget(bubble)
-
-        self.setStyleSheet("background: transparent;")
-
-        if role == "user":
-            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-
-
-class _BubbleText(QTextEdit):
-    """
-    Read-only text widget used inside MessageBubble.
-
-    Provides Ctrl+C, right-click copy and multi-line selection
-    while maintaining the bubble appearance.
-    Auto-sizes to fit content without a scrollbar.
-    """
-
-    def __init__(self, text: str, bg: str, color: str, border: str, parent=None):
-        super().__init__(parent)
-
-        self.setReadOnly(True)
-        self.setPlainText(text)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-
-        self.setStyleSheet(f"""
-            QTextEdit {{
-                background: {bg};
-                color: {color};
-                font-family: "{Theme.FONT_FAMILY}";
-                font-size: {Theme.FONT_NORMAL}px;
-                border: {border};
-                border-radius: {Theme.RADIUS_MD}px;
-                padding: 12px 16px;
-                selection-background-color: {Theme.ACCENT_DIM};
-            }}
-            QScrollBar {{
-                width: 0px;
-                height: 0px;
-            }}
-        """)
-
-        # Size to content after document is populated
-        self.document().contentsChanged.connect(self._resize_to_content)
-        self._resize_to_content()
-
-    def _resize_to_content(self):
-        """Resize the widget to fit its text content exactly."""
-        doc = self.document()
-        doc.setTextWidth(self.viewport().width() if self.viewport().width() > 0 else 500)
-        doc_height = doc.size().height()
-        # Fallback: estimate from line count if doc height is zero
-        if doc_height < 10:
-            lines = max(1, self.toPlainText().count(chr(10)) + 1)
-            doc_height = lines * 22
-        self.setFixedHeight(int(doc_height) + 28)
 
 
 class TypingIndicator(QFrame):
@@ -137,7 +29,7 @@ class TypingIndicator(QFrame):
 
         self._dots = []
         for _ in range(3):
-            dot = QLabel("●")
+            dot = QLabel("\u25cf")
             dot.setStyleSheet(f"""
                 color: {Theme.ACCENT};
                 font-size: 8px;
@@ -163,42 +55,46 @@ class TypingIndicator(QFrame):
     def _animate(self):
         for i, dot in enumerate(self._dots):
             if i == self._step % 3:
-                dot.setStyleSheet(f"color: {Theme.ACCENT}; font-size: 8px; background: transparent;")
+                dot.setStyleSheet(
+                    f"color: {Theme.ACCENT}; font-size: 8px; background: transparent;"
+                )
             else:
-                dot.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 8px; background: transparent;")
+                dot.setStyleSheet(
+                    f"color: {Theme.TEXT_MUTED}; font-size: 8px; background: transparent;"
+                )
         self._step += 1
 
 
-class ChatView(QScrollArea):
+class ChatView(QWidget):
     """
-    Scrollable conversation area containing message bubbles.
+    Scrollable conversation area using a single QTextEdit document.
+
+    The entire conversation history is one document — fully selectable
+    and copyable across all messages, like Claude or ChatGPT.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
 
-        self._container = QWidget()
-        self._layout = QVBoxLayout(self._container)
-        self._layout.setContentsMargins(
-            Theme.CHAT_PADDING,
-            Theme.CHAT_PADDING,
-            Theme.CHAT_PADDING,
-            Theme.CHAT_PADDING
-        )
-        self._layout.setSpacing(Theme.SPACING_MD)
-        self._layout.addStretch()
-
-        self.setWidget(self._container)
-        self._typing_indicator = None
-
-        self.setStyleSheet(f"""
-            QScrollArea {{
+        # Single document for the entire conversation
+        self._doc = QTextEdit()
+        self._doc.setReadOnly(True)
+        self._doc.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._doc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._doc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._doc.setStyleSheet(f"""
+            QTextEdit {{
                 background: {Theme.BACKGROUND};
+                color: {Theme.TEXT};
+                font-family: "{Theme.FONT_FAMILY}";
+                font-size: {Theme.FONT_NORMAL}px;
                 border: none;
+                padding: 16px;
+                selection-background-color: {Theme.ACCENT_DIM};
             }}
             QScrollBar:vertical {{
                 background: {Theme.SURFACE};
@@ -216,74 +112,108 @@ class ChatView(QScrollArea):
             }}
         """)
 
-    def _add_bubble(self, text: str, role: str):
-        """Add a message bubble and scroll to bottom."""
-        self._remove_typing()
+        self._layout.addWidget(self._doc, stretch=1)
 
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
+        # Typing indicator sits below the doc, hidden by default
+        self._typing_row = QWidget()
+        typing_layout = QHBoxLayout(self._typing_row)
+        typing_layout.setContentsMargins(Theme.CHAT_PADDING, 4, Theme.CHAT_PADDING, 4)
+        self._typing_indicator = TypingIndicator()
+        typing_layout.addWidget(self._typing_indicator, stretch=0)
+        typing_layout.addStretch()
+        self._typing_row.setStyleSheet(f"background: {Theme.BACKGROUND};")
+        self._typing_row.hide()
+        self._layout.addWidget(self._typing_row)
 
-        bubble = MessageBubble(text, role)
+        self._is_first_message = True
 
-        if role == "user":
-            row.addStretch()
-            row.addWidget(bubble, stretch=0)
-            bubble.setMaximumWidth(560)
-        elif role == "system":
-            row.addWidget(bubble)
-        else:
-            row.addWidget(bubble, stretch=0)
-            row.addStretch()
-            bubble.setMaximumWidth(620)
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-        wrapper = QWidget()
-        wrapper.setLayout(row)
-        wrapper.setStyleSheet("background: transparent;")
-
-        self._layout.insertWidget(self._layout.count() - 1, wrapper)
-        QTimer.singleShot(50, self._scroll_to_bottom)
-
-    def _remove_typing(self):
-        if self._typing_indicator is not None:
-            self._typing_indicator.setParent(None)
-            self._typing_indicator.deleteLater()
-            self._typing_indicator = None
+    def _append_html(self, html: str):
+        """Append an HTML block to the document and scroll to bottom."""
+        cursor = self._doc.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        if not self._is_first_message:
+            cursor.insertHtml("<br>")
+        cursor.insertHtml(html)
+        self._is_first_message = False
+        QTimer.singleShot(30, self._scroll_to_bottom)
 
     def _scroll_to_bottom(self):
-        self.verticalScrollBar().setValue(
-            self.verticalScrollBar().maximum()
+        self._doc.verticalScrollBar().setValue(
+            self._doc.verticalScrollBar().maximum()
         )
+
+    def _format_message(self, text: str, role: str) -> str:
+        """Format a message as an HTML block."""
+        timestamp = datetime.now().strftime("%H:%M")
+
+        if role == "jarvis":
+            sender_color = Theme.ACCENT
+            sender = "Jarvis"
+            bubble_bg = Theme.BUBBLE_JARVIS
+            border_color = Theme.BORDER
+        elif role == "user":
+            sender_color = Theme.TEXT_SECONDARY
+            sender = "You"
+            bubble_bg = Theme.BUBBLE_USER
+            border_color = Theme.BORDER_ACCENT
+        else:
+            # System message — no header, muted style
+            return (
+                f'<div style="color: {Theme.TEXT_SECONDARY}; font-size: 12px; '
+                f'padding: 4px 0; font-style: italic;">{text}</div>'
+            )
+
+        # Escape HTML special chars in text
+        safe_text = (
+            text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+
+        return (
+            f'<div style="margin-bottom: 4px;">' +
+            f'<span style="color: {sender_color}; font-size: 11px; font-weight: 600;">{sender}</span>' +
+            f'<span style="color: {Theme.TEXT_MUTED}; font-size: 11px;">  ·  {timestamp}</span>' +
+            f'</div>' +
+            f'<div style="' +
+            f'background: {bubble_bg}; ' +
+            f'border: 1px solid {border_color}; ' +
+            f'border-radius: 8px; ' +
+            f'padding: 10px 14px; ' +
+            f'color: {Theme.TEXT}; ' +
+            f'font-size: {Theme.FONT_NORMAL}px; ' +
+            f'line-height: 1.5; ' +
+            f'">{safe_text}</div>'
+        )
+
+    # ------------------------------------------------------------------
+    # Public API — unchanged from original ChatView
+    # ------------------------------------------------------------------
 
     def display_jarvis_message(self, text: str):
         """Display a message from Jarvis."""
-        self._add_bubble(text, "jarvis")
+        self._typing_row.hide()
+        self._append_html(self._format_message(text, "jarvis"))
 
     def display_user_message(self, text: str):
         """Display a message from the user."""
-        self._add_bubble(text, "user")
+        self._append_html(self._format_message(text, "user"))
 
     def display_system_message(self, text: str):
         """Display a system message."""
-        self._add_bubble(text, "system")
+        self._append_html(self._format_message(text, "system"))
 
     def show_typing(self):
         """Show the typing indicator."""
-        self._remove_typing()
-        self._typing_indicator = TypingIndicator()
-
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self._typing_indicator, stretch=0)
-        row.addStretch()
-
-        wrapper = QWidget()
-        wrapper.setLayout(row)
-        wrapper.setStyleSheet("background: transparent;")
-
-        self._layout.insertWidget(self._layout.count() - 1, wrapper)
-        self._typing_indicator._wrapper = wrapper
-        QTimer.singleShot(50, self._scroll_to_bottom)
+        self._typing_row.show()
+        QTimer.singleShot(30, self._scroll_to_bottom)
 
     def hide_typing(self):
-        """Remove the typing indicator."""
-        self._remove_typing()
+        """Hide the typing indicator."""
+        self._typing_row.hide()
