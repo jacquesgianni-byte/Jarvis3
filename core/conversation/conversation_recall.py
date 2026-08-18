@@ -109,7 +109,8 @@ _ROLE_ANSWER_TEMPLATES: dict[str, str] = {
 _ROLE_FALLBACK_TEMPLATE = "Your {relationship} is {value}."
 
 _ATTRIBUTE_ANSWER_TEMPLATES: dict[str, str] = {
-    "workplace": "You work at {value}.",
+    "workplace":  "You work at {value}.",
+    "occupation": "You work as {value}.",
 }
 
 
@@ -173,7 +174,7 @@ class ConversationRecall:
 
         # Workplace query: "Where do I work?"
         if _WORKPLACE_QUERY.search(query):
-            return self._recall_attribute("user", "workplace")
+            return self._recall_workplace()
 
         # Pet name query: "What are their names?" / "What are my dogs' names?"
         if _PET_NAME_QUERY.search(query):
@@ -347,6 +348,41 @@ class ConversationRecall:
             answer=r.value,
             attribute=r.attribute,
             value=r.value,
+        )
+
+    def _recall_workplace(self) -> RecallResult:
+        """
+        Recall where the user works.
+
+        Tries "workplace" (employer name) first, then "occupation" (job title).
+        If both exist, returns the most recently updated record — deterministic,
+        not dependent on repository ordering.
+
+        "You work at {value}." for workplace.
+        "You work as {value}." for occupation.
+        """
+        workplace  = self._knowledge.recall_memory("user", "workplace")
+        occupation = self._knowledge.recall_memory("user", "occupation")
+
+        if workplace and occupation:
+            # Both exist — use the most recently updated
+            if occupation.updated_at >= workplace.updated_at:
+                record, attribute = occupation, "occupation"
+            else:
+                record, attribute = workplace, "workplace"
+        elif workplace:
+            record, attribute = workplace, "workplace"
+        elif occupation:
+            record, attribute = occupation, "occupation"
+        else:
+            return RecallResult(found=False, answer="")
+
+        template = _ATTRIBUTE_ANSWER_TEMPLATES[attribute]
+        return RecallResult(
+            found=True,
+            answer=template.format(value=record.value),
+            attribute=attribute,
+            value=record.value,
         )
 
     def _recall_pet_names(self) -> RecallResult:

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Property Assigner (Genesis-028 Sprint-001)
 
 Detects and stores arbitrary property assignments for recognised entities.
@@ -282,6 +282,13 @@ class PropertyAssigner:
 
             # Reject stop subjects
             if subject_raw.lower() in _STOP_SUBJECTS:
+                continue
+
+            # Reject imperative memory triggers as subject prefix.
+            # "Remember that Leo is 8" must not produce subject="remember that leo".
+            # These messages belong to the MemorySkill explicit-memory pathway.
+            _MEMORY_TRIGGERS = {"remember", "note", "store", "save"}
+            if subject_raw.lower().split()[0] in _MEMORY_TRIGGERS:
                 continue
 
             # Reject subjects containing possessive words
