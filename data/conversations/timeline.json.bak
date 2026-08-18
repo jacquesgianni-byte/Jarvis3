@@ -286,5 +286,41 @@
     "raw": "I finished the shed last Saturday",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "5038d3a4-ca51-4ef9-8ae5-412599d7e777",
+    "session_id": "d3ccfa69-c4d9-443e-9939-2caa24642742",
+    "event_type": "General",
+    "value": "I finished the shed last Saturday",
+    "turn": 6,
+    "timestamp": "2026-08-18T08:01:08Z",
+    "source": "auto",
+    "raw": "I finished the shed last Saturday",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "02a5e95b-3ccd-46b1-a3bb-87469b9335f9",
+    "session_id": "42632b45-d37f-4edb-a10a-b26265d0b703",
+    "event_type": "Person",
+    "value": "Gianni",
+    "turn": 0,
+    "timestamp": "2026-08-18T09:48:38Z",
+    "source": "auto",
+    "raw": "My name is Gianni",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "9ac29ae4-5fe0-4d35-a581-0da5b3fdfe6d",
+    "session_id": "42632b45-d37f-4edb-a10a-b26265d0b703",
+    "event_type": "General",
+    "value": "I finished the shed last Saturday",
+    "turn": 5,
+    "timestamp": "2026-08-18T09:50:42Z",
+    "source": "auto",
+    "raw": "I finished the shed last Saturday",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]
