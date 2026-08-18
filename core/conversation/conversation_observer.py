@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Conversation Observer (Genesis-020 Sprint-001)
 
 Observes each conversation turn and extracts structured facts into
@@ -58,9 +58,12 @@ class ConversationObserver:
     SlotCompletionEngine (Genesis-025).
     """
 
-    def __init__(self, knowledge: "KnowledgeEngine") -> None:
+    def __init__(self, knowledge: "KnowledgeEngine", temporal_parser=None) -> None:
         self._knowledge = knowledge
-        self._extractor = FactExtractor()
+        # Genesis-051 Sprint-002: inject temporal_parser so _extract_events()
+        # fires for implicit event statements ("I finished the shed last Saturday").
+        # Without temporal_parser, FactExtractor._extract_events() always returns [].
+        self._extractor = FactExtractor(temporal_parser=temporal_parser)
 
     def observe(self, user_message: str, jarvis_response: str) -> None:
         """
@@ -104,7 +107,26 @@ class ConversationObserver:
                 )
 
     def _tags_for(self, fact: ExtractedFact) -> list[str]:
-        """Return appropriate tags for a fact based on its type."""
+        """Return appropriate tags for a fact based on its type.
+
+        Genesis-051 Sprint-002: EVENT facts receive temporal tags
+        (resolved:, expr:, tod:) so TemporalRecallEngine can find them.
+        Without these tags, events stored here are invisible to recall.
+        """
+        if fact.fact_type == FactType.EVENT:
+            tags = ["user_event"]
+            ctx = fact.metadata.get("temporal_ctx") or {}
+            resolved = ctx.get("resolved_date")
+            expr     = ctx.get("temporal_expression")
+            tod      = ctx.get("time_of_day_slot")
+            if resolved:
+                tags.append(f"resolved:{resolved}")
+            if expr:
+                tags.append(f"expr:{expr}")
+            if tod:
+                tags.append(f"tod:{tod}")
+            return tags
+
         base = ["auto-extracted", "derived"]
         if fact.fact_type == FactType.PET:
             base.append("pet")

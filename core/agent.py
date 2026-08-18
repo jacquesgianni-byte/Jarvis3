@@ -1375,7 +1375,12 @@ class Agent:
 
 
 
-        self.conversation_observer = ConversationObserver(self.knowledge)
+        # Genesis-051 Sprint-002: pass temporal_parser so implicit event
+        # statements are extracted and stored with resolved:/expr:/tod: tags.
+        self.conversation_observer = ConversationObserver(
+            self.knowledge,
+            temporal_parser=self.temporal_parser,
+        )
 
 
 
