@@ -32,6 +32,7 @@ from .models import (
 from .dispatcher import DispatchPolicy, EngineeringDispatcher
 from .queue import EngineeringQueue
 from .registry import EngineeringWorkerRegistry
+from .session_store import SessionStore
 from .worker import DefaultEngineeringWorker, EngineeringWorker, LocalEngineeringWorker
 
 
@@ -45,30 +46,33 @@ class CoordinatorConfig:
     def __init__(
         self,
         *,
-        enable_planning:   bool = True,
-        enable_guardrails: bool = True,
-        enable_validation: bool = True,
-        enable_debugging:  bool = True,
-        enable_repair:     bool = True,
-        max_debug_cycles:  int  = 1,
+        enable_planning:      bool = True,
+        enable_guardrails:    bool = True,
+        enable_approval_gate: bool = True,    # Genesis-053: approval gate after GUARDRAILS
+        enable_validation:    bool = True,
+        enable_debugging:     bool = True,
+        enable_repair:        bool = True,
+        max_debug_cycles:     int  = 1,
     ) -> None:
         if not isinstance(max_debug_cycles, int) or max_debug_cycles < 0:
             raise ValueError(
                 f"max_debug_cycles must be a non-negative int, "
                 f"got {max_debug_cycles!r}"
             )
-        self.enable_planning   = enable_planning
-        self.enable_guardrails = enable_guardrails
-        self.enable_validation = enable_validation
-        self.enable_debugging  = enable_debugging
-        self.enable_repair     = enable_repair
-        self.max_debug_cycles  = max_debug_cycles
+        self.enable_planning      = enable_planning
+        self.enable_guardrails    = enable_guardrails
+        self.enable_approval_gate = enable_approval_gate
+        self.enable_validation    = enable_validation
+        self.enable_debugging     = enable_debugging
+        self.enable_repair        = enable_repair
+        self.max_debug_cycles     = max_debug_cycles
 
     def __repr__(self) -> str:
         return (
             f"CoordinatorConfig("
             f"planning={self.enable_planning}, "
             f"guardrails={self.enable_guardrails}, "
+            f"approval_gate={self.enable_approval_gate}, "
             f"validation={self.enable_validation}, "
             f"debugging={self.enable_debugging}, "
             f"repair={self.enable_repair}, "
@@ -132,11 +136,12 @@ class EngineeringCoordinator:
     def __init__(
         self,
         *,
-        planner:     Optional[Any] = None,
-        guardrails:  Optional[Any] = None,
-        test_runner: Optional[Any] = None,
-        debugger:    Optional[Any] = None,
-        config:      Optional[CoordinatorConfig] = None,
+        planner:       Optional[Any] = None,
+        guardrails:    Optional[Any] = None,
+        test_runner:   Optional[Any] = None,
+        debugger:      Optional[Any] = None,
+        config:        Optional[CoordinatorConfig] = None,
+        session_store: Optional[SessionStore] = None,   # Genesis-053
     ) -> None:
         self._planner     = planner
         self._guardrails  = guardrails
@@ -149,6 +154,11 @@ class EngineeringCoordinator:
         self._worker      = LocalEngineeringWorker()    # Sprint 005: coordinator owns one worker
         self._registry    = EngineeringWorkerRegistry() # Sprint 006: coordinator owns one registry
         self._registry.register(self._worker)           # register default worker on init
+        # Genesis-053: approval gate + persistence
+        self._session_store: Optional[SessionStore] = session_store
+        self._suspended_sessions: Dict[str, Any] = {}   # session_id → EngineeringSession
+        if self._session_store is not None:
+            self._restore_suspended_sessions()
 
     # ------------------------------------------------------------------
     # Observer / event system  (Sprint 001 — unchanged)
@@ -531,6 +541,21 @@ class EngineeringCoordinator:
         else:
             warnings.append("Guardrails stage disabled by config")
 
+        # ── Genesis-053: Approval Gate ─────────────────────────────────
+        # Suspend pipeline between GUARDRAILS and VALIDATION.
+        # Execution resumes only after resume_session() is called.
+        if self._config.enable_approval_gate:
+            session.suspend()
+            self._suspended_sessions[session.session_id] = session
+            if self._session_store is not None:
+                self._session_store.save(session)
+            self._emit(
+                "approval_gate",
+                EngineeringStatus.AWAITING_APPROVAL,
+                f"Session {session.session_id[:8]} suspended — awaiting approval",
+            )
+            return self._build_suspended_result(session, start_ms, queue_position, dispatch_record)
+
         # ── Stage 3: Validation ────────────────────────────────────────
         validation_pass = True
         if self._config.enable_validation:
@@ -631,6 +656,251 @@ class EngineeringCoordinator:
     # ------------------------------------------------------------------
     # Private stage runners  (Sprint 001 — unchanged)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Genesis-053: Approval gate support
+    # ------------------------------------------------------------------
+
+    def resume_session(
+        self,
+        session_id: str,
+        decision: str,
+        decided_by: str = "ludovic",
+        reason: str = "",
+    ) -> Optional["EngineeringResult"]:
+        """
+        Resume a suspended AWAITING_APPROVAL session.
+
+        Args:
+            session_id:  The session UUID to resume.
+            decision:    "approve" or "reject".
+            decided_by:  Who made the decision (for audit trail).
+            reason:      Required for rejection; optional for approval.
+
+        Returns:
+            EngineeringResult if the session was found and processed.
+            None if the session_id is unknown or not in AWAITING_APPROVAL state.
+
+        Raises:
+            ValueError: if decision is not "approve" or "reject".
+        """
+        import datetime
+
+        if decision not in ("approve", "reject"):
+            raise ValueError(f"decision must be 'approve' or 'reject', got {decision!r}")
+
+        session = self._suspended_sessions.get(session_id)
+        if session is None and self._session_store is not None:
+            session = self._session_store.load(session_id)
+            if session is not None:
+                self._suspended_sessions[session_id] = session
+
+        if session is None:
+            return None
+
+        from .models import EngineeringStatus
+        if session.status != EngineeringStatus.AWAITING_APPROVAL:
+            return None
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        if decision == "reject":
+            session.reject(
+                rejected_by=decided_by,
+                rejected_at=now_iso,
+                reason=reason or "No reason provided",
+            )
+            if self._session_store is not None:
+                self._session_store.save(session)
+            self._suspended_sessions.pop(session_id, None)
+            self._emit(
+                "approval_gate",
+                EngineeringStatus.FAILED,
+                f"Session {session_id[:8]} rejected by {decided_by!r}",
+            )
+            return self._build_rejected_result(session)
+
+        # Approved — record decision and continue pipeline
+        session.approve(approved_by=decided_by, approved_at=now_iso)
+        if self._session_store is not None:
+            self._session_store.save(session)
+        self._suspended_sessions.pop(session_id, None)
+        self._emit(
+            "approval_gate",
+            EngineeringStatus.VALIDATING,
+            f"Session {session_id[:8]} approved by {decided_by!r} — resuming",
+        )
+        # Resume from validation onward
+        return self._execute_session_from_validation(session)
+
+    def suspended_sessions(self) -> List[Dict[str, Any]]:
+        """
+        Return a list of summary dicts for all currently suspended sessions.
+        Used by the /orchestrator/status endpoint.
+        """
+        result = []
+        for sid, session in self._suspended_sessions.items():
+            result.append({
+                "session_id":    sid,
+                "status":        session.status.value,
+                "stage":         session.current_stage.value,
+                "request":       session.request.request[:120],
+                "approved_by":   session.approved_by,
+                "approved_at":   session.approved_at,
+            })
+        return result
+
+    def _restore_suspended_sessions(self) -> None:
+        """Load resumable sessions from disk on startup."""
+        if self._session_store is None:
+            return
+        sessions = self._session_store.load_resumable()
+        for session in sessions:
+            self._suspended_sessions[session.session_id] = session
+        if sessions:
+            import logging
+            logging.getLogger(__name__).info(
+                "[COORDINATOR] Restored %d suspended session(s) from disk.",
+                len(sessions),
+            )
+
+    def _build_suspended_result(
+        self,
+        session,
+        start_ms: int,
+        queue_position: Optional[int],
+        dispatch_record=None,
+    ) -> "EngineeringResult":
+        """Build a result representing a suspended (AWAITING_APPROVAL) session."""
+        from .models import EngineeringStatus
+        end_ms      = int(time.monotonic() * 1000)
+        duration_ms = end_ms - start_ms
+        snapshot    = self._queue.snapshot()
+
+        result = EngineeringResult(
+            status=EngineeringStatus.AWAITING_APPROVAL,
+            completed=False,
+            duration_ms=duration_ms,
+            errors=[],
+            warnings=["Session suspended — awaiting human approval before validation"],
+            session=session,
+            timeline=session.events.timeline(),
+            stage_durations=session.stage_durations(),
+            queue_position=queue_position,
+            queue_snapshot=snapshot,
+            dispatch_record=dispatch_record,
+        )
+        # Do NOT call session.complete() — session remains open
+        return result
+
+    def _build_rejected_result(self, session) -> "EngineeringResult":
+        """Build a result for a rejected session."""
+        from .models import EngineeringStatus
+        snapshot = self._queue.snapshot()
+        result = EngineeringResult(
+            status=EngineeringStatus.FAILED,
+            completed=False,
+            errors=[f"Rejected: {session.rejection_reason}"],
+            warnings=[],
+            session=session,
+            timeline=session.events.timeline(),
+            stage_durations=session.stage_durations(),
+            queue_snapshot=snapshot,
+        )
+        session.complete(result)
+        return result
+
+    def _execute_session_from_validation(self, session) -> "EngineeringResult":
+        """
+        Resume _execute_session() from the VALIDATION stage onward.
+        Called after human approval of a suspended session.
+        """
+        request   = session.request
+        start_ms  = session.started_at
+        plan:     Optional[str] = None
+        errors:   List[str]     = []
+        warnings: List[str]     = ["Session resumed after human approval"]
+
+        # ── Stage 3: Validation ────────────────────────────────────────
+        validation_pass = True
+        validation:      Optional[str] = None
+        debug_report:    Optional[str] = None
+        repair_plan:     Optional[str] = None
+
+        if self._config.enable_validation:
+            from .models import EngineeringStage
+            stage_start = int(time.monotonic() * 1000)
+            session.advance_to(EngineeringStage.VALIDATION, "Validation stage started")
+            self._emit("validation", session.status, "Running validation")
+
+            validation_pass, validation, val_warnings, val_errors = self._run_validation(
+                request, plan
+            )
+            warnings.extend(val_warnings)
+            errors.extend(val_errors)
+
+            stage_dur = int(time.monotonic() * 1000) - stage_start
+            outcome = "Validation passed" if validation_pass else "Validation failed"
+            session.advance_to(EngineeringStage.VALIDATION, outcome, duration_ms=stage_dur)
+        else:
+            warnings.append("Validation stage disabled by config")
+            validation = "Validation skipped by config"
+
+        # ── Stage 4: Debugging (if validation failed) ──────────────────
+        if not validation_pass:
+            from .models import EngineeringStage, EngineeringStatus
+            if self._config.enable_debugging and self.has_debugger:
+                stage_start = int(time.monotonic() * 1000)
+                session.advance_to(EngineeringStage.DEBUGGING, "Validation failed — invoking debugger")
+                self._emit("debugging", EngineeringStatus.DEBUGGING, "Validation failed — invoking debugger")
+                debug_report, repair_plan, debug_warnings, debug_errors = (
+                    self._run_debugging(request, validation)
+                )
+                warnings.extend(debug_warnings)
+                errors.extend(debug_errors)
+                stage_dur = int(time.monotonic() * 1000) - stage_start
+                session.advance_to(EngineeringStage.DEBUGGING, "Debugging complete", duration_ms=stage_dur)
+                if repair_plan is not None:
+                    session.advance_to(EngineeringStage.REPAIR_PLANNING, "Repair plan produced")
+            else:
+                errors.append("Validation failed and no debugger available or debugging disabled")
+
+            session.advance_to(EngineeringStage.FAILED, "Pipeline failed — validation could not be resolved")
+            result = self._finalise(
+                session=session,
+                status=EngineeringStatus.FAILED,
+                plan=plan,
+                validation=validation,
+                debug_report=debug_report,
+                repair_plan=repair_plan,
+                errors=errors,
+                warnings=warnings,
+                start_ms=start_ms,
+                completed=False,
+                queue_position=None,
+            )
+            if self._session_store is not None:
+                self._session_store.save(session)
+            return result
+
+        # ── Stage 5: Complete ──────────────────────────────────────────
+        from .models import EngineeringStage, EngineeringStatus
+        session.advance_to(EngineeringStage.COMPLETE, "Pipeline complete — all stages passed")
+        self._emit("coordinator", EngineeringStatus.COMPLETE, "Pipeline complete — all stages passed")
+        result = self._finalise(
+            session=session,
+            status=EngineeringStatus.COMPLETE,
+            plan=plan,
+            validation=validation,
+            errors=errors,
+            warnings=warnings,
+            start_ms=start_ms,
+            completed=True,
+            queue_position=None,
+        )
+        if self._session_store is not None:
+            self._session_store.save(session)
+        return result
 
     def _run_planning(
         self, request: EngineeringRequest

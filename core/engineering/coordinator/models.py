@@ -23,12 +23,13 @@ from typing import Any, Dict, List, Optional, Tuple
 class EngineeringStatus(Enum):
     """Lifecycle states for an engineering request moving through the coordinator."""
 
-    PENDING    = "PENDING"
-    PLANNING   = "PLANNING"
-    VALIDATING = "VALIDATING"
-    DEBUGGING  = "DEBUGGING"
-    COMPLETE   = "COMPLETE"
-    FAILED     = "FAILED"
+    PENDING            = "PENDING"
+    PLANNING           = "PLANNING"
+    VALIDATING         = "VALIDATING"
+    DEBUGGING          = "DEBUGGING"
+    AWAITING_APPROVAL  = "AWAITING_APPROVAL"  # Genesis-053: suspended awaiting human decision
+    COMPLETE           = "COMPLETE"
+    FAILED             = "FAILED"
 
     def is_terminal(self) -> bool:
         """Return True if this status represents a final state."""
@@ -41,7 +42,12 @@ class EngineeringStatus(Enum):
             EngineeringStatus.PLANNING,
             EngineeringStatus.VALIDATING,
             EngineeringStatus.DEBUGGING,
+            EngineeringStatus.AWAITING_APPROVAL,
         )
+
+    def is_suspended(self) -> bool:
+        """Return True if this status is suspended awaiting human input."""
+        return self == EngineeringStatus.AWAITING_APPROVAL
 
 
 # ---------------------------------------------------------------------------
@@ -57,18 +63,23 @@ class EngineeringStage(Enum):
             → DEBUGGING → REPAIR_PLANNING → COMPLETE | FAILED
     """
 
-    INITIALISING   = "INITIALISING"
-    PLANNING       = "PLANNING"
-    GUARDRAILS     = "GUARDRAILS"
-    VALIDATION     = "VALIDATION"
-    DEBUGGING      = "DEBUGGING"
-    REPAIR_PLANNING = "REPAIR_PLANNING"
-    COMPLETE       = "COMPLETE"
-    FAILED         = "FAILED"
+    INITIALISING      = "INITIALISING"
+    PLANNING          = "PLANNING"
+    GUARDRAILS        = "GUARDRAILS"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"   # Genesis-053: suspended awaiting human decision
+    VALIDATION        = "VALIDATION"
+    DEBUGGING         = "DEBUGGING"
+    REPAIR_PLANNING   = "REPAIR_PLANNING"
+    COMPLETE          = "COMPLETE"
+    FAILED            = "FAILED"
 
     def is_terminal(self) -> bool:
         """Return True if this stage ends the session."""
         return self in (EngineeringStage.COMPLETE, EngineeringStage.FAILED)
+
+    def is_suspended(self) -> bool:
+        """Return True if this stage represents a suspended pipeline (awaiting human input)."""
+        return self == EngineeringStage.AWAITING_APPROVAL
 
     def is_active(self) -> bool:
         """Return True if this stage represents ongoing work."""
@@ -333,6 +344,10 @@ class EngineeringSession:
     events:        CoordinatorEventLog        = field(default_factory=CoordinatorEventLog)
     current_stage: EngineeringStage           = EngineeringStage.INITIALISING
     result:        Optional["EngineeringResult"] = None
+    # Genesis-053: approval metadata
+    approved_by:       Optional[str]          = None   # who approved ("ludovic", etc.)
+    approved_at:       Optional[str]          = None   # ISO-8601 UTC wall-clock timestamp
+    rejection_reason:  Optional[str]          = None   # set on REJECTED path
 
     @classmethod
     def create(cls, request: EngineeringRequest) -> "EngineeringSession":
@@ -359,6 +374,101 @@ class EngineeringSession:
         self.completed_at = int(time.monotonic() * 1000)
         self.status       = result.status
         self.events.seal()
+
+    # Genesis-053: approval gate support -----------------------------------
+
+    def suspend(self) -> None:
+        """
+        Suspend the session at the AWAITING_APPROVAL gate.
+        Called after GUARDRAILS pass, before VALIDATION begins.
+        The session remains resumable — event log is NOT sealed.
+        """
+        self.status        = EngineeringStatus.AWAITING_APPROVAL
+        self.current_stage = EngineeringStage.AWAITING_APPROVAL
+        self.events.record(
+            EngineeringStage.AWAITING_APPROVAL,
+            "Pipeline suspended — awaiting human approval",
+        )
+
+    def approve(self, approved_by: str, approved_at: str) -> None:
+        """
+        Record a human approval decision.
+        The coordinator resumes the pipeline after calling this.
+        """
+        self.approved_by   = approved_by
+        self.approved_at   = approved_at
+        self.status        = EngineeringStatus.VALIDATING
+        self.events.record(
+            EngineeringStage.AWAITING_APPROVAL,
+            f"Approved by {approved_by!r} at {approved_at}",
+        )
+
+    def reject(self, rejected_by: str, rejected_at: str, reason: str) -> None:
+        """
+        Record a human rejection decision and seal the event log.
+        """
+        self.approved_by      = rejected_by
+        self.approved_at      = rejected_at
+        self.rejection_reason = reason
+        self.status           = EngineeringStatus.FAILED
+        self.current_stage    = EngineeringStage.FAILED
+        self.completed_at     = int(time.monotonic() * 1000)
+        self.events.record(
+            EngineeringStage.FAILED,
+            f"Rejected by {rejected_by!r}: {reason}",
+        )
+        self.events.seal()
+
+    # Genesis-053: persistence support ------------------------------------
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialise the session to a plain dict suitable for JSON persistence.
+        Produces only the fields needed to restore an AWAITING_APPROVAL session.
+        """
+        return {
+            "session_id":        self.session_id,
+            "status":            self.status.value,
+            "current_stage":     self.current_stage.value,
+            "started_at":        self.started_at,
+            "completed_at":      self.completed_at,
+            "approved_by":       self.approved_by,
+            "approved_at":       self.approved_at,
+            "rejection_reason":  self.rejection_reason,
+            "request": {
+                "request":  self.request.request,
+                "context":  self.request.context,
+                "priority": self.request.priority,
+                "metadata": dict(self.request.metadata),
+            },
+            "timeline": self.events.timeline(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EngineeringSession":
+        """
+        Restore a session from a persisted dict.
+        Restores enough state to display status and process an approval decision.
+        The event log is reconstructed as a lightweight stub (timeline only).
+        """
+        req = EngineeringRequest(
+            request=data["request"]["request"],
+            context=data["request"].get("context", ""),
+            priority=data["request"].get("priority", 0),
+            metadata=data["request"].get("metadata", {}),
+        )
+        session = cls(
+            session_id=data["session_id"],
+            request=req,
+            status=EngineeringStatus(data["status"]),
+            started_at=data["started_at"],
+            completed_at=data.get("completed_at"),
+            current_stage=EngineeringStage(data["current_stage"]),
+            approved_by=data.get("approved_by"),
+            approved_at=data.get("approved_at"),
+            rejection_reason=data.get("rejection_reason"),
+        )
+        return session
 
     # ------------------------------------------------------------------
     # Derived properties
