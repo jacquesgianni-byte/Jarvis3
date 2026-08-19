@@ -47,9 +47,22 @@ def main():
     system_registry  = SystemRegistry(agent=agent)
     session_registry = SessionRegistry()
 
+    # Step 3c -- Create Engineering Coordinator for orchestrator approval workflow.
+    # Genesis-053: persistent session store + approval gate
+    from core.engineering.coordinator.coordinator import EngineeringCoordinator
+    from core.engineering.coordinator.session_store import SessionStore
+    session_store  = SessionStore()
+    orchestrator   = EngineeringCoordinator(session_store=session_store)
+    logger.info("[SERVER] EngineeringCoordinator initialised with SessionStore.")
+
     # Step 4 -- Create Flask app and inject the agent.
     from apps.server.app import create_app
-    app = create_app(agent, system_registry=system_registry, session_registry=session_registry)
+    app = create_app(
+        agent,
+        system_registry=system_registry,
+        session_registry=session_registry,
+        orchestrator_coordinator=orchestrator,
+    )
 
     # Configuration via environment with sensible defaults.
     host = os.getenv("JARVISS_SERVER_HOST", "0.0.0.0")
