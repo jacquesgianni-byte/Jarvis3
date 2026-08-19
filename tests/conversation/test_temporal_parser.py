@@ -277,24 +277,34 @@ class TestTemporalRecallFormatting:
         assert "(last night)" not in result
 
     def test_unspecified_slot_falls_back_to_expression(self):
-        """When slot is unspecified, original expression used as parenthetical."""
+        """Genesis-052 Sprint-003: when slot is unspecified, event content is used.
+        Old behaviour: date-only with (last Monday) parenthetical.
+        New behaviour: "On Monday, 27 July 2026, you started job."
+        """
         result = self.engine._format_answer(
             memory_value="started job",
             resolved_date="2026-07-27",
             original_expression="last Monday",
             time_of_day_slot="unspecified",
         )
-        assert "(last Monday)" in result
+        assert "Monday" in result
+        assert "27 July 2026" in result
+        assert "started job" in result
 
     def test_unspecified_no_expression_plain_date(self):
-        """No slot, no expression -> plain date."""
+        """Genesis-052 Sprint-003: no slot, no expression -> event content with date.
+        Old behaviour: "That was on Monday, 27 July 2026."
+        New behaviour: "On Monday, 27 July 2026, you started job."
+        """
         result = self.engine._format_answer(
             memory_value="started job",
             resolved_date="2026-07-27",
             original_expression=None,
             time_of_day_slot="unspecified",
         )
-        assert result.startswith("That was on")
+        assert "Monday" in result
+        assert "27 July 2026" in result
+        assert "started job" in result
         assert "(" not in result
 
     def test_backwards_compat_no_slot_arg(self):

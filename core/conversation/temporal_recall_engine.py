@@ -142,28 +142,50 @@ class TemporalRecallEngine:
         Returns:
             TemporalAnswer with a natural language response.
         """
-        # PRIMARY PATH: resolve temporal expression -> search by resolved:YYYY-MM-DD tag.
-        # subject='user' filter excludes journal records. Authoritative for dated queries.
+        # PRIMARY PATH: Genesis-052 Sprint-002 — exact tag search via list_by_tag().
+        # resolved_date is a hard constraint, not a relevance hint.
+        # list_by_tag() delegates to the repository's exact tag filter — deterministic.
+        # subject='user' filter excludes journal records.
         results = []
+        _query_date_tag: str | None = None  # carried into fallback guard below
         if self._temporal_parser is not None:
             from datetime import date as _date
             _ctx = self._temporal_parser.parse(query.raw_text, _date.today())
             if _ctx is not None and _ctx.resolved_date is not None:
-                _date_tag = f"resolved:{_ctx.resolved_date.isoformat()}"
-                _candidates = knowledge.search_memory(query=_date_tag, subject="user", limit=20)
-                results = [r for r in _candidates if _date_tag in getattr(r, "tags", [])]
+                _query_date_tag = f"resolved:{_ctx.resolved_date.isoformat()}"
+                if hasattr(knowledge, "list_by_tag"):
+                    results = knowledge.list_by_tag(_query_date_tag, subject="user")
+                else:
+                    # Graceful fallback for test doubles that lack list_by_tag
+                    _candidates = knowledge.search_memory(query=_query_date_tag, subject="user", limit=20)
+                    results = [r for r in _candidates if _query_date_tag in getattr(r, "tags", [])]
                 if results:
-                    logger.info("[TEMPORAL_RECALL] Date-tag primary: %s -> %d results", _date_tag, len(results))
-        # SECONDARY PATH: keyword search - only when date-tag primary yields nothing.
+                    logger.info("[TEMPORAL_RECALL] Date-tag exact: %s -> %d results", _query_date_tag, len(results))
+
+        # SECONDARY PATH: keyword search — only when no resolved date was found
+        # OR exact search returned nothing (event not yet stored for that date).
+        # Genesis-052 Sprint-002: if a resolved date was established, every
+        # fallback result is filtered to that date — Saturday cannot leak into
+        # a Sunday answer.
+        def _matches_query_date(record) -> bool:
+            """Return True if record carries _query_date_tag (or no date constraint exists)."""
+            if _query_date_tag is None:
+                return True  # no date constraint — all records are eligible
+            return _query_date_tag in getattr(record, "tags", [])
+
         if not results:
-            results = knowledge.search_memory(query=query.search_hint, subject="user", limit=10)
+            _candidates = knowledge.search_memory(query=query.search_hint, subject="user", limit=10)
+            results = [r for r in _candidates if _matches_query_date(r)]
         if not results:
-            results = knowledge.search_memory(query=query.search_hint, limit=10)
+            _candidates = knowledge.search_memory(query=query.search_hint, limit=10)
+            results = [r for r in _candidates if _matches_query_date(r)]
         if not results:
             _seen_ids = set(); _accumulated = []
             for keyword in query.search_hint.split():
                 if len(keyword) >= 3:
                     for _r in knowledge.search_memory(query=keyword, limit=10):
+                        if not _matches_query_date(_r):
+                            continue
                         _rid = getattr(_r, "event_id", id(_r))
                         if _rid not in _seen_ids:
                             _seen_ids.add(_rid); _accumulated.append(_r)
@@ -413,25 +435,35 @@ class TemporalRecallEngine:
         """
         Format a natural language answer from a memory record.
 
+        Genesis-052 Sprint-003: memory_value is now included in the answer.
+        Previously the method accepted memory_value but discarded it, producing
+        date-only responses such as "That was on Sunday, 16 August 2026 (last sunday)."
+
+        The fix applies the same light cleaning used by _compose_multi_answer:
+          - strip leading first-person prefix ("I " / "we ")
+          - strip the resolved temporal expression from the tail
+          - compose naturally: "On {date}, you {event}."
+
+        Falls back to date-only when memory_value is empty or cleaning fails.
+
         Args:
-            memory_value:        The stored fact ("started new job")
-            resolved_date:       ISO date string ("2026-07-27")
-            original_expression: The original temporal phrase ("last Monday")
+            memory_value:        The stored fact ("I finished the shed last Sunday")
+            resolved_date:       ISO date string ("2026-08-16")
+            original_expression: The original temporal phrase ("last sunday")
             time_of_day_slot:    Structured sub-day slot from metadata.
-                                 When set produces "Friday morning" instead of
-                                 "Friday (this morning)". Genesis-047 Sprint-003.
+                                 Genesis-047 Sprint-003.
 
         Returns:
             A natural language answer string.
         """
+        import re as _re
+
         try:
             d = date.fromisoformat(resolved_date)
-            date_str = d.strftime("%A, %d %B %Y")  # e.g. "Monday, 27 July 2026"
+            date_str = d.strftime("%A, %d %B %Y")  # e.g. "Sunday, 16 August 2026"
         except (ValueError, TypeError):
             date_str = resolved_date
 
-        # Genesis-047 Sprint-003: use structured slot for natural phrasing.
-        # "Friday morning" is more natural than "Friday (this morning)".
         _SLOT_LABELS = {
             "morning":   "morning",
             "afternoon": "afternoon",
@@ -439,9 +471,40 @@ class TemporalRecallEngine:
             "night":     "night",
         }
         slot_label = _SLOT_LABELS.get(time_of_day_slot)
+
+        # ------------------------------------------------------------------
+        # Clean memory_value: strip first-person prefix + temporal tail.
+        # Mirrors _clean_phrase() logic from _compose_multi_answer().
+        # ------------------------------------------------------------------
+        def _clean(value: str, expr: Optional[str]) -> str:
+            value = value.strip().rstrip(".")
+            # Strip leading first-person subject ("I " / "we ")
+            value = _re.sub(r"^(?:i|we)\s+", "", value, flags=_re.IGNORECASE)
+            # Strip resolved temporal expression from the tail
+            if expr:
+                escaped = _re.escape(expr.strip())
+                tail_re = _re.compile(
+                    r"\s+(?:this|last|that\s+)?" + escaped + r"\s*$",
+                    _re.IGNORECASE,
+                )
+                stripped = tail_re.sub("", value).strip()
+                if stripped and stripped.lower() != value.lower():
+                    value = stripped
+            return value.strip() if value.strip() else ""
+
+        cleaned = _clean(memory_value, original_expression) if memory_value else ""
+
+        # ------------------------------------------------------------------
+        # Compose answer — include event content when available.
+        # ------------------------------------------------------------------
+        if cleaned:
+            if slot_label:
+                return f"On {date_str} {slot_label}, you {cleaned}."
+            return f"On {date_str}, you {cleaned}."
+
+        # Fallback: no usable event content — date only (preserves prior behaviour)
         if slot_label:
             return f"That was on {date_str} {slot_label}."
-
         if original_expression:
             return f"That was on {date_str} ({original_expression})."
         return f"That was on {date_str}."
