@@ -87,19 +87,33 @@ class ConversationObserver:
         self._store_journal(user_message, jarvis_response)
 
     def _store_facts(self, facts: list[ExtractedFact], raw: str) -> None:
-        """Store a list of extracted facts in the KnowledgeEngine."""
+        """Store a list of extracted facts in the KnowledgeEngine.
+
+        Genesis-052 Sprint-001: EVENT facts append :{resolved_date} to the
+        attribute key so the same activity on different days produces separate
+        records rather than overwriting the earlier occurrence.
+        Falls back to the bare attribute if no resolved date is available.
+        """
         for fact in facts:
             try:
+                # Genesis-052 Sprint-001: date-scoped key for EVENT facts only
+                if fact.fact_type == FactType.EVENT:
+                    ctx = fact.metadata.get("temporal_ctx") or {}
+                    resolved = ctx.get("resolved_date")
+                    attribute = f"{fact.attribute}:{resolved}" if resolved else fact.attribute
+                else:
+                    attribute = fact.attribute
+
                 self._knowledge.store_memory(
                     subject=fact.subject,
                     category=_CATEGORY,
-                    attribute=fact.attribute,
+                    attribute=attribute,
                     value=fact.value,
                     tags=self._tags_for(fact),
                 )
                 logger.info(
                     "[OBSERVER] Stored fact: subject=%r attribute=%r value=%r",
-                    fact.subject, fact.attribute, fact.value,
+                    fact.subject, attribute, fact.value,
                 )
             except Exception:
                 logger.exception(
