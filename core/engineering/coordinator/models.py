@@ -68,6 +68,8 @@ class EngineeringStage(Enum):
     GUARDRAILS        = "GUARDRAILS"
     AWAITING_APPROVAL = "AWAITING_APPROVAL"   # Genesis-053: suspended awaiting human decision
     VALIDATION        = "VALIDATION"
+    EXECUTING         = "EXECUTING"           # Genesis-053 Sprint-003: ExecutionRunner writing files
+    TESTING           = "TESTING"             # Genesis-053 Sprint-003: regression test gate
     DEBUGGING         = "DEBUGGING"
     REPAIR_PLANNING   = "REPAIR_PLANNING"
     COMPLETE          = "COMPLETE"
@@ -348,6 +350,9 @@ class EngineeringSession:
     approved_by:       Optional[str]          = None   # who approved ("ludovic", etc.)
     approved_at:       Optional[str]          = None   # ISO-8601 UTC wall-clock timestamp
     rejection_reason:  Optional[str]          = None   # set on REJECTED path
+    # Genesis-053 Sprint-003: execution bridge
+    execution_plan:    Optional[dict]         = None   # ExecutionPlan.to_dict() — persisted
+    execution_outcome: Optional[str]          = None   # "passed" | "failed" | "rolled_back"
 
     @classmethod
     def create(cls, request: EngineeringRequest) -> "EngineeringSession":
@@ -435,6 +440,8 @@ class EngineeringSession:
             "approved_by":       self.approved_by,
             "approved_at":       self.approved_at,
             "rejection_reason":  self.rejection_reason,
+            "execution_plan":    self.execution_plan,    # Genesis-053 Sprint-003
+            "execution_outcome": self.execution_outcome, # Genesis-053 Sprint-003
             "request": {
                 "request":  self.request.request,
                 "context":  self.request.context,
@@ -467,6 +474,8 @@ class EngineeringSession:
             approved_by=data.get("approved_by"),
             approved_at=data.get("approved_at"),
             rejection_reason=data.get("rejection_reason"),
+            execution_plan=data.get("execution_plan"),       # Genesis-053 Sprint-003
+            execution_outcome=data.get("execution_outcome"), # Genesis-053 Sprint-003
         )
         return session
 

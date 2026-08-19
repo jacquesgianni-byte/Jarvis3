@@ -49,11 +49,25 @@ def main():
 
     # Step 3c -- Create Engineering Coordinator for orchestrator approval workflow.
     # Genesis-053: persistent session store + approval gate
+    # Genesis-053 Sprint-003: Claude worker + ExecutionRunner wired in
     from core.engineering.coordinator.coordinator import EngineeringCoordinator
     from core.engineering.coordinator.session_store import SessionStore
-    session_store  = SessionStore()
-    orchestrator   = EngineeringCoordinator(session_store=session_store)
-    logger.info("[SERVER] EngineeringCoordinator initialised with SessionStore.")
+    from core.ai_workers.claude_worker import ClaudeAIWorker
+    from core.engineering.execution.execution_runner import ExecutionRunner
+
+    session_store    = SessionStore()
+    claude_worker    = ClaudeAIWorker(ai_client=ai)
+    execution_runner = ExecutionRunner(
+        worker_coordinator=agent._coordinator,
+        worker_manager=agent._manager,
+        worker_intelligence=getattr(agent, "_worker_intelligence", None),
+    )
+    orchestrator = EngineeringCoordinator(
+        session_store=session_store,
+        claude_worker=claude_worker,
+        execution_runner=execution_runner,
+    )
+    logger.info("[SERVER] EngineeringCoordinator initialised with Claude + ExecutionRunner.")
 
     # Step 4 -- Create Flask app and inject the agent.
     from apps.server.app import create_app

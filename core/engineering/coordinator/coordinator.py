@@ -141,7 +141,9 @@ class EngineeringCoordinator:
         test_runner:   Optional[Any] = None,
         debugger:      Optional[Any] = None,
         config:        Optional[CoordinatorConfig] = None,
-        session_store: Optional[SessionStore] = None,   # Genesis-053
+        session_store:    Optional[SessionStore] = None,   # Genesis-053
+        claude_worker:    Optional[Any]           = None,  # Genesis-053 Sprint-003
+        execution_runner: Optional[Any]           = None,  # Genesis-053 Sprint-003
     ) -> None:
         self._planner     = planner
         self._guardrails  = guardrails
@@ -159,6 +161,9 @@ class EngineeringCoordinator:
         self._suspended_sessions: Dict[str, Any] = {}   # session_id → EngineeringSession
         if self._session_store is not None:
             self._restore_suspended_sessions()
+        # Genesis-053 Sprint-003: worker bridge
+        self._claude_worker:    Optional[Any] = claude_worker
+        self._execution_runner: Optional[Any] = execution_runner
 
     # ------------------------------------------------------------------
     # Observer / event system  (Sprint 001 — unchanged)
@@ -204,6 +209,14 @@ class EngineeringCoordinator:
     @property
     def has_debugger(self) -> bool:
         return self._debugger is not None
+
+    @property
+    def has_claude_worker(self) -> bool:
+        return self._claude_worker is not None
+
+    @property
+    def has_execution_runner(self) -> bool:
+        return self._execution_runner is not None
 
     @property
     def config(self) -> CoordinatorConfig:
@@ -504,7 +517,7 @@ class EngineeringCoordinator:
             warnings.append("Planning stage disabled by config")
 
         # ── Stage 2: Guardrails ────────────────────────────────────────
-        if self._config.enable_guardrails:
+        if self._config.enable_guardrails and plan is not None:
             stage_start = int(time.monotonic() * 1000)
             session.advance_to(EngineeringStage.GUARDRAILS, "Guardrails stage started")
             self._emit("guardrails", EngineeringStatus.VALIDATING, "Checking guardrails")
@@ -544,6 +557,35 @@ class EngineeringCoordinator:
         # ── Genesis-053: Approval Gate ─────────────────────────────────
         # Suspend pipeline between GUARDRAILS and VALIDATION.
         # Execution resumes only after resume_session() is called.
+        # Genesis-053 Sprint-003: call claude worker before suspending
+        if self.has_claude_worker:
+            plan_dict, claude_warnings, claude_errors = self._run_claude_planning(request)
+            warnings.extend(claude_warnings)
+            errors.extend(claude_errors)
+            if claude_errors:
+                session.advance_to(EngineeringStage.FAILED, 'Claude planning failed')
+                return self._finalise(session=session, status=EngineeringStatus.FAILED,
+                    errors=errors, warnings=warnings, start_ms=start_ms,
+                    reason='Claude planning failed', queue_position=queue_position,
+                    dispatch_record=dispatch_record)
+            session.execution_plan = plan_dict
+            if self._config.enable_guardrails and self.has_guardrails and plan_dict:
+                ops = plan_dict.get('operations', [])
+                files = [o.get('path', '') for o in ops]
+                try:
+                    ep = self._guardrails.evaluate(request.request, files)
+                    from core.engineering.guardrails.models import ApprovalStatus
+                    guard_pass = ep.status != ApprovalStatus.REJECTED
+                except Exception as exc:
+                    guard_pass = False
+                    errors.append(f'Guardrails raised: {exc}')
+                if not guard_pass:
+                    session.advance_to(EngineeringStage.FAILED, 'Guardrails blocked the plan')
+                    return self._finalise(session=session, status=EngineeringStatus.FAILED,
+                        errors=errors, warnings=warnings, start_ms=start_ms,
+                        reason='Guardrails blocked the plan', queue_position=queue_position,
+                        dispatch_record=dispatch_record)
+
         if self._config.enable_approval_gate:
             session.suspend()
             self._suspended_sessions[session.session_id] = session
@@ -747,8 +789,28 @@ class EngineeringCoordinator:
                 "request":       session.request.request[:120],
                 "approved_by":   session.approved_by,
                 "approved_at":   session.approved_at,
+                "plan_summary":  self._summarise_plan(session.execution_plan),
             })
         return result
+
+    @staticmethod
+    def _summarise_plan(plan) -> dict:
+        """Return a concise summary dict for a plan dict, or {available: False} if None."""
+        if plan is None:
+            return {"available": False, "operations": 0, "creates": 0, "modifies": 0, "deletes": 0, "files": []}
+        ops      = plan.get("operations", [])
+        creates  = sum(1 for o in ops if o.get("action") == "create")
+        modifies = sum(1 for o in ops if o.get("action") == "modify")
+        deletes  = sum(1 for o in ops if o.get("action") == "delete")
+        files    = [o.get("path", "") for o in ops]
+        return {
+            "available":  True,
+            "operations": len(ops),
+            "creates":    creates,
+            "modifies":   modifies,
+            "deletes":    deletes,
+            "files":      files,
+        }
 
     def _restore_suspended_sessions(self) -> None:
         """Load resumable sessions from disk on startup."""
@@ -812,95 +874,149 @@ class EngineeringCoordinator:
 
     def _execute_session_from_validation(self, session) -> "EngineeringResult":
         """
-        Resume _execute_session() from the VALIDATION stage onward.
-        Called after human approval of a suspended session.
+        Resume pipeline after human approval.
+        Genesis-053 Sprint-003: calls ExecutionRunner with the persisted plan.
         """
-        request   = session.request
-        start_ms  = session.started_at
-        plan:     Optional[str] = None
-        errors:   List[str]     = []
-        warnings: List[str]     = ["Session resumed after human approval"]
+        from .models import EngineeringStage, EngineeringStatus
 
-        # ── Stage 3: Validation ────────────────────────────────────────
-        validation_pass = True
-        validation:      Optional[str] = None
-        debug_report:    Optional[str] = None
-        repair_plan:     Optional[str] = None
+        request  = session.request
+        start_ms = session.started_at
+        errors:   List[str] = []
+        warnings: List[str] = ["Session resumed after human approval"]
 
-        if self._config.enable_validation:
-            from .models import EngineeringStage
+        if self.has_execution_runner and session.execution_plan:
             stage_start = int(time.monotonic() * 1000)
-            session.advance_to(EngineeringStage.VALIDATION, "Validation stage started")
-            self._emit("validation", session.status, "Running validation")
+            session.advance_to(EngineeringStage.EXECUTING, "ExecutionRunner writing files")
+            self._emit("executing", EngineeringStatus.VALIDATING, "Executing approved plan")
 
-            validation_pass, validation, val_warnings, val_errors = self._run_validation(
-                request, plan
+            exec_outcome, exec_warnings, exec_errors = self._run_execution(
+                request, session.execution_plan, session.session_id
             )
-            warnings.extend(val_warnings)
-            errors.extend(val_errors)
-
+            warnings.extend(exec_warnings)
+            errors.extend(exec_errors)
             stage_dur = int(time.monotonic() * 1000) - stage_start
-            outcome = "Validation passed" if validation_pass else "Validation failed"
-            session.advance_to(EngineeringStage.VALIDATION, outcome, duration_ms=stage_dur)
-        else:
-            warnings.append("Validation stage disabled by config")
-            validation = "Validation skipped by config"
 
-        # ── Stage 4: Debugging (if validation failed) ──────────────────
-        if not validation_pass:
-            from .models import EngineeringStage, EngineeringStatus
-            if self._config.enable_debugging and self.has_debugger:
-                stage_start = int(time.monotonic() * 1000)
-                session.advance_to(EngineeringStage.DEBUGGING, "Validation failed — invoking debugger")
-                self._emit("debugging", EngineeringStatus.DEBUGGING, "Validation failed — invoking debugger")
-                debug_report, repair_plan, debug_warnings, debug_errors = (
-                    self._run_debugging(request, validation)
-                )
-                warnings.extend(debug_warnings)
-                errors.extend(debug_errors)
-                stage_dur = int(time.monotonic() * 1000) - stage_start
-                session.advance_to(EngineeringStage.DEBUGGING, "Debugging complete", duration_ms=stage_dur)
-                if repair_plan is not None:
-                    session.advance_to(EngineeringStage.REPAIR_PLANNING, "Repair plan produced")
-            else:
-                errors.append("Validation failed and no debugger available or debugging disabled")
+            if exec_errors or not exec_outcome:
+                session.execution_outcome = "failed"
+                session.advance_to(EngineeringStage.FAILED, "Execution failed — rolled back", duration_ms=stage_dur)
+                if self._session_store is not None:
+                    self._session_store.save(session)
+                return self._finalise(session=session, status=EngineeringStatus.FAILED,
+                    errors=errors, warnings=warnings, start_ms=start_ms,
+                    completed=False, queue_position=None)
 
-            session.advance_to(EngineeringStage.FAILED, "Pipeline failed — validation could not be resolved")
-            result = self._finalise(
-                session=session,
-                status=EngineeringStatus.FAILED,
-                plan=plan,
-                validation=validation,
-                debug_report=debug_report,
-                repair_plan=repair_plan,
-                errors=errors,
-                warnings=warnings,
-                start_ms=start_ms,
-                completed=False,
-                queue_position=None,
-            )
+            session.advance_to(EngineeringStage.TESTING,
+                "Files written — running regression tests", duration_ms=stage_dur)
+
+            tests_passed = exec_outcome.get("tests_passed", False)
+            tests_failed = exec_outcome.get("tests_failed", 0)
+
+            if not tests_passed or tests_failed > 0:
+                session.execution_outcome = "rolled_back"
+                session.advance_to(EngineeringStage.FAILED,
+                    f"Tests failed ({tests_failed} failure(s)) — rolled back")
+                errors.append(f"Regression tests failed: {tests_failed} failure(s). Rolled back.")
+                if self._session_store is not None:
+                    self._session_store.save(session)
+                return self._finalise(session=session, status=EngineeringStatus.FAILED,
+                    errors=errors, warnings=warnings, start_ms=start_ms,
+                    completed=False, queue_position=None)
+
+            session.execution_outcome = "passed"
+            session.advance_to(EngineeringStage.COMPLETE,
+                f"Tests passed ({exec_outcome.get('tests_passed_count', 0)} passing) — ready for commit")
+            self._emit("coordinator", EngineeringStatus.COMPLETE, "Execution complete — tests passed")
             if self._session_store is not None:
                 self._session_store.save(session)
-            return result
+            return self._finalise(session=session, status=EngineeringStatus.COMPLETE,
+                warnings=warnings + [exec_outcome.get("summary", "")],
+                errors=errors, start_ms=start_ms, completed=True, queue_position=None)
 
-        # ── Stage 5: Complete ──────────────────────────────────────────
-        from .models import EngineeringStage, EngineeringStatus
-        session.advance_to(EngineeringStage.COMPLETE, "Pipeline complete — all stages passed")
-        self._emit("coordinator", EngineeringStatus.COMPLETE, "Pipeline complete — all stages passed")
-        result = self._finalise(
-            session=session,
-            status=EngineeringStatus.COMPLETE,
-            plan=plan,
-            validation=validation,
-            errors=errors,
-            warnings=warnings,
-            start_ms=start_ms,
-            completed=True,
-            queue_position=None,
-        )
+        # No execution runner — complete without execution
+        warnings.append("No execution runner configured — skipping file execution")
+        session.advance_to(EngineeringStage.COMPLETE, "Pipeline complete (no executor)")
+        self._emit("coordinator", EngineeringStatus.COMPLETE, "Pipeline complete (no executor)")
         if self._session_store is not None:
             self._session_store.save(session)
-        return result
+        return self._finalise(session=session, status=EngineeringStatus.COMPLETE,
+            warnings=warnings, errors=errors, start_ms=start_ms,
+            completed=True, queue_position=None)
+
+    def _run_claude_planning(
+        self, request: EngineeringRequest
+    ) -> tuple[Optional[dict], List[str], List[str]]:
+        """Call ClaudeAIWorker to produce an ExecutionPlan dict."""
+        from core.workers.models import WorkerTask
+        warnings: List[str] = []
+        errors:   List[str] = []
+        if not self.has_claude_worker:
+            errors.append("No Claude worker configured")
+            return None, warnings, errors
+        try:
+            task = WorkerTask(
+                task_type="implement_feature",
+                payload={
+                    "description":     request.request,
+                    "context":         request.context or "",
+                    "capability_used": "implement_feature",
+                },
+                requester="engineering_coordinator",
+            )
+            result = self._claude_worker.execute(task)
+            if not result.success:
+                errors.append(f"Claude worker failed: {result.error}")
+                return None, warnings, errors
+            plan_dict = result.data.get("execution_plan")
+            if not plan_dict:
+                errors.append("Claude returned no execution plan")
+                return None, warnings, errors
+            ops = plan_dict.get("operations", [])
+            if not ops:
+                errors.append("Claude produced an empty execution plan (no operations)")
+                return None, warnings, errors
+            return plan_dict, warnings, errors
+        except Exception as exc:
+            errors.append(f"Claude planning raised: {exc}")
+            return None, warnings, errors
+
+    def _run_execution(
+        self,
+        request: EngineeringRequest,
+        execution_plan_dict: dict,
+        session_id: str,
+    ) -> tuple[Optional[dict], List[str], List[str]]:
+        """Call ExecutionRunner with the approved ExecutionPlan."""
+        from core.engineering.execution.execution_plan import ExecutionPlan
+        warnings: List[str] = []
+        errors:   List[str] = []
+        if not self.has_execution_runner:
+            errors.append("No execution runner configured")
+            return None, warnings, errors
+        try:
+            plan        = ExecutionPlan.from_dict(execution_plan_dict)
+            worker_plan = plan.to_worker_plan()
+            outcome     = self._execution_runner.run(
+                description=request.request,
+                plan=worker_plan,
+                session_id=session_id,
+            )
+            if not outcome.success:
+                errors.append(f"Execution failed: {outcome.error}")
+                return None, warnings, errors
+            summary = outcome.summary
+            outcome_dict = {
+                "tests_passed":       True,
+                "tests_failed":       0,
+                "tests_passed_count": summary.tests_passed  if summary else 0,
+                "tests_skipped":      summary.tests_skipped if summary else 0,
+                "summary":            summary.to_text()     if summary else "Execution complete",
+                "files_created":      list(summary.files_created)  if summary else [],
+                "files_modified":     list(summary.files_modified) if summary else [],
+            }
+            return outcome_dict, warnings, errors
+        except Exception as exc:
+            errors.append(f"Execution raised: {exc}")
+            return None, warnings, errors
 
     def _run_planning(
         self, request: EngineeringRequest
