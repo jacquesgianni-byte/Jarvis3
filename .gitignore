@@ -33,3 +33,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+# Jarvis runtime artifacts
+.jarvis_backup/
+data/orchestrator/sessions/
+data/knowledge_backup_*.json
