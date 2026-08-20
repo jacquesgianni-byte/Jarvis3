@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI Collaboration Framework -- Claude AI Worker
 Genesis-040 Sprint-001 / Genesis-041 Sprint-005
 
@@ -172,7 +172,15 @@ class ClaudeAIWorker(ExternalAIWorker):
             capability = context.get("capability_used", "implement_feature")
             framing = _CAPABILITY_FRAMING.get(capability, _CAPABILITY_FRAMING["implement_feature"])
             plan_suffix = _PLAN_PROMPT if capability in _PLAN_CAPABILITIES else ""
-            full_prompt = _SYSTEM_PROMPT + "\n\n" + framing + "\n\n" + prompt + plan_suffix
+            file_context = context.get("file_context", {})
+            file_context_block = ""
+            if file_context:
+                lines = ["\n\n### Current File Contents (read from repository)"]
+                for path, content in file_context.items():
+                    lines.append(f"\n#### {path}\n```\n{content}\n```")
+                file_context_block = "\n".join(lines)
+            full_prompt = (_SYSTEM_PROMPT + "\n\n" + framing + "\n\n"
+                           + prompt + file_context_block + plan_suffix)
             response = self._ai.ask(full_prompt)
             if not getattr(response, "success", True):
                 logger.warning("[CLAUDE_AI_WORKER] AI failure (cap=%s) -- placeholder.", capability)
@@ -248,7 +256,10 @@ class ClaudeAIWorker(ExternalAIWorker):
             data = json.loads(raw_json)
             ops_raw = data.get("operations", [])
             if not ops_raw:
-                logger.info("[CLAUDE_AI_WORKER] JSON plan has no operations for cap=%s", capability)
+                logger.info(
+                    "[CLAUDE_AI_WORKER] JSON plan has no operations for cap=%s. Raw response:\n%s",
+                    capability, response,
+                )
                 return ExecutionPlan.empty(capability, description)
             operations = []
             for op in ops_raw:

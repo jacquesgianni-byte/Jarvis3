@@ -1,0 +1,37 @@
+{
+  "session_id": "62c42b8a-8813-470f-ba0d-b81ef4a39566",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 576973707,
+  "completed_at": 577053408,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:51:45.391722+00:00",
+  "rejection_reason": "T-07 cleanup",
+  "execution_plan": {
+    "plan_id": "765cbdfe-639e-4ee0-b58c-a0fcf4daf44a",
+    "capability": "implement_feature",
+    "description": "Add version_info() to core/health.py \u2014 session A",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "create",
+        "content": "from __future__ import annotations\n\nimport os\nimport platform\nimport sys\nfrom datetime import datetime, timezone\nfrom typing import Any, Dict, Optional\n\ntry:\n    # Python 3.8+: prefer importlib.metadata from stdlib\n    from importlib.metadata import version as pkg_version  # type: ignore\n    from importlib.metadata import PackageNotFoundError  # type: ignore\nexcept Exception:  # pragma: no cover - fallback for very old runtimes\n    pkg_version = None  # type: ignore\n    class PackageNotFoundError(Exception):\n        pass\n\n\ndef _safe_env(key: str) -> Optional[str]:\n    val = os.getenv(key, \"\").strip()\n    return val or None\n\n\ndef _detect_app_name() -> Optional[str]:\n    # Prefer explicit environment configuration\n    for k in (\"APP_NAME\", \"PROJECT_NAME\", \"SERVICE_NAME\"):\n        v = _safe_env(k)\n        if v:\n            return v\n    return None\n\n\ndef _get_distribution_version(app_name: Optional[str]) -> Optional[str]:\n    if not app_name or pkg_version is None:\n        return None\n    try:\n        return pkg_version(app_name)\n    except PackageNotFoundError:\n        return None\n    except Exception:\n        return None\n\n\ndef _now_iso_utc() -> str:\n    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()\n\n\ndef version_info() -> Dict[str, Any]:\n    \"\"\"\n    Return version/build metadata for the service.\n\n    Priority of sources:\n      1) Environment variables: APP_VERSION, GIT_COMMIT, BUILD_DATE\n      2) Installed distribution version from importlib.metadata using APP_NAME/PROJECT_NAME\n      3) Sensible defaults (None for unknowns, current time for missing build_date)\n    \"\"\"\n    app_name = _detect_app_name()\n\n    version = _safe_env(\"APP_VERSION\") or _get_distribution_version(app_name)\n    git_commit = _safe_env(\"GIT_COMMIT\") or _safe_env(\"VCS_REF\")\n    build_date = _safe_env(\"BUILD_DATE\") or _safe_env(\"BUILD_TIMESTAMP\") or _now_iso_utc()\n    build_tag = _safe_env(\"BUILD_TAG\") or _safe_env(\"RELEASE_TAG\")\n\n    py_version = sys.version.split()[0]\n    plat = platform.platform()\n\n    info: Dict[str, Any] = {\n        \"app_name\": app_name,\n        \"version\": version,\n        \"git_commit\": git_commit,\n        \"build_date\": build_date,\n        \"build_tag\": build_tag,\n        \"python\": py_version,\n        \"platform\": plat,\n    }\n\n    return info\n\n\n__all__ = [\"version_info\"]\n",
+        "reason": "Add version_info() to expose service version/build metadata with safe fallbacks."
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Add version_info() to core/health.py \u2014 session A",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[FAILED] Rejected by 'ludovic': T-07 cleanup"
+  ]
+}

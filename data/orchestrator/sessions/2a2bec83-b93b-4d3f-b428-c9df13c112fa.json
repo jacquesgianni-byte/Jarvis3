@@ -1,0 +1,33 @@
+{
+  "session_id": "2a2bec83-b93b-4d3f-b428-c9df13c112fa",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 576619377,
+  "completed_at": 589386053,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T11:17:18.033235+00:00",
+  "rejection_reason": "T-05 cleanup",
+  "execution_plan": {
+    "plan_id": "422dc569-72e1-419a-9cb1-32866fc589ab",
+    "capability": "implement_feature",
+    "description": "Add version_info() method to core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "create",
+        "content": "from __future__ import annotations\n\nimport os\nimport sys\nfrom pathlib import Path\nfrom typing import Dict, Optional\n\ntry:\n    # Python 3.8+: importlib.metadata in stdlib\n    from importlib.metadata import version as pkg_version, PackageNotFoundError  # type: ignore\nexcept Exception:  # pragma: no cover - very old Python fallback\n    pkg_version = None  # type: ignore\n    class PackageNotFoundError(Exception):\n        ...\n\n\ndef _read_text_if_exists(path: Path) -> Optional[str]:\n    try:\n        if path.is_file():\n            return path.read_text(encoding=\"utf-8\").strip() or None\n    except Exception:\n        return None\n    return None\n\n\ndef _coalesce(*values: Optional[str]) -> Optional[str]:\n    for v in values:\n        if v is not None and str(v).strip():\n            return str(v).strip()\n    return None\n\n\ndef _normalize_iso8601(value: Optional[str]) -> Optional[str]:\n    if not value:\n        return None\n    v = value.strip()\n    # Accept common build date formats and normalize trivial cases\n    # If it already ends with 'Z' or contains timezone, keep as-is.\n    if v.endswith(\"Z\") or (\"+\" in v) or (\"-\" in v[10:]):\n        return v\n    # If it's a date-only (YYYY-MM-DD), promote to midnight Z\n    if len(v) == 10 and v[4] == \"-\" and v[7] == \"-\":\n        return f\"{v}T00:00:00Z\"\n    # If it's a datetime without TZ, append Z\n    if \"T\" in v and \"Z\" not in v and \"+\" not in v and \"-\" not in v[10:]:\n        return f\"{v}Z\"\n    return v\n\n\ndef _detect_version_from_files() -> Optional[str]:\n    # Try repo root VERSION then module-local VERSION\n    candidates = [\n        Path.cwd() / \"VERSION\",\n        Path(__file__).resolve().parent / \"VERSION\",\n    ]\n    for p in candidates:\n        txt = _read_text_if_exists(p)\n        if txt:\n            return txt\n    return None\n\n\ndef _detect_pkg_version(pkg_name: Optional[str]) -> Optional[str]:\n    if not pkg_name or pkg_version is None:\n        return None\n    try:\n        return pkg_version(pkg_name)\n    except PackageNotFoundError:\n        return None\n    except Exception:\n        return None\n\n\ndef version_info(service_name: Optional[str] = None) -> Dict[str, Optional[str]]:\n    \"\"\"\n    Return version/build metadata for the service as a dict.\n\n    Resolution order for version:\n    1) ENV: VERSION\n    2) VERSION file (repo root or core/VERSION)\n    3) importlib.metadata for service/package name\n\n    Additional fields from ENV when available: GIT_SHA, BUILD_DATE, SERVICE_NAME.\n    \"\"\"\n    env = os.environ\n\n    name = _coalesce(service_name, env.get(\"SERVICE_NAME\")) or \"service\"\n\n    ver = _coalesce(\n        env.get(\"VERSION\"),\n        _detect_version_from_files(),\n        _detect_pkg_version(name),\n    ) or \"unknown\"\n\n    git_sha = _coalesce(env.get(\"GIT_SHA\"), env.get(\"COMMIT_SHA\"))\n    build_date = _normalize_iso8601(_coalesce(env.get(\"BUILD_DATE\"), env.get(\"BUILD_TIMESTAMP\")))\n\n    py_ver = f\"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\"\n\n    return {\n        \"name\": name,\n        \"version\": ver,\n        \"git_sha\": git_sha,\n        \"build_date\": build_date,\n        \"python_version\": py_ver,\n    }\n\n\n__all__ = [\"version_info\"]\n",
+        "reason": "Add version_info() to expose build/version metadata for health endpoints"
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Add version_info() method to core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[FAILED] Rejected by 'ludovic': T-05 cleanup"
+  ]
+}

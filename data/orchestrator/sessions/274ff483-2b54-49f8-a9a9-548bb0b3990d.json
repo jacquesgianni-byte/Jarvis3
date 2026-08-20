@@ -1,0 +1,36 @@
+{
+  "session_id": "274ff483-2b54-49f8-a9a9-548bb0b3990d",
+  "status": "VALIDATING",
+  "current_stage": "COMPLETE",
+  "started_at": 577204340,
+  "completed_at": null,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:55:52.351876+00:00",
+  "rejection_reason": null,
+  "execution_plan": {
+    "plan_id": "d76f99f6-0683-4ae6-85ab-1471539d23c2",
+    "capability": "implement_feature",
+    "description": "Add version_info() method to core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "modify",
+        "content": "from __future__ import annotations\n\nimport os\nimport platform\nfrom datetime import datetime, timezone\nfrom typing import Dict, Any\n\n\ndef _now_utc_iso() -> str:\n    return datetime.now(timezone.utc).isoformat()\n\n\ndef version_info() -> Dict[str, Any]:\n    \"\"\"\n    Return service/version metadata suitable for health and diagnostics endpoints.\n\n    Fields:\n    - service: logical service name (env SERVICE_NAME, default \"unknown\")\n    - version: application version string (env APP_VERSION, default \"0.0.0-dev\")\n    - commit: VCS commit SHA (env GIT_COMMIT, default \"\")\n    - branch: VCS branch name (env GIT_BRANCH, default \"\")\n    - build_time: build timestamp ISO 8601 (env BUILD_TIME, defaults to current UTC)\n    - python: Python runtime version\n    \"\"\"\n    service = os.getenv(\"SERVICE_NAME\", \"unknown\")\n    version = os.getenv(\"APP_VERSION\", \"0.0.0-dev\")\n    commit = os.getenv(\"GIT_COMMIT\", \"\")\n    branch = os.getenv(\"GIT_BRANCH\", \"\")\n    build_time = os.getenv(\"BUILD_TIME\") or _now_utc_iso()\n\n    return {\n        \"service\": service,\n        \"version\": version,\n        \"commit\": commit,\n        \"branch\": branch,\n        \"build_time\": build_time,\n        \"python\": platform.python_version(),\n    }\n",
+        "reason": "Add version_info() method providing structured version/build metadata with safe defaults."
+      }
+    ]
+  },
+  "execution_outcome": "passed",
+  "request": {
+    "request": "Add version_info() method to core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[AWAITING_APPROVAL] Approved by 'ludovic' at 2026-08-20T07:55:52.351876+00:00",
+    "[EXECUTING] ExecutionRunner writing files",
+    "[TESTING] [3398ms] Files written \u2014 running regression tests",
+    "[COMPLETE] Tests passed (0 passing) \u2014 ready for commit"
+  ]
+}

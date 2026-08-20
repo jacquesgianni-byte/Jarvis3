@@ -1,0 +1,594 @@
+[
+  {
+    "id": "9cd53e2f-8854-447e-8532-78ae8747e55f",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-18_11-24-37",
+    "value": "What did I do last Saturday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-18T11:24:37.570970+00:00",
+    "updated_at": "2026-08-18T11:24:37.570972+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "c2da600a-fb93-4ebb-935e-ee90ee9ce161",
+    "subject": "user",
+    "category": "general",
+    "attribute": "met client morning",
+    "value": "I met the client this morning",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 0.5,
+    "visibility": "private",
+    "source": "user",
+    "created_at": "2026-08-18T11:24:55.431454+00:00",
+    "updated_at": "2026-08-18T11:24:55.441061+00:00",
+    "expires_at": null,
+    "tags": [
+      "user_event",
+      "resolved:2026-08-18",
+      "expr:this morning",
+      "tod:morning"
+    ],
+    "notes": "[2026-08-18T11:24:55.441045+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user."
+  },
+  {
+    "id": "8e6777e0-1721-4a38-a3c9-e508019134c2",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-18_11-24-55",
+    "value": "I met the client this morning",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-18T11:24:55.433480+00:00",
+    "updated_at": "2026-08-18T11:24:55.445908+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-18T11:24:55.445883+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user."
+  },
+  {
+    "id": "cf1cb9ee-0345-43ee-b351-cd1273243f36",
+    "subject": "user",
+    "category": "general",
+    "attribute": "finished shed last",
+    "value": "I finished the shed last Saturday",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 0.5,
+    "visibility": "private",
+    "source": "user",
+    "created_at": "2026-08-18T11:25:10.182327+00:00",
+    "updated_at": "2026-08-18T11:25:10.191155+00:00",
+    "expires_at": null,
+    "tags": [
+      "user_event",
+      "resolved:2026-08-15",
+      "expr:last saturday",
+      "tod:unspecified"
+    ],
+    "notes": "[2026-08-18T11:25:10.191146+00:00] Updated from 'I finished the shed last Saturday' to 'I finished the shed last Saturday' by user."
+  },
+  {
+    "id": "c73531bc-2449-45ca-84a9-7943c5410309",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-18_11-25-10",
+    "value": "I finished the shed last Saturday.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-18T11:25:10.184632+00:00",
+    "updated_at": "2026-08-18T11:25:10.196668+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-18T11:25:10.196650+00:00] Updated from 'I finished the shed last Saturday.' to 'I finished the shed last Saturday.' by user."
+  },
+  {
+    "id": "3de217c5-c26e-415b-a63f-f4cc73800d00",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-18_11-25-24",
+    "value": "What did I do last Saturday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-18T11:25:24.679491+00:00",
+    "updated_at": "2026-08-18T11:25:24.679492+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "deb2c756-46eb-413b-8250-d4123366b881",
+    "subject": "user",
+    "category": "general",
+    "attribute": "met client morning:2026-08-19",
+    "value": "I met the client this morning",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 0.5,
+    "visibility": "private",
+    "source": "user",
+    "created_at": "2026-08-19T02:17:23.851834+00:00",
+    "updated_at": "2026-08-19T02:18:57.416507+00:00",
+    "expires_at": null,
+    "tags": [
+      "user_event",
+      "resolved:2026-08-19",
+      "expr:this morning",
+      "tod:morning"
+    ],
+    "notes": "[2026-08-19T02:17:23.872741+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user.\n[2026-08-19T02:18:07.206901+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user.\n[2026-08-19T02:18:07.228230+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user.\n[2026-08-19T02:18:57.397802+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user.\n[2026-08-19T02:18:57.416425+00:00] Updated from 'I met the client this morning' to 'I met the client this morning' by user."
+  },
+  {
+    "id": "f6cef6f2-ac4a-4a27-8c10-a711189fe215",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-17-23",
+    "value": "I met the client this morning.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:17:23.858508+00:00",
+    "updated_at": "2026-08-19T02:17:23.876688+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:17:23.876655+00:00] Updated from 'I met the client this morning.' to 'I met the client this morning.' by user."
+  },
+  {
+    "id": "15fac19f-3016-4be0-ab1c-73caa48791ad",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-18-07",
+    "value": "I met the client this morning.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:18:07.212907+00:00",
+    "updated_at": "2026-08-19T02:18:07.236134+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:18:07.236104+00:00] Updated from 'I met the client this morning.' to 'I met the client this morning.' by user."
+  },
+  {
+    "id": "f2d0735b-663b-4a2d-8bc3-98e5bce2c0a8",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-18-23",
+    "value": "What did I do this morning?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:18:23.235589+00:00",
+    "updated_at": "2026-08-19T02:18:23.235592+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "355aefef-b2c3-4b23-9311-c65994d366f1",
+    "subject": "user",
+    "category": "general",
+    "attribute": "finished shed morning:2026-08-19",
+    "value": "I finished the shed this morning",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 0.5,
+    "visibility": "private",
+    "source": "user",
+    "created_at": "2026-08-19T02:18:41.604997+00:00",
+    "updated_at": "2026-08-19T02:18:41.622328+00:00",
+    "expires_at": null,
+    "tags": [
+      "user_event",
+      "resolved:2026-08-19",
+      "expr:this morning",
+      "tod:morning"
+    ],
+    "notes": "[2026-08-19T02:18:41.622300+00:00] Updated from 'I finished the shed this morning' to 'I finished the shed this morning' by user."
+  },
+  {
+    "id": "dc54f720-5a54-4882-afa9-4cb4b2107b4f",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-18-41",
+    "value": "I finished the shed this morning.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:18:41.611977+00:00",
+    "updated_at": "2026-08-19T02:18:41.630890+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:18:41.630864+00:00] Updated from 'I finished the shed this morning.' to 'I finished the shed this morning.' by user."
+  },
+  {
+    "id": "eccf23e4-b06b-48b9-ae35-dcd57af6d0e9",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-18-57",
+    "value": "I met the client this morning.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:18:57.403390+00:00",
+    "updated_at": "2026-08-19T02:18:57.421838+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:18:57.421809+00:00] Updated from 'I met the client this morning.' to 'I met the client this morning.' by user."
+  },
+  {
+    "id": "f11924ef-ea71-4c5b-8c96-30f58a615d7c",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-19-12",
+    "value": "What did I do this morning?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:19:12.254817+00:00",
+    "updated_at": "2026-08-19T02:19:12.254820+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "f56b38bb-2dff-4860-ba2f-543484553774",
+    "subject": "user",
+    "category": "general",
+    "attribute": "met client last:2026-08-15",
+    "value": "I met the client last Saturday",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 0.5,
+    "visibility": "private",
+    "source": "user",
+    "created_at": "2026-08-19T02:19:38.997615+00:00",
+    "updated_at": "2026-08-19T03:03:27.779058+00:00",
+    "expires_at": null,
+    "tags": [
+      "user_event",
+      "resolved:2026-08-15",
+      "expr:last saturday",
+      "tod:unspecified"
+    ],
+    "notes": "[2026-08-19T02:19:39.020921+00:00] Updated from 'I met the client last Saturday' to 'I met the client last Saturday' by user.\n[2026-08-19T02:44:19.925029+00:00] Updated from 'I met the client last Saturday' to 'I met the client last Saturday' by user.\n[2026-08-19T02:44:19.939633+00:00] Updated from 'I met the client last Saturday' to 'I met the client last Saturday' by user.\n[2026-08-19T03:03:27.766507+00:00] Updated from 'I met the client last Saturday' to 'I met the client last Saturday' by user.\n[2026-08-19T03:03:27.779035+00:00] Updated from 'I met the client last Saturday' to 'I met the client last Saturday' by user."
+  },
+  {
+    "id": "7d71dc70-f919-40c2-b60c-de44a90262a5",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-19-39",
+    "value": "I met the client last Saturday.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:19:39.004022+00:00",
+    "updated_at": "2026-08-19T02:19:39.026442+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:19:39.026412+00:00] Updated from 'I met the client last Saturday.' to 'I met the client last Saturday.' by user."
+  },
+  {
+    "id": "713de2d1-ac6d-4ab5-8bfa-bee8867d1723",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-19-59",
+    "value": "What did I do last Saturday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:19:59.651827+00:00",
+    "updated_at": "2026-08-19T02:19:59.651829+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "834a21f2-7088-4384-9540-66bc04321d95",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-20-44",
+    "value": "What did I do last Sunday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:20:44.709139+00:00",
+    "updated_at": "2026-08-19T02:20:44.709141+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "452e656b-f12d-4f03-9676-eb635226ed62",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-44-19",
+    "value": "I met the client last Saturday.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:44:19.930225+00:00",
+    "updated_at": "2026-08-19T02:44:19.945463+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:44:19.945445+00:00] Updated from 'I met the client last Saturday.' to 'I met the client last Saturday.' by user."
+  },
+  {
+    "id": "1bb75f04-e674-4f72-b561-b57d1b1f1645",
+    "subject": "user",
+    "category": "general",
+    "attribute": "finished shed last:2026-08-16",
+    "value": "I finished the shed last Sunday",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 0.5,
+    "visibility": "private",
+    "source": "user",
+    "created_at": "2026-08-19T02:44:33.601048+00:00",
+    "updated_at": "2026-08-19T03:03:42.460201+00:00",
+    "expires_at": null,
+    "tags": [
+      "user_event",
+      "resolved:2026-08-16",
+      "expr:last sunday",
+      "tod:unspecified"
+    ],
+    "notes": "[2026-08-19T02:44:33.617403+00:00] Updated from 'I finished the shed last Sunday' to 'I finished the shed last Sunday' by user.\n[2026-08-19T03:03:42.449991+00:00] Updated from 'I finished the shed last Sunday' to 'I finished the shed last Sunday' by user.\n[2026-08-19T03:03:42.460175+00:00] Updated from 'I finished the shed last Sunday' to 'I finished the shed last Sunday' by user."
+  },
+  {
+    "id": "fff9fd0a-a67b-447d-835d-122bdfd66856",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-44-33",
+    "value": "I finished the shed last Sunday.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:44:33.606784+00:00",
+    "updated_at": "2026-08-19T02:44:33.620336+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T02:44:33.620318+00:00] Updated from 'I finished the shed last Sunday.' to 'I finished the shed last Sunday.' by user."
+  },
+  {
+    "id": "70a0c3b0-4f3a-415e-a795-24cbd18db6fd",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-44-57",
+    "value": "What did I do last Saturday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:44:57.025348+00:00",
+    "updated_at": "2026-08-19T02:44:57.025349+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "65f3bb05-a9cd-48ac-ac64-f2a37f06815a",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-45-23",
+    "value": "What did I do last Sunday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:45:23.694006+00:00",
+    "updated_at": "2026-08-19T02:45:23.694008+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "8198ed26-a250-4a80-a3b6-f7d4939bf207",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_02-45-46",
+    "value": "What did I do last Monday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T02:45:46.430206+00:00",
+    "updated_at": "2026-08-19T02:45:46.430207+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "779b02d7-03ed-4483-acb8-479f7f8da8d6",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_03-03-27",
+    "value": "I met the client last Saturday.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T03:03:27.770559+00:00",
+    "updated_at": "2026-08-19T03:03:27.785946+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T03:03:27.785926+00:00] Updated from 'I met the client last Saturday.' to 'I met the client last Saturday.' by user."
+  },
+  {
+    "id": "9907b7ba-6e84-4e86-aa62-37e04d3c4fa0",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_03-03-42",
+    "value": "I finished the shed last Sunday.",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T03:03:42.452837+00:00",
+    "updated_at": "2026-08-19T03:03:42.466557+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": "[2026-08-19T03:03:42.466540+00:00] Updated from 'I finished the shed last Sunday.' to 'I finished the shed last Sunday.' by user."
+  },
+  {
+    "id": "49ce50af-0c45-48ef-acf2-03d7047e98f4",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_03-03-55",
+    "value": "What did I do last Saturday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T03:03:55.590469+00:00",
+    "updated_at": "2026-08-19T03:03:55.590472+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "725bd28f-984e-4b49-817c-ddde7223fdc1",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_03-04-12",
+    "value": "What did I do last Sunday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T03:04:12.776066+00:00",
+    "updated_at": "2026-08-19T03:04:12.776067+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  },
+  {
+    "id": "ce47ab84-3370-4f6f-aa97-148c58f1801c",
+    "subject": "jarvis",
+    "category": "system",
+    "attribute": "conversation_2026-08-19_03-04-54",
+    "value": "What did I do last Monday?",
+    "data_type": "str",
+    "confidence": 1.0,
+    "importance": 1.0,
+    "visibility": "system",
+    "source": "user",
+    "created_at": "2026-08-19T03:04:54.551631+00:00",
+    "updated_at": "2026-08-19T03:04:54.551632+00:00",
+    "expires_at": null,
+    "tags": [
+      "journal",
+      "conversation"
+    ],
+    "notes": null
+  }
+]

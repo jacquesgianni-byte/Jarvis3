@@ -1,0 +1,37 @@
+{
+  "session_id": "ad4f25f8-e78c-42d0-b569-5b5e71d06e22",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 576813379,
+  "completed_at": 576834205,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:48:06.188290+00:00",
+  "rejection_reason": "Validation test \u2014 intentional rejection",
+  "execution_plan": {
+    "plan_id": "1de962b8-c76c-464c-ae1e-8feb48a47600",
+    "capability": "implement_feature",
+    "description": "Add version_info() method to core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "modify",
+        "content": "\"\"\"\nHealth utilities for the service.\nAdds version_info() to expose runtime/build metadata in a stable, serializable format.\n\"\"\"\nfrom __future__ import annotations\n\nimport os\nimport time\nimport platform\nfrom typing import Dict, Any, Optional\n\ntry:\n    # Python 3.8+\n    from importlib.metadata import version as pkg_version, PackageNotFoundError  # type: ignore\nexcept Exception:  # pragma: no cover - very old Pythons\n    try:\n        from importlib_metadata import version as pkg_version, PackageNotFoundError  # type: ignore\n    except Exception:  # Fallback if importlib_metadata unavailable\n        pkg_version = None  # type: ignore\n        class PackageNotFoundError(Exception):\n            pass\n\n# Module-level start time to compute process uptime\nSTART_TIME: float = time.time()\n\n# Derive a service name used for metadata lookup and reporting\nSERVICE_NAME: str = os.getenv(\"SERVICE_NAME\", \"core\")\n\n\ndef _resolve_version(service_name: str) -> str:\n    \"\"\"Resolve the service version using precedence:\n    1) APP_VERSION env var\n    2) Installed package version for service_name (if available)\n    3) Fallback \"0.0.0-dev\"\n    \"\"\"\n    env_ver = os.getenv(\"APP_VERSION\")\n    if env_ver:\n        return env_ver\n\n    if pkg_version is not None:\n        try:\n            return pkg_version(service_name)\n        except PackageNotFoundError:\n            pass\n        except Exception:\n            pass\n\n    return \"0.0.0-dev\"\n\n\ndef version_info() -> Dict[str, Any]:\n    \"\"\"Return version/build/runtime metadata for health endpoints.\n\n    Keys:\n      - service: logical service name\n      - version: semantic version string\n      - build: CI build number/id (optional)\n      - commit: VCS commit SHA (optional)\n      - python_version: interpreter version\n      - uptime_seconds: process uptime in seconds (int)\n    \"\"\"\n    version = _resolve_version(SERVICE_NAME)\n    build = os.getenv(\"BUILD_NUMBER\") or os.getenv(\"BUILD_ID\")\n    commit = os.getenv(\"GIT_COMMIT\") or os.getenv(\"COMMIT_SHA\") or os.getenv(\"SOURCE_VERSION\")\n\n    info: Dict[str, Any] = {\n        \"service\": SERVICE_NAME,\n        \"version\": version,\n        \"build\": build,\n        \"commit\": commit,\n        \"python_version\": platform.python_version(),\n        \"uptime_seconds\": int(max(0.0, time.time() - START_TIME)),\n    }\n\n    # Remove None values for cleanliness\n    return {k: v for k, v in info.items() if v is not None}\n",
+        "reason": "Add version_info() method exposing version/build/runtime metadata with safe fallbacks."
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Add version_info() method to core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[FAILED] Rejected by 'ludovic': Validation test \u2014 intentional rejection"
+  ]
+}

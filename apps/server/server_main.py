@@ -62,10 +62,23 @@ def main():
         worker_manager=agent.worker_manager,
         worker_intelligence=getattr(agent, "worker_intelligence", None),
     )
+    from core.engineering.guardrails.guardrails import EngineeringGuardrails
+    from core.engineering.coordinator.coordinator import CoordinatorConfig
+    guardrails = EngineeringGuardrails()
+    coord_config = CoordinatorConfig(
+        enable_planning=False,
+        enable_guardrails=True,
+        enable_approval_gate=True,
+        enable_validation=False,
+        enable_debugging=False,
+        enable_repair=False,
+    )
     orchestrator = EngineeringCoordinator(
+        config=coord_config,
         session_store=session_store,
         claude_worker=claude_worker,
         execution_runner=execution_runner,
+        guardrails=guardrails,
     )
     logger.info("[SERVER] EngineeringCoordinator initialised with Claude + ExecutionRunner.")
 

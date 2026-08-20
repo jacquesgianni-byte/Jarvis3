@@ -1,4 +1,4 @@
-"""
+﻿"""
 Autonomous Engineering Execution — ExecutionWorker and RollbackWorker
 Genesis-041 Sprint-003
 
@@ -306,7 +306,7 @@ class RollbackWorker(Worker):
 
             # Primary: git rollback
             result: RollbackResult = self._strategy.rollback(
-                repo_root=repo_root,
+                repo_path=repo_root,
                 anchor=snapshot_sha,
                 files_created=tuple(files_created),
             )

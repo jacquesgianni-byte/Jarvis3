@@ -1,4 +1,4 @@
-"""
+﻿"""
 Knowledge Engine
 
 The central business logic layer for the Jarvis Knowledge Engine.
@@ -314,6 +314,29 @@ class KnowledgeEngine:
         )
 
         return results
+
+    def list_by_tag(self, tag: str, subject: str = "user") -> list:
+        """
+        Genesis-052 Sprint-002: Exact tag search — exposes the repository's
+        existing tag filtering at the engine boundary.
+
+        Returns every non-expired record that carries the given tag and
+        matches the subject filter. No relevance scoring — deterministic.
+
+        Used by TemporalRecallEngine for date-exact event recall so that
+        a resolved date is treated as a hard constraint, never a hint.
+
+        Args:
+            tag:     Exact tag string, e.g. "resolved:2026-08-16".
+            subject: Subject filter (default "user"). Pass "" to skip.
+
+        Returns:
+            List of matching MemoryRecord objects (unordered).
+        """
+        kwargs = {"tags": [tag]}
+        if subject:
+            kwargs["subject"] = subject
+        return self._storage.search(**kwargs)
 
     def update_memory(
         self,

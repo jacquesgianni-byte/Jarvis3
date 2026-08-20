@@ -1,0 +1,37 @@
+{
+  "session_id": "8e0bfc7a-bf11-44f3-892d-ae9e60809cb9",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 577101602,
+  "completed_at": 577160710,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:53:32.693373+00:00",
+  "rejection_reason": "T-07 cleanup",
+  "execution_plan": {
+    "plan_id": "b6accd8d-635a-47e3-a374-8ce710469163",
+    "capability": "implement_feature",
+    "description": "Add version_info() to core/health.py \u2014 session A",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "create",
+        "content": "from __future__ import annotations\n\nimport os\nimport platform\nfrom datetime import datetime, timezone\nfrom functools import lru_cache\nfrom typing import Any, Dict, Optional\n\n\ndef _parse_build_timestamp(raw: Optional[str]) -> Optional[str]:\n    \"\"\"Parse BUILD_TIMESTAMP from env.\n    Accepts epoch seconds (int/float as string) or ISO-8601. Returns ISO-8601 UTC (Z) or None.\n    \"\"\"\n    if not raw:\n        return None\n    raw = raw.strip()\n    # Try epoch seconds\n    try:\n        # supports int or float seconds\n        ts = float(raw)\n        dt = datetime.fromtimestamp(ts, tz=timezone.utc)\n        return dt.replace(microsecond=0).isoformat().replace('+00:00', 'Z')\n    except (ValueError, OSError, OverflowError):\n        pass\n    # Try ISO-8601 (allow trailing Z)\n    try:\n        iso_raw = raw.replace('Z', '+00:00') if raw.endswith('Z') else raw\n        dt = datetime.fromisoformat(iso_raw)\n        if dt.tzinfo is None:\n            dt = dt.replace(tzinfo=timezone.utc)\n        else:\n            dt = dt.astimezone(timezone.utc)\n        return dt.replace(microsecond=0).isoformat().replace('+00:00', 'Z')\n    except ValueError:\n        return None\n\n\n@lru_cache(maxsize=1)\ndef version_info() -> Dict[str, Any]:\n    \"\"\"Return build/version metadata for health reporting.\n\n    Fields:\n      - name: service/application name (from APP_NAME; fallback to 'app')\n      - version: semantic version string (APP_VERSION or 'unknown')\n      - commit: git commit SHA (GIT_COMMIT or 'unknown')\n      - build: build number/id (BUILD_NUMBER or 'unknown')\n      - build_timestamp: ISO-8601 UTC timestamp (from BUILD_TIMESTAMP; may be None)\n      - python: Python runtime version\n      - platform: OS/platform identifier\n    \"\"\"\n    name = os.getenv('APP_NAME') or 'app'\n    version = os.getenv('APP_VERSION') or 'unknown'\n    commit = os.getenv('GIT_COMMIT') or 'unknown'\n    build = os.getenv('BUILD_NUMBER') or 'unknown'\n    build_ts = _parse_build_timestamp(os.getenv('BUILD_TIMESTAMP'))\n\n    return {\n        'name': name,\n        'version': version,\n        'commit': commit,\n        'build': build,\n        'build_timestamp': build_ts,  # str or None\n        'python': platform.python_version(),\n        'platform': platform.platform(),\n    }\n",
+        "reason": "Add version_info() to expose build/version metadata for health endpoints."
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Add version_info() to core/health.py \u2014 session A",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[FAILED] Rejected by 'ludovic': T-07 cleanup"
+  ]
+}

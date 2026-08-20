@@ -1,0 +1,37 @@
+{
+  "session_id": "a1fc9ae1-4422-411f-94ec-e02f916cc16f",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 578928509,
+  "completed_at": 589386210,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T11:17:18.193029+00:00",
+  "rejection_reason": "T-05 cleanup",
+  "execution_plan": {
+    "plan_id": "411e064e-fc0d-4104-9b18-ac539185d643",
+    "capability": "implement_feature",
+    "description": "Delete the entire contents of core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "modify",
+        "content": "",
+        "reason": "Truncate file to delete all contents while preserving module path"
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Delete the entire contents of core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[FAILED] Rejected by 'ludovic': T-05 cleanup"
+  ]
+}

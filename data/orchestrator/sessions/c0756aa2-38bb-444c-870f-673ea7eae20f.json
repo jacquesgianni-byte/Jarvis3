@@ -1,0 +1,40 @@
+{
+  "session_id": "c0756aa2-38bb-444c-870f-673ea7eae20f",
+  "status": "VALIDATING",
+  "current_stage": "COMPLETE",
+  "started_at": 576859495,
+  "completed_at": null,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:48:57.845454+00:00",
+  "rejection_reason": null,
+  "execution_plan": {
+    "plan_id": "5a2f897c-c7ac-4a07-ba18-5e6a83fc0a30",
+    "capability": "implement_feature",
+    "description": "Add version_info() method to core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "create",
+        "content": "from __future__ import annotations\n\nimport os\nimport time\nfrom typing import Any, Dict, Optional, Tuple\n\ntry:\n    # Python 3.8+\n    from importlib import metadata as importlib_metadata  # type: ignore\nexcept Exception:  # pragma: no cover\n    import importlib_metadata  # type: ignore\n\n\ndef _detect_root_package() -> str:\n    \"\"\"Best-effort detection of the root package name (e.g., 'core').\"\"\"\n    name = __name__.split(\".\")[0]\n    return name or \"core\"\n\n\ndef _resolve_version_from_module(pkg: str) -> Optional[str]:\n    try:\n        mod = __import__(pkg)\n        v = getattr(mod, \"__version__\", None)\n        if isinstance(v, str) and v:\n            return v\n    except Exception:\n        pass\n    return None\n\n\ndef _resolve_version_from_metadata(dist: str) -> Optional[str]:\n    try:\n        return importlib_metadata.version(dist)\n    except Exception:\n        return None\n\n\ndef _iso8601_from_env() -> Optional[str]:\n    # Prefer explicit BUILD_DATE (ISO8601), else SOURCE_DATE_EPOCH (epoch seconds)\n    bd = os.getenv(\"BUILD_DATE\")\n    if bd:\n        return bd\n    sde = os.getenv(\"SOURCE_DATE_EPOCH\")\n    if sde:\n        try:\n            ts = int(float(sde))\n            return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime(ts))\n        except Exception:\n            return None\n    return None\n\n\ndef version_info(package_name: Optional[str] = None) -> Dict[str, Any]:\n    \"\"\"\n    Return build/version metadata.\n\n    Resolution order for version:\n    1) Environment: APP_VERSION or BUILD_VERSION\n    2) Module __version__ from detected root package (or provided package_name)\n    3) importlib.metadata.version for the distribution name\n    Fallback: \"0.0.0-unknown\"\n\n    Additional fields:\n    - commit: from GIT_COMMIT or GITHUB_SHA\n    - build_date: from BUILD_DATE (ISO8601) or SOURCE_DATE_EPOCH\n    - source: indicates resolution source used for version\n    \"\"\"\n    src = \"\"\n    version = os.getenv(\"APP_VERSION\") or os.getenv(\"BUILD_VERSION\")\n    if version:\n        src = \"env\"\n    else:\n        root = package_name or _detect_root_package()\n        version = _resolve_version_from_module(root)\n        if version:\n            src = \"module.__version__\"\n        else:\n            # If a specific package_name provided, try that first; else try root\n            target = package_name or root\n            version = _resolve_version_from_metadata(target)\n            if version:\n                src = \"importlib.metadata\"\n\n    if not version:\n        version = \"0.0.0-unknown\"\n        if not src:\n            src = \"fallback\"\n\n    commit = os.getenv(\"GIT_COMMIT\") or os.getenv(\"GITHUB_SHA\") or None\n    build_date = _iso8601_from_env()\n\n    return {\n        \"version\": version,\n        \"commit\": commit,\n        \"build_date\": build_date,\n        \"source\": src,\n    }\n",
+        "reason": "Add version_info() utility returning standardized version/build metadata."
+      }
+    ]
+  },
+  "execution_outcome": "passed",
+  "request": {
+    "request": "Add version_info() method to core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[AWAITING_APPROVAL] Approved by 'ludovic' at 2026-08-20T07:48:57.845454+00:00",
+    "[EXECUTING] ExecutionRunner writing files",
+    "[TESTING] [3938ms] Files written \u2014 running regression tests",
+    "[COMPLETE] Tests passed (0 passing) \u2014 ready for commit"
+  ]
+}

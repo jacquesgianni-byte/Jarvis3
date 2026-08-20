@@ -1,0 +1,37 @@
+{
+  "session_id": "6f8609e4-8142-4262-bbf0-bfdf913adba3",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 576736703,
+  "completed_at": 576761734,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:46:53.717361+00:00",
+  "rejection_reason": "Validation test \u2014 intentional rejection",
+  "execution_plan": {
+    "plan_id": "e39ee213-d3e3-442d-b828-1308ce32741b",
+    "capability": "implement_feature",
+    "description": "Add version_info() method to core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "modify",
+        "content": "import os\nimport platform\nfrom typing import Optional, Dict, Any\n\ntry:\n    # Python 3.8+\n    import importlib.metadata as _metadata  # type: ignore\nexcept Exception:  # pragma: no cover\n    _metadata = None  # type: ignore\n\n__all__ = [\"version_info\"]\n\n\ndef version_info(package_name: Optional[str] = None) -> Dict[str, Any]:\n    \"\"\"Return application/runtime version information.\n\n    Resolution precedence for version:\n    1) APP_VERSION env var\n    2) Installed package version via importlib.metadata\n    3) VERSION/version.txt/.version files in common locations\n    4) Fallback to \"0.0.0-dev\"\n\n    Build/commit taken from common CI env vars if available.\n    \"\"\"\n    pkg = package_name or (_top_level_package() or None)\n\n    # Version resolution\n    version = os.getenv(\"APP_VERSION\")\n    if not version and pkg and _metadata is not None:\n        try:\n            version = _metadata.version(pkg)  # type: ignore[attr-defined]\n        except Exception:\n            version = None\n    if not version:\n        version = _read_version_file() or \"0.0.0-dev\"\n\n    build = os.getenv(\"BUILD_NUMBER\") or os.getenv(\"CI_BUILD_NUMBER\")\n    commit = os.getenv(\"GIT_SHA\") or os.getenv(\"GITHUB_SHA\") or os.getenv(\"CI_COMMIT_SHA\")\n\n    runtime = {\n        \"python\": platform.python_version(),\n        \"implementation\": platform.python_implementation(),\n        \"platform\": platform.platform(),\n    }\n\n    return {\n        \"package\": pkg,\n        \"version\": version,\n        \"build\": build,\n        \"commit\": commit,\n        \"runtime\": runtime,\n    }\n\n\ndef _top_level_package() -> Optional[str]:\n    # Derive top-level package name if possible (e.g., \"core\" from \"core.health\")\n    pkg = __package__ or __name__.rpartition(\".\")[0]\n    if not pkg:\n        return None\n    return pkg.split(\".\")[0]\n\n\ndef _read_version_file() -> Optional[str]:\n    candidates = [\"VERSION\", \"version.txt\", \".version\"]\n    here = os.path.dirname(__file__)\n    search_paths = [\n        os.getcwd(),\n        here,\n        os.path.abspath(os.path.join(here, \"..\")),\n    ]\n    for base in search_paths:\n        for name in candidates:\n            fp = os.path.join(base, name)\n            try:\n                if os.path.isfile(fp):\n                    with open(fp, \"r\", encoding=\"utf-8\") as f:\n                        v = f.read().strip()\n                        if v:\n                            return v\n            except Exception:\n                continue\n    return None\n",
+        "reason": "Add version_info() to expose app and runtime version metadata for health diagnostics."
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Add version_info() method to core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[FAILED] Rejected by 'ludovic': Validation test \u2014 intentional rejection"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "session_id": "b6809755-f693-42ca-b134-f6844507d15a",
+  "status": "COMPLETE",
+  "current_stage": "COMPLETE",
+  "started_at": 488363160,
+  "completed_at": 488627656,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-19T07:17:59.649258+00:00",
+  "rejection_reason": null,
+  "request": {
+    "request": "Genesis-053 Sprint-002: Phone Approval Integration",
+    "context": "Test session from desktop",
+    "priority": 1,
+    "metadata": {}
+  },
+  "timeline": [
+    "[AWAITING_APPROVAL] Approved by 'ludovic' at 2026-08-19T07:17:59.649258+00:00",
+    "[VALIDATION] Validation stage started",
+    "[VALIDATION] [0ms] Validation passed",
+    "[COMPLETE] Pipeline complete \u2014 all stages passed"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "session_id": "3c793c39-17ed-4daf-a4a7-dffcd81f7428",
+  "status": "VALIDATING",
+  "current_stage": "COMPLETE",
+  "started_at": 577123257,
+  "completed_at": null,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:53:32.261541+00:00",
+  "rejection_reason": null,
+  "execution_plan": {
+    "plan_id": "fc6022eb-811a-4446-8639-01e6c4e58f7e",
+    "capability": "implement_feature",
+    "description": "Add version_info() to core/health.py \u2014 session B",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "create",
+        "content": "from __future__ import annotations\n\nimport os\nimport platform\nimport subprocess\nfrom typing import Any, Dict, Optional\n\ntry:  # Python 3.8+\n    from importlib.metadata import version as pkg_version  # type: ignore\nexcept Exception:  # pragma: no cover\n    pkg_version = None  # type: ignore\n\n__all__ = [\"version_info\"]\n\n\ndef _read_git_commit() -> str:\n    \"\"\"Best-effort retrieval of current git commit (short). Returns 'unknown' on failure.\"\"\"\n    try:\n        # Avoid blocking and noisy errors\n        out = subprocess.check_output(\n            [\"git\", \"rev-parse\", \"--short\", \"HEAD\"],\n            stderr=subprocess.DEVNULL,\n            timeout=0.5,\n        )\n        commit = out.decode().strip()\n        return commit if commit else \"unknown\"\n    except Exception:\n        return \"unknown\"\n\n\ndef _resolve_version(package_name: Optional[str]) -> str:\n    # 1) Environment override\n    env_ver = os.getenv(\"APP_VERSION\")\n    if env_ver:\n        return env_ver\n    # 2) Package metadata if available and package specified\n    if package_name and pkg_version:\n        try:\n            return pkg_version(package_name)  # type: ignore\n        except Exception:\n            pass\n    # 3) Fallback\n    return \"0.0.0+unknown\"\n\n\ndef version_info(package_name: Optional[str] = None) -> Dict[str, Any]:\n    \"\"\"\n    Return a dictionary with application version diagnostics.\n\n    Precedence:\n    - version: APP_VERSION env > package metadata (if package_name provided) > fallback\n    - commit: GIT_COMMIT env > git rev-parse > unknown\n    - build_time: BUILD_TIME env > unknown\n\n    Args:\n        package_name: Optional distribution/package name to query metadata.\n\n    Returns:\n        Dict[str, Any]: {service, version, commit, build_time, python_version, runtime}\n    \"\"\"\n    service = os.getenv(\"SERVICE_NAME\", \"unknown-service\")\n    version = _resolve_version(package_name)\n    commit = os.getenv(\"GIT_COMMIT\") or _read_git_commit()\n    build_time = os.getenv(\"BUILD_TIME\", \"unknown\")\n\n    info = {\n        \"service\": service,\n        \"version\": version,\n        \"commit\": commit,\n        \"build_time\": build_time,\n        \"python_version\": platform.python_version(),\n        \"runtime\": platform.python_implementation(),\n    }\n    return info\n",
+        "reason": "Add version_info() with robust fallbacks and safe execution per health reporting needs."
+      }
+    ]
+  },
+  "execution_outcome": "passed",
+  "request": {
+    "request": "Add version_info() to core/health.py \u2014 session B",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[AWAITING_APPROVAL] Approved by 'ludovic' at 2026-08-20T07:53:32.261541+00:00",
+    "[EXECUTING] ExecutionRunner writing files",
+    "[TESTING] [394ms] Files written \u2014 running regression tests",
+    "[COMPLETE] Tests passed (0 passing) \u2014 ready for commit"
+  ]
+}

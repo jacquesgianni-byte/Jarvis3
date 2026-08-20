@@ -1,0 +1,37 @@
+{
+  "session_id": "d76c3844-0402-4b62-95dc-91ca2a0267a7",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 576920847,
+  "completed_at": 576944967,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:49:56.950073+00:00",
+  "rejection_reason": "T-08 cleanup",
+  "execution_plan": {
+    "plan_id": "69278453-c400-4c6c-94cb-64b253649762",
+    "capability": "implement_feature",
+    "description": "Add version_info() method to core/health.py",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "modify",
+        "content": "from __future__ import annotations\n\nimport os\nimport platform\nfrom datetime import datetime, timezone\nfrom functools import lru_cache\nimport importlib\n\ntry:\n    # Python 3.8+\n    from importlib import metadata as importlib_metadata  # type: ignore\nexcept Exception:  # pragma: no cover\n    import importlib_metadata  # type: ignore\n\n__all__ = [\"version_info\"]\n\n\ndef _infer_root_package() -> str:\n    # Use the top-level package name as a best-effort service/package identifier\n    parts = (__name__ or \"\").split(\".\")\n    return parts[0] if parts else \"app\"\n\n\ndef _env(name: str) -> str | None:\n    val = os.getenv(name)\n    return val if val and val.strip() else None\n\n\ndef _resolve_version(root_pkg: str) -> str:\n    # Prefer explicit env override\n    if (v := _env(\"APP_VERSION\")):\n        return v\n    # Try __version__ on root package\n    try:\n        pkg = importlib.import_module(root_pkg)\n        v = getattr(pkg, \"__version__\", None)\n        if isinstance(v, str) and v.strip():\n            return v\n    except Exception:\n        pass\n    # Try distribution metadata (may differ from module name)\n    try:\n        return importlib_metadata.version(root_pkg)\n    except Exception:\n        pass\n    return \"unknown\"\n\n\ndef _resolve_build_date() -> str | None:\n    # BUILD_DATE as ISO 8601 takes precedence\n    if (d := _env(\"BUILD_DATE\")):\n        return d\n    # SOURCE_DATE_EPOCH as seconds since epoch (reproducible builds)\n    if (epoch := _env(\"SOURCE_DATE_EPOCH\")):\n        try:\n            ts = datetime.fromtimestamp(int(epoch), tz=timezone.utc)\n            return ts.isoformat().replace(\"+00:00\", \"Z\")\n        except Exception:\n            pass\n    return None\n\n\ndef _resolve_git_commit() -> str | None:\n    return _env(\"GIT_COMMIT\") or _env(\"GITHUB_SHA\")\n\n\n@lru_cache(maxsize=1)\ndef version_info() -> dict:\n    \"\"\"Return service/package version details for health and diagnostics.\n\n    Keys:\n      - name: service or package name (env SERVICE_NAME or root package)\n      - version: semantic version string if known, else \"unknown\"\n      - git_commit: commit SHA if provided via env\n      - build_date: ISO 8601 UTC build timestamp if provided\n      - python: Python runtime version\n      - platform: OS/platform descriptor\n    \"\"\"\n    root_pkg = _infer_root_package()\n\n    return {\n        \"name\": _env(\"SERVICE_NAME\") or root_pkg,\n        \"version\": _resolve_version(root_pkg),\n        \"git_commit\": _resolve_git_commit(),\n        \"build_date\": _resolve_build_date(),\n        \"python\": platform.python_version(),\n        \"platform\": platform.platform(),\n    }\n",
+        "reason": "Add version_info() method returning standardized version diagnostics with robust fallbacks."
+      }
+    ]
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "Add version_info() method to core/health.py",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[FAILED] Rejected by 'ludovic': T-08 cleanup"
+  ]
+}

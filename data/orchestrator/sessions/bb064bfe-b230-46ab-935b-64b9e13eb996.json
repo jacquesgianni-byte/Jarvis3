@@ -1,0 +1,40 @@
+{
+  "session_id": "bb064bfe-b230-46ab-935b-64b9e13eb996",
+  "status": "VALIDATING",
+  "current_stage": "COMPLETE",
+  "started_at": 577138584,
+  "completed_at": null,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-20T07:53:32.704796+00:00",
+  "rejection_reason": null,
+  "execution_plan": {
+    "plan_id": "f520f649-4ad9-4146-adae-f5a8dc5f97a9",
+    "capability": "implement_feature",
+    "description": "Add version_info() to core/health.py \u2014 session C",
+    "operations": [
+      {
+        "path": "core/health.py",
+        "action": "modify",
+        "content": "from __future__ import annotations\n\nimport os\nimport platform\nimport sys\nfrom typing import Any, Dict, Optional\n\ntry:\n    from importlib import metadata as importlib_metadata  # Python 3.8+\nexcept Exception:  # pragma: no cover\n    importlib_metadata = None  # type: ignore\n\n__all__ = [\"version_info\"]\n\n\ndef _safe_pkg_version(pkg_name: Optional[str]) -> Optional[str]:\n    \"\"\"Return installed package version or None if unavailable.\"\"\"\n    if not pkg_name or not importlib_metadata:\n        return None\n    try:\n        return importlib_metadata.version(pkg_name)\n    except Exception:\n        return None\n\n\ndef _first_env(*keys: str) -> Optional[str]:\n    for k in keys:\n        v = os.environ.get(k)\n        if v:\n            return v\n    return None\n\n\ndef version_info(package_name: Optional[str] = None) -> Dict[str, Any]:\n    \"\"\"\n    Return version and runtime metadata for diagnostics.\n\n    Priority for application version:\n    1) Explicit package_name argument\n    2) APP_PACKAGE environment variable\n    3) None if not resolvable\n    \"\"\"\n    resolved_pkg = package_name or os.environ.get(\"APP_PACKAGE\")\n    app_version = _safe_pkg_version(resolved_pkg)\n\n    info: Dict[str, Any] = {\n        \"service\": os.environ.get(\"SERVICE_NAME\") or resolved_pkg or None,\n        \"version\": app_version,\n        \"python\": sys.version.split(\" \")[0],\n        \"platform\": {\n            \"system\": platform.system(),\n            \"release\": platform.release(),\n            \"machine\": platform.machine(),\n        },\n        \"build\": {\n            \"commit\": _first_env(\"GIT_COMMIT\", \"BUILD_COMMIT\", \"SOURCE_VERSION\"),\n            \"time\": _first_env(\"BUILD_TIME\", \"BUILD_TIMESTAMP\"),\n            \"branch\": _first_env(\"GIT_BRANCH\", \"BRANCH\", \"SOURCE_BRANCH\"),\n        },\n        \"dependencies\": {\n            # Best-effort versions for common runtimes/frameworks\n            \"uvicorn\": _safe_pkg_version(\"uvicorn\"),\n            \"gunicorn\": _safe_pkg_version(\"gunicorn\"),\n            \"fastapi\": _safe_pkg_version(\"fastapi\"),\n            \"flask\": _safe_pkg_version(\"flask\"),\n            \"django\": _safe_pkg_version(\"django\"),\n        },\n    }\n\n    return info\n",
+        "reason": "Add version_info() to expose application and runtime version metadata safely."
+      }
+    ]
+  },
+  "execution_outcome": "passed",
+  "request": {
+    "request": "Add version_info() to core/health.py \u2014 session C",
+    "context": "",
+    "priority": 0,
+    "metadata": {}
+  },
+  "timeline": [
+    "[INITIALISING] Session created \u2014 pipeline starting",
+    "[PLANNING] Planning stage started",
+    "[PLANNING] [0ms] Planning stage completed",
+    "[AWAITING_APPROVAL] Pipeline suspended \u2014 awaiting human approval",
+    "[AWAITING_APPROVAL] Approved by 'ludovic' at 2026-08-20T07:53:32.704796+00:00",
+    "[EXECUTING] ExecutionRunner writing files",
+    "[TESTING] [406ms] Files written \u2014 running regression tests",
+    "[COMPLETE] Tests passed (0 passing) \u2014 ready for commit"
+  ]
+}

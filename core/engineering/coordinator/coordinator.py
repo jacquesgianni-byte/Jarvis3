@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-018 Sprint 002 — Engineering Coordinator
 Central orchestrator with full session and workflow management.
 
@@ -559,7 +559,21 @@ class EngineeringCoordinator:
         # Execution resumes only after resume_session() is called.
         # Genesis-053 Sprint-003: call claude worker before suspending
         if self.has_claude_worker:
-            plan_dict, claude_warnings, claude_errors = self._run_claude_planning(request)
+            _file_context: dict = {}
+            try:
+                from core.engineering.context.file_context_reader import FileContextReader
+                import os as _os
+                _repo_root = _os.getcwd()
+                _reader = FileContextReader(_repo_root)
+                _hints = FileContextReader.extract_file_hints(request.request)
+                if _hints:
+                    _file_context = _reader.read(_hints)
+            except Exception as _fce:
+                import logging as _log
+                _log.getLogger(__name__).warning('[COORDINATOR] File context gathering failed: %s', _fce)
+            plan_dict, claude_warnings, claude_errors = self._run_claude_planning(
+                request, file_context=_file_context
+            )
             warnings.extend(claude_warnings)
             errors.extend(claude_errors)
             if claude_errors:
@@ -943,7 +957,8 @@ class EngineeringCoordinator:
             completed=True, queue_position=None)
 
     def _run_claude_planning(
-        self, request: EngineeringRequest
+        self, request: EngineeringRequest,
+        file_context: Optional[dict] = None,
     ) -> tuple[Optional[dict], List[str], List[str]]:
         """Call ClaudeAIWorker to produce an ExecutionPlan dict."""
         from core.workers.models import WorkerTask
@@ -959,6 +974,7 @@ class EngineeringCoordinator:
                     "description":     request.request,
                     "context":         request.context or "",
                     "capability_used": "implement_feature",
+                    "file_context":    file_context or {},
                 },
                 requester="engineering_coordinator",
             )
