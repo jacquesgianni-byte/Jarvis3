@@ -73,7 +73,8 @@ After your explanation, produce a JSON execution plan in this exact format:
   ]
 }
 ```
-If you cannot determine specific file operations, output:
+IMPORTANT: For implementation requests you MUST provide real file operations with actual file content. The operations list must NOT be empty. Include the complete new or modified file content in the content field.
+If you genuinely cannot determine the file operations, output:
 ```json
 {"operations": []}
 ```

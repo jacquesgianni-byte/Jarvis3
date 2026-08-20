@@ -1,3 +1,4 @@
+import pathlib
 """
 Engineering Guardrails (Genesis-016 Sprint 003)
 
@@ -79,7 +80,7 @@ class EngineeringGuardrails:
     # Public API
     # ------------------------------------------------------------------
 
-    def evaluate(self, task: str, files: list[str]) -> EngineeringPlan:
+    def evaluate(self, task: str, files: list[str], operations: list = None) -> EngineeringPlan:
         """
         Evaluate a proposed engineering task against the guardrail rules.
 
@@ -98,6 +99,39 @@ class EngineeringGuardrails:
         files = list(dict.fromkeys(files))
         total = len(files)
         protected = self._find_protected(files)
+
+        # Rule 0: destructive-operation detection (Sprint-004)
+        if operations:
+            repo_root = pathlib.Path(__file__).resolve().parents[3]
+            destructive = [
+                op for op in operations
+                if op.get("action", "").lower() == "delete"
+                or (
+                    op.get("action", "").lower() in ("modify", "create")
+                    and not op.get("content", "").strip()
+                    and op.get("path", "")
+                    and (repo_root / op["path"]).exists()
+                )
+            ]
+            if destructive:
+                paths = [op.get("path", "?") for op in destructive]
+                reason = (
+                    f"Destructive operation(s) detected on {len(destructive)} "
+                    f"existing file(s): {', '.join(paths)}. "
+                    "Delete and empty-overwrite operations on existing source "
+                    "files are rejected. Revise the plan."
+                )
+                plan = EngineeringPlan(
+                    task=task,
+                    files_to_modify=tuple(files),
+                    protected_files_encountered=tuple(paths),
+                    total_files=total,
+                    max_files_allowed=self.max_files,
+                    status=ApprovalStatus.REJECTED,
+                    reason=reason,
+                )
+                logger.warning("Guardrails REJECTED (destructive): %s", reason)
+                return plan
 
         # Rule 1: file count limit (hard reject — Chief cannot override
         # without revising scope)

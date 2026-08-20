@@ -39,9 +39,8 @@ Genesis-027 Sprint-001.
 from __future__ import annotations
 
 import logging
+import pathlib
 import time
-from io import StringIO
-
 from core.workers.base import Worker
 from core.workers.models import WorkerResult, WorkerTask
 
@@ -97,72 +96,63 @@ class SuiteRunnerWorker(Worker):
         self._begin(task)
 
         try:
-            import pytest
+            import subprocess, re as _re, sys as _sys
 
             paths   = task.payload.get("paths", ["tests/"])
             markers = task.payload.get("markers", "")
             verbose = task.payload.get("verbose", False)
 
-            args = list(paths)
-            args += ["-q"]
+            args = [_sys.executable, "-m", "pytest"] + list(paths)
+            args += ["--tb=line", "-q", "-p", "no:cacheprovider"]
             if verbose:
                 args += ["-v"]
             if markers:
                 args += ["-m", markers]
 
-            # Capture pytest output
-            output_buffer = StringIO()
-
-            logger.info("[TEST_WORKER] Running pytest with args: %s", args)
-
+            logger.info("[TEST_WORKER] Running pytest subprocess: %s", args)
             start = time.perf_counter()
 
-            # Run pytest with a custom plugin to collect counts
-            class _ResultCollector:
-                def __init__(self):
-                    self.passed  = 0
-                    self.failed  = 0
-                    self.skipped = 0
-                    self.errors  = 0
-                    self.failures: list[str] = []
-
-                def pytest_runtest_logreport(self, report):
-                    if report.when == "call":
-                        if report.passed:
-                            self.passed += 1
-                        elif report.failed:
-                            self.failed += 1
-                            self.failures.append(report.nodeid)
-                        elif report.skipped:
-                            self.skipped += 1
-
-                def pytest_internalerror(self, excrepr):
-                    self.errors += 1
-
-            collector = _ResultCollector()
-            exit_code = pytest.main(args + ["--tb=no", "-p", "no:cacheprovider"],
-                                    plugins=[collector])
+            # Fresh subprocess — no module cache contamination (Sprint-004 Gap B)
+            repo_root = pathlib.Path(__file__).resolve().parents[2]  # jarvis3/
+            proc = subprocess.run(args, capture_output=True, text=True, timeout=300, cwd=str(repo_root))
             duration = time.perf_counter() - start
+            output = proc.stdout + proc.stderr
 
-            total = collector.passed + collector.failed + collector.skipped
-            success = collector.failed == 0 and collector.errors == 0
+            passed = failed = skipped = errors = 0
+            failures: list[str] = []
+
+            m_passed  = _re.search(r"(\d+) passed",  output)
+            m_failed  = _re.search(r"(\d+) failed",  output)
+            m_skipped = _re.search(r"(\d+) skipped", output)
+            m_error   = _re.search(r"(\d+) error",   output)
+            if m_passed:  passed  = int(m_passed.group(1))
+            if m_failed:  failed  = int(m_failed.group(1))
+            if m_skipped: skipped = int(m_skipped.group(1))
+            if m_error:   errors  = int(m_error.group(1))
+
+            for line in output.splitlines():
+                if line.startswith("FAILED "):
+                    failures.append(line[7:].strip())
+
+            exit_code = proc.returncode
+            # exit_code 5 = no tests collected (not a failure)
+            success = (exit_code in (0, 5)) and failed == 0 and errors == 0
+            total = passed + failed + skipped
 
             observations = [
-                f"Ran {total} tests in {duration:.1f}s",
-                f"Passed: {collector.passed}",
-                f"Failed: {collector.failed}",
-                f"Skipped: {collector.skipped}",
+                f"Ran {total} tests in {duration:.1f}s (fresh subprocess)",
+                f"Passed: {passed}",
+                f"Failed: {failed}",
+                f"Skipped: {skipped}",
             ]
-            if collector.failures:
-                observations.append(
-                    f"Failures: {', '.join(collector.failures[:5])}"
-                )
+            if failures:
+                observations.append(f"Failures: {', '.join(failures[:5])}")
 
             recommendations = []
-            if collector.failed > 0:
+            if failed > 0:
                 recommendations.append(
-                    f"Investigate {collector.failed} failing test(s): "
-                    + ", ".join(collector.failures[:3])
+                    f"Investigate {failed} failing test(s): "
+                    + ", ".join(failures[:3])
                 )
             if success:
                 recommendations.append(
@@ -170,8 +160,8 @@ class SuiteRunnerWorker(Worker):
                 )
 
             logger.info(
-                "[TEST_WORKER] Complete: passed=%d failed=%d skipped=%d in %.1fs",
-                collector.passed, collector.failed, collector.skipped, duration,
+                "[TEST_WORKER] Complete: passed=%d failed=%d skipped=%d exit=%d in %.1fs",
+                passed, failed, skipped, exit_code, duration,
             )
 
             return self._succeed(WorkerResult(
@@ -182,13 +172,13 @@ class SuiteRunnerWorker(Worker):
                 recommendations=tuple(recommendations),
                 requires_approval=False,
                 data={
-                    "passed":    collector.passed,
-                    "failed":    collector.failed,
-                    "skipped":   collector.skipped,
-                    "errors":    collector.errors,
+                    "passed":    passed,
+                    "failed":    failed,
+                    "skipped":   skipped,
+                    "errors":    errors,
                     "duration":  round(duration, 2),
-                    "exit_code": int(exit_code),
-                    "failures":  collector.failures,
+                    "exit_code": exit_code,
+                    "failures":  failures,
                 },
             ))
 

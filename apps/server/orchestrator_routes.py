@@ -172,3 +172,59 @@ def orchestrator_approve():
         "session_id": session_id,
         "outcome":   result.status.value,
     })
+
+
+# ---------------------------------------------------------------------------
+# POST /orchestrator/coordinate
+# ---------------------------------------------------------------------------
+
+@orchestrator_bp.route("/orchestrator/coordinate", methods=["POST"])
+def orchestrator_coordinate():
+    """
+    Submit an engineering request to the coordinator.
+    Creates a new session and suspends it awaiting approval.
+
+    Authentication: X-Orchestrator-Token header required.
+    Body (JSON): {"request": str}
+    Response: {"ok": bool, "session_id": str, "status": str, "plan_summary": dict}
+    """
+    if not _check_auth():
+        return _unauthorized()
+
+    body = request.get_json(silent=True) or {}
+    engineering_request = body.get("request", "").strip()
+
+    if not engineering_request:
+        return jsonify({"ok": False, "error": "request is required"}), 400
+
+    coord = _coordinator()
+    if coord is None:
+        return jsonify({"ok": False, "error": "No coordinator registered"}), 503
+
+    try:
+        from core.engineering.coordinator.models import EngineeringRequest
+        req = EngineeringRequest(request=engineering_request)
+        result = coord.coordinate(req)
+    except Exception as exc:
+        logger.exception("[ORCHESTRATOR] /coordinate failed.")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    # Find plan_summary from suspended sessions if available
+    plan_summary = {"available": False}
+    if result.session_id:
+        try:
+            sessions = coord.suspended_sessions()
+            match = next((s for s in sessions if s["session_id"] == result.session_id), None)
+            if match:
+                plan_summary = match.get("plan_summary", plan_summary)
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok":          True,
+        "session_id":  result.session_id,
+        "status":      result.status.value,
+        "plan_summary": plan_summary,
+        "errors":      result.errors,
+        "warnings":    result.warnings,
+    })

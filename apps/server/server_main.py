@@ -58,9 +58,9 @@ def main():
     session_store    = SessionStore()
     claude_worker    = ClaudeAIWorker(ai_client=ai)
     execution_runner = ExecutionRunner(
-        worker_coordinator=agent._coordinator,
-        worker_manager=agent._manager,
-        worker_intelligence=getattr(agent, "_worker_intelligence", None),
+        worker_coordinator=agent.worker_coordinator,
+        worker_manager=agent.worker_manager,
+        worker_intelligence=getattr(agent, "worker_intelligence", None),
     )
     orchestrator = EngineeringCoordinator(
         session_store=session_store,

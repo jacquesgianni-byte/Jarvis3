@@ -573,7 +573,7 @@ class EngineeringCoordinator:
                 ops = plan_dict.get('operations', [])
                 files = [o.get('path', '') for o in ops]
                 try:
-                    ep = self._guardrails.evaluate(request.request, files)
+                    ep = self._guardrails.evaluate(request.request, files, operations=ops)
                     from core.engineering.guardrails.models import ApprovalStatus
                     guard_pass = ep.status != ApprovalStatus.REJECTED
                 except Exception as exc:
