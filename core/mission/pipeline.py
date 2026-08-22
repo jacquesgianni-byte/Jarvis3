@@ -179,49 +179,93 @@ class IntentStage:
     Policy (Stage 1) has already determined what is permitted.
     This stage labels the request for routing purposes only.
 
+    Genesis-055 Sprint-002A: adds deterministic/historical classification.
+
+    Knowledge tiers (GPT-approved architecture):
+        FACT        — answerable directly from MissionRegistry current state
+        HISTORICAL  — requires project documents not yet in knowledge base
+        UNKNOWN     — cannot classify; honest "I don't know" response
+
     Intent labels:
-        read_project    — query about project state, genesis, objectives
-        read_tests      — query about test results
-        read_git        — query about commits, branches
-        read_knowledge  — query about engineering decisions, ADRs
-        run_tests       — request to execute test suite
-        write           — request that modifies files/state (approval_required)
-        unknown         — cannot classify
+        read_current    — FACT: current genesis, sprint, mission, tests, commit
+        read_objectives — FACT: objectives, progress, next milestone
+        run_tests       — FACT: test execution request
+        write           — requires approval
+        historical      — HISTORICAL: past genesis delivery, rationale, ADRs
+        unknown         — UNKNOWN: cannot classify
     """
     NAME = "IntentStage"
 
-    READ_KEYWORDS = (
-        "what is", "what are", "show me", "tell me", "current",
-        "status", "progress", "objectives", "mission", "genesis",
-        "commit", "branch", "tests", "why did", "how did", "adr",
+    # FACT — answerable from MissionRegistry current state
+    CURRENT_STATE_KEYWORDS = (
+        "current genesis", "what genesis", "which genesis",
+        "current sprint", "what sprint",
+        "current mission", "what mission",
+        "tests passing", "tests passed", "test results", "how many tests",
+        "last commit", "current commit", "which commit",
+        "current branch", "which branch",
+        "what branch",
     )
-    RUN_TEST_KEYWORDS = ("run tests", "run the tests", "execute tests")
-    WRITE_KEYWORDS    = ("modify", "change", "update", "write", "create file",
-                         "delete", "commit", "push")
+    OBJECTIVES_KEYWORDS = (
+        "objectives", "progress", "next milestone", "milestone",
+        "what are we working on", "open tasks", "what is left",
+        "what is done", "what have we completed",
+    )
+    RUN_TEST_KEYWORDS = (
+        "run tests", "run the tests", "execute tests", "run pytest",
+    )
+    WRITE_KEYWORDS = (
+        "modify", "change", "update", "write", "create file",
+        "delete", "commit", "push",
+    )
+
+    # HISTORICAL — requires project documents not yet in knowledge base
+    HISTORICAL_KEYWORDS = (
+        "why did", "why was", "why were", "why have",
+        "how did", "how was",
+        "what did genesis", "what did g-", "what was genesis",
+        "delivered", "deliver", "introduced", "added in",
+        "history", "previous genesis", "past genesis",
+        "adr", "architectural decision", "design decision",
+        "rationale", "reason we", "reason for",
+        "when did we", "when was",
+    )
 
     def run(
         self,
         request: MissionRequest,
         state: dict,
     ) -> MissionStageResult:
-        start    = time.perf_counter()
-        msg      = request.message.lower()
+        start = time.perf_counter()
+        msg   = request.message.lower()
 
-        if any(kw in msg for kw in self.RUN_TEST_KEYWORDS):
-            intent = "run_tests"
-        elif any(kw in msg for kw in self.WRITE_KEYWORDS):
-            intent = "write"
-        elif any(kw in msg for kw in self.READ_KEYWORDS):
-            intent = "read_project"
+        # Priority order: write > run_tests > historical > current > objectives > unknown
+        if any(kw in msg for kw in self.WRITE_KEYWORDS):
+            intent    = "write"
+            knowledge = "approval_required"
+        elif any(kw in msg for kw in self.RUN_TEST_KEYWORDS):
+            intent    = "run_tests"
+            knowledge = "fact"
+        elif any(kw in msg for kw in self.HISTORICAL_KEYWORDS):
+            intent    = "historical"
+            knowledge = "historical"
+        elif any(kw in msg for kw in self.CURRENT_STATE_KEYWORDS):
+            intent    = "read_current"
+            knowledge = "fact"
+        elif any(kw in msg for kw in self.OBJECTIVES_KEYWORDS):
+            intent    = "read_objectives"
+            knowledge = "fact"
         else:
-            intent = "unknown"
+            intent    = "unknown"
+            knowledge = "unknown"
 
-        state["intent"] = intent
+        state["intent"]    = intent
+        state["knowledge"] = knowledge
         duration = (time.perf_counter() - start) * 1000
         return MissionStageResult(
             stage=self.NAME,
             executed=True,
-            outcome=f"intent={intent!r}",
+            outcome=f"intent={intent!r} knowledge={knowledge!r}",
             duration_ms=round(duration, 2),
         )
 
@@ -271,11 +315,16 @@ class DispatchStage:
     """
     Stage 5: Dispatch to permitted workers or compose response from context.
 
-    In Sprint-001: read requests are answered from engineering_context
-    (MissionRegistry data). Worker dispatch is scaffolded but not yet
-    wired to live workers — that comes in Sprint-002.
+    Genesis-055 Sprint-002A: retrieval-first hierarchy (GPT-approved).
+
+        FACT        -> answer directly from MissionRegistry (no AI call)
+        HISTORICAL  -> honest "I don't have that document" (no fabrication)
+        UNKNOWN     -> honest "I don't know" with capability description
+        write       -> approval required
+        run_tests   -> worker dispatch (wired in future sprint)
 
     Policy is already checked. This stage never checks policy itself.
+    The AI is never called in this stage.
     """
     NAME = "DispatchStage"
 
@@ -284,52 +333,97 @@ class DispatchStage:
         request: MissionRequest,
         state: dict,
     ) -> MissionStageResult:
-        start  = time.perf_counter()
-        intent = state.get("intent", "unknown")
-        ctx    = state.get("engineering_context", {})
+        start     = time.perf_counter()
+        intent    = state.get("intent", "unknown")
+        knowledge = state.get("knowledge", "unknown")
+        ctx       = state.get("engineering_context", {})
 
         if state.get("approval_required"):
             state["response_message"] = (
-                "This operation requires explicit approval. "
+                "That operation requires explicit approval from Gianni. "
                 "Please use the approval workflow."
             )
-        elif intent in ("read_project", "read_tests", "read_git",
-                        "read_knowledge", "unknown"):
-            # Compose response from MissionRegistry context
-            genesis   = ctx.get("current_genesis", "—")
-            sprint    = ctx.get("current_sprint", "—")
-            mission   = ctx.get("current_mission", "—")
-            progress  = ctx.get("progress_percent", 0)
-            tests     = ctx.get("tests_passed", 0)
-            commit    = ctx.get("last_commit", "—")
-            branch    = ctx.get("branch", "—")
-            milestone = ctx.get("next_milestone", "—")
 
+        elif knowledge == "fact" and intent == "read_current":
+            genesis  = ctx.get("current_genesis", "-")
+            sprint   = ctx.get("current_sprint", "-")
+            mission  = ctx.get("current_mission", "-")
+            commit   = ctx.get("last_commit", "-")
+            branch   = ctx.get("branch", "-")
+            passed   = ctx.get("tests_passed", 0)
+            skipped  = ctx.get("tests_skipped", 0)
+            failed   = ctx.get("tests_failed", 0)
+            t_commit = ctx.get("tests_commit", "-")
+            if passed > 0:
+                tests_str = str(passed) + " passed / " + str(skipped) + " skipped / " + str(failed) + " failed @ " + t_commit
+            else:
+                tests_str = "No test result recorded this session yet."
+            parts = [
+                "Current engineering state:",
+                "  Genesis:  " + genesis,
+                "  Sprint:   " + sprint,
+                "  Mission:  " + mission,
+                "  Tests:    " + tests_str,
+                "  Commit:   " + commit,
+                "  Branch:   " + branch,
+            ]
+            state["response_message"] = "\n".join(parts)
+
+        elif knowledge == "fact" and intent == "read_objectives":
+            progress  = ctx.get("progress_percent", 0)
+            milestone = ctx.get("next_milestone", "-")
+            objectives = ctx.get("objectives", [])
+            obj_lines = []
+            if objectives:
+                for o in objectives:
+                    tick = "v" if o.get("done") else "o"
+                    obj_lines.append("  " + tick + " " + o.get("text", ""))
+            else:
+                obj_lines.append("  No objectives recorded.")
+            parts = ["Objectives - " + str(progress) + "% complete:"] + obj_lines + ["Next milestone: " + milestone]
+            state["response_message"] = "\n".join(parts)
+
+        elif knowledge == "fact" and intent == "run_tests":
             state["response_message"] = (
-                f"Mission Mode — Engineering Context\n"
-                f"Genesis: {genesis} | {sprint}\n"
-                f"Mission: {mission}\n"
-                f"Progress: {progress}%\n"
-                f"Tests: {tests} passed | Commit: {commit} | Branch: {branch}\n"
-                f"Next milestone: {milestone}"
+                "Test execution is noted. "
+                "Direct worker dispatch from Mission Mode will be wired "
+                "in a future sprint. Run tests via the desktop for now."
             )
-        elif intent == "run_tests":
-            state["response_message"] = (
-                "Test execution noted. "
-                "Worker dispatch will be wired in Sprint-002."
-            )
+
+        elif knowledge == "historical":
+            parts = [
+                "I don't currently have an authoritative document for that in the project knowledge base.",
+                "",
+                "Historical Genesis delivery records and architectural decision documents (ADRs)",
+                "have not yet been committed to the repository for Genesis-019 through Genesis-055.",
+                "",
+                "I won't invent an answer. If you need this information,",
+                "the source is our engineering session history.",
+            ]
+            state["response_message"] = "\n".join(parts)
+
         else:
-            state["response_message"] = (
-                "Mission Mode is active. I can answer questions about the "
-                "current project state, genesis, objectives, tests, and "
-                "engineering decisions."
-            )
+            genesis = ctx.get("current_genesis", "-")
+            sprint  = ctx.get("current_sprint", "-")
+            parts = [
+                "I am in Mission Mode (" + genesis + " / " + sprint + ").",
+                "",
+                "I can answer questions about:",
+                "  - Current genesis, sprint, and mission",
+                "  - Objectives and progress",
+                "  - Test results and commit state",
+                "",
+                "I cannot yet answer questions about past genesis delivery",
+                "or architectural rationale - those documents do not exist",
+                "in the knowledge base yet.",
+            ]
+            state["response_message"] = "\n".join(parts)
 
         duration = (time.perf_counter() - start) * 1000
         return MissionStageResult(
             stage=self.NAME,
             executed=True,
-            outcome=f"intent={intent!r} handled",
+            outcome="intent=" + repr(intent) + " knowledge=" + repr(knowledge),
             duration_ms=round(duration, 2),
         )
 

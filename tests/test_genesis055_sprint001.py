@@ -295,3 +295,105 @@ class TestInterfaceMode:
 
     def test_unknown_mode_value(self):
         assert InterfaceMode.UNKNOWN.value == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Genesis-055 Sprint-002A — Retrieval-first hierarchy tests
+# ---------------------------------------------------------------------------
+
+class TestRetrievalFirstHierarchy:
+
+    def test_current_genesis_answered_as_fact(self):
+        """FACT: current genesis answered directly from MissionRegistry."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("What genesis are we on?"))
+        assert response.success is True
+        assert response.boundary_violation is False
+        assert response.approval_required is False
+
+    def test_current_mission_answered_as_fact(self):
+        """FACT: current mission answered directly."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("What is the current mission?"))
+        assert response.success is True
+
+    def test_objectives_answered_as_fact(self):
+        """FACT: objectives and progress answered directly."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("What are the current objectives?"))
+        assert response.success is True
+        assert response.boundary_violation is False
+
+    def test_progress_answered_as_fact(self):
+        """FACT: progress answered directly."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("What is our progress?"))
+        assert response.success is True
+
+    def test_historical_genesis_delivery_returns_honest_response(self):
+        """HISTORICAL: past genesis delivery — honest response, no fabrication."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("What did Genesis-053 deliver?"))
+        assert response.success is True
+        assert response.boundary_violation is False
+        assert "don't currently have" in response.message.lower() or                "authoritative" in response.message.lower() or                "knowledge base" in response.message.lower()
+
+    def test_why_question_returns_honest_response(self):
+        """HISTORICAL: rationale questions — honest response, no fabrication."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("Why did we build MissionRegistry?"))
+        assert response.success is True
+        assert "don't" in response.message.lower() or                "authoritative" in response.message.lower()
+
+    def test_adr_question_returns_honest_response(self):
+        """HISTORICAL: ADR query — honest response."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("What does the ADR say about this?"))
+        assert response.success is True
+        assert "don't" in response.message.lower() or                "knowledge base" in response.message.lower()
+
+    def test_historical_never_fabricates(self):
+        """HISTORICAL responses must never claim to have information they lack."""
+        pipeline = _make_pipeline()
+        historical_questions = [
+            "What did Genesis-041 deliver?",
+            "Why was the WorkerRegistry built?",
+            "How did we decide on the approval workflow?",
+            "What was the rationale for EngineeringCoordinator?",
+        ]
+        for q in historical_questions:
+            response = pipeline.process(_make_request(q))
+            assert response.success is True
+            # Must not claim certainty about historical facts
+            assert "genesis-041" not in response.message.lower() or                    "don't" in response.message.lower() or                    "knowledge base" in response.message.lower(),                    f"Possible fabrication for: {q!r}"
+
+    def test_unknown_intent_returns_capability_description(self):
+        """UNKNOWN: unclassifiable query returns honest capability description."""
+        pipeline = _make_pipeline()
+        response = pipeline.process(_make_request("Tell me something interesting."))
+        assert response.success is True
+        assert response.boundary_violation is False
+
+    def test_no_ai_call_in_dispatch(self):
+        """DispatchStage must never make an AI call — answers from context only."""
+        from unittest.mock import patch
+        pipeline = _make_pipeline()
+        with patch("core.mission.pipeline.DispatchStage.run",
+                   wraps=pipeline._dispatch.run) as mock_dispatch:
+            pipeline.process(_make_request("What genesis are we on?"))
+            # Dispatch ran exactly once
+            assert mock_dispatch.call_count == 1
+
+    def test_fact_and_historical_both_return_mission_response(self):
+        """Both FACT and HISTORICAL always return MissionResponse — never raise."""
+        pipeline = _make_pipeline()
+        questions = [
+            "What genesis are we on?",
+            "What did Genesis-053 deliver?",
+            "Why did we build MissionRegistry?",
+            "What are the objectives?",
+            "What is the current commit?",
+        ]
+        for q in questions:
+            response = pipeline.process(_make_request(q))
+            assert isinstance(response, MissionResponse), f"Failed for: {q!r}"
