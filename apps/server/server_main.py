@@ -93,6 +93,11 @@ def main():
     )
     logger.info("[SERVER] EngineeringCoordinator initialised with Claude + ExecutionRunner.")
 
+    # Step 3f -- Create MissionPipeline (Genesis-055 Sprint-001).
+    from core.mission.pipeline import MissionPipeline
+    mission_pipeline = MissionPipeline(mission_registry=mission_registry)
+    logger.info("[SERVER] MissionPipeline initialised.")
+
     # Step 4 -- Create Flask app and inject the agent.
     from apps.server.app import create_app
     app = create_app(
@@ -101,6 +106,7 @@ def main():
         session_registry=session_registry,
         orchestrator_coordinator=orchestrator,
         mission_registry=mission_registry,
+        mission_pipeline=mission_pipeline,
     )
 
     # Configuration via environment with sensible defaults.

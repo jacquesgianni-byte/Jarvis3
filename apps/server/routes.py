@@ -23,6 +23,11 @@ import time
 import uuid
 from flask import current_app, jsonify, request
 from core.conversation.interface_source import InterfaceSource  # Genesis-047 Sprint-002
+from core.mission.context import InterfaceMode                  # Genesis-055 Sprint-001
+from core.mission.interface_context import InterfaceContextResolver  # Genesis-055 Sprint-001
+from core.mission.pipeline import MissionRequest                # Genesis-055 Sprint-001
+
+_interface_resolver = InterfaceContextResolver()
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +230,30 @@ def register_routes(app) -> None:
                 success=False,
                 message="Message cannot be empty.",
             )), 400
+
+        # Genesis-055 Sprint-001: server-side interface context resolution
+        # Header is transport signal only -- server is authoritative.
+        interface_mode = _interface_resolver.resolve(request)
+
+        if interface_mode == InterfaceMode.MISSION:
+            mission_pipeline = current_app.config.get("MISSION_PIPELINE")
+            if mission_pipeline is not None:
+                mission_context = _interface_resolver.build_mission_context(request)
+                mission_request = MissionRequest(
+                    message=user_message,
+                    session_id=mission_context.session_id,
+                    context=mission_context,
+                )
+                mission_response = mission_pipeline.process(mission_request)
+                return jsonify(_envelope(
+                    success=mission_response.success,
+                    message=mission_response.message,
+                )), 200
+            # Mission pipeline not available -- fail closed, not CHAT fallback
+            return jsonify(_envelope(
+                success=False,
+                message="Mission Mode pipeline is not available.",
+            )), 503
 
         session_id = _get_session_id()
         agent = _agent()
