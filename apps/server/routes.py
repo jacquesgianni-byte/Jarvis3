@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis API Routes
 
 Thin wrappers around Agent.process(). No business logic lives here.
@@ -81,7 +81,7 @@ def _restore_session(agent, session_id: str) -> None:
             try:
                 saved_state = ctx["jarvis_state"]
                 # Genesis-044 Sprint-002: self.session IS jarvis_state directly.
-                # Re-pointing agent.jarvis_state is sufficient — no adapter to update.
+                # Re-pointing agent.jarvis_state is sufficient â€” no adapter to update.
                 agent.jarvis_state = saved_state
                 agent.session = saved_state
             except Exception as e:
@@ -189,13 +189,15 @@ def register_routes(app) -> None:
 
     @app.route("/dashboard", methods=["GET"])
     def dashboard():
-        """Combined system + engineering snapshot for the dashboard."""
-        sys_r = _system_registry()
+        """Combined system + engineering + mission snapshot for the dashboard."""
+        sys_r     = _system_registry()
+        mission_r = current_app.config.get("MISSION_REGISTRY")
         if sys_r is None:
             return jsonify({"status": "online"}), 200
         data = {
             "system":      sys_r.system_dict(),
             "engineering": sys_r.engineering_dict(),
+            "mission":     mission_r.mission_dict() if mission_r is not None else {},
         }
         return jsonify(data), 200
 
@@ -266,7 +268,7 @@ def register_routes(app) -> None:
             _processing = False
 
 
-    # ── File Upload endpoint (File Intelligence Sprint) ────────────────────────
+    # â”€â”€ File Upload endpoint (File Intelligence Sprint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @app.route("/upload", methods=["POST"])
     def upload():
         """
@@ -310,7 +312,7 @@ def register_routes(app) -> None:
                 user_instruction = user_msg if user_msg else "Please analyse this file and give me a summary of its key points."
                 combined_message = f"{user_instruction}\n\n{attachment_context}"
 
-                # Go straight to AI — file content should never be intercepted
+                # Go straight to AI â€” file content should never be intercepted
                 # by intent routing (memory detector, engineering detector etc.)
                 if agent.ai is not None:
                     ai_response = agent.ai.ask(combined_message)
@@ -356,3 +358,4 @@ def register_routes(app) -> None:
             "agent_ready": _agent() is not None,
             "active_sessions": len(_sessions),
         }), 200
+

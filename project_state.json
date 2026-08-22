@@ -1,0 +1,14 @@
+﻿{
+  "current_genesis":        "Genesis-054",
+  "current_sprint":         "Sprint-001",
+  "current_mission":        "Mission Control Reality Audit",
+  "last_completed_genesis": "Genesis-053",
+  "next_milestone":         "Genesis-055: TBD",
+  "objectives": [
+    { "text": "Audit all stale dashboard values",    "done": true  },
+    { "text": "Design MissionRegistry architecture", "done": true  },
+    { "text": "Implement MissionRegistry",           "done": false },
+    { "text": "Wire /dashboard to live sources",     "done": false },
+    { "text": "Remove Android hardcoded defaults",   "done": false }
+  ]
+}

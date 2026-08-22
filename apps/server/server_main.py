@@ -1,24 +1,20 @@
-"""
+﻿"""
 Jarvis Server Entry Point
-
 Mirrors apps/desktop/main.py exactly:
     1. Load .env
     2. Initialise AI provider (same as Desktop)
     3. Create one Agent
     4. Hand it to the Flask app
-
 The server is intentionally interface-agnostic. It is not an
 "Android server" -- it is the Jarvis API. Desktop, Android, Web,
 and CLI all connect to the same brain through this entry point.
 """
-
 import logging
 import os
-
+from pathlib import Path
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-
 
 def main():
     # Step 1 -- Load environment (identical to desktop/main.py).
@@ -47,14 +43,29 @@ def main():
     system_registry  = SystemRegistry(agent=agent)
     session_registry = SessionRegistry()
 
-    # Step 3c -- Create Engineering Coordinator for orchestrator approval workflow.
-    # Genesis-053: persistent session store + approval gate
-    # Genesis-053 Sprint-003: Claude worker + ExecutionRunner wired in
+    # Step 3c -- Create MissionRegistry (Genesis-054 Sprint-001).
+    from core.mission.registry import MissionRegistry
+    project_root     = Path(__file__).resolve().parents[2]  # jarvis3/
+    mission_registry = MissionRegistry(project_root=project_root)
+    mission_registry.load()
+    logger.info("[SERVER] MissionRegistry loaded.")
+
+    # Step 3d -- Inject MissionRegistry into SuiteRunnerWorker.
+    try:
+        suite_worker = agent.worker_manager.get_worker("suite_runner_worker")
+        if suite_worker is not None:
+            suite_worker._mission_registry = mission_registry
+            logger.info("[SERVER] MissionRegistry injected into SuiteRunnerWorker.")
+        else:
+            logger.warning("[SERVER] SuiteRunnerWorker not found — MissionRegistry not injected.")
+    except Exception as e:
+        logger.warning("[SERVER] Could not inject MissionRegistry into SuiteRunnerWorker: %s", e)
+
+    # Step 3e -- Create Engineering Coordinator for orchestrator approval workflow.
     from core.engineering.coordinator.coordinator import EngineeringCoordinator
     from core.engineering.coordinator.session_store import SessionStore
     from core.ai_workers.claude_worker import ClaudeAIWorker
     from core.engineering.execution.execution_runner import ExecutionRunner
-
     session_store    = SessionStore()
     claude_worker    = ClaudeAIWorker(ai_client=ai)
     execution_runner = ExecutionRunner(
@@ -64,7 +75,7 @@ def main():
     )
     from core.engineering.guardrails.guardrails import EngineeringGuardrails
     from core.engineering.coordinator.coordinator import CoordinatorConfig
-    guardrails = EngineeringGuardrails()
+    guardrails   = EngineeringGuardrails()
     coord_config = CoordinatorConfig(
         enable_planning=False,
         enable_guardrails=True,
@@ -89,16 +100,15 @@ def main():
         system_registry=system_registry,
         session_registry=session_registry,
         orchestrator_coordinator=orchestrator,
+        mission_registry=mission_registry,
     )
 
     # Configuration via environment with sensible defaults.
-    host = os.getenv("JARVISS_SERVER_HOST", "0.0.0.0")
-    port = int(os.getenv("JARVIS_SERVER_PORT", "5001"))
+    host  = os.getenv("JARVISS_SERVER_HOST", "0.0.0.0")
+    port  = int(os.getenv("JARVIS_SERVER_PORT", "5001"))
     debug = os.getenv("JARVIS_SERVER_DEBUG", "false").lower() == "true"
-
     logger.info("[SERVER] Starting Jarvis API on %s:%s", host, port)
     app.run(host=host, port=port, debug=debug)
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
