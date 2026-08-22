@@ -97,7 +97,7 @@ class MissionRegistry:
                 f"[MissionRegistry] project_state.json not found at {path}. "
                 "Create it before starting the server."
             )
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             data = json.load(f)
 
         self._state = ProjectState(
