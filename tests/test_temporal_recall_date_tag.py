@@ -1,4 +1,4 @@
-"""
+﻿"""
 Regression tests for Bug 1: TemporalRecallEngine date-tag fallback.
 
 Root cause: keyword search hint ("do last Saturday") has no word overlap
@@ -58,7 +58,9 @@ class TestDateTagFallback:
     def test_what_did_i_do_last_saturday(self, tmp_path):
         k = _make_engine(tmp_path)
         recall = _make_recall()
-        last_sat = (date.today() - timedelta(days=(date.today().weekday() + 2) % 7)).isoformat()
+        today = date.today()
+        days_back = (today.weekday() - 5) % 7 or 7
+        last_sat = (today - timedelta(days=days_back)).isoformat()
         _store_event(k, "demolished old shed",
                      "I demolished the old shed last Saturday", last_sat)
 
@@ -214,7 +216,9 @@ class TestJournalContaminationRegression:
         k = _make_engine(tmp_path)
         recall = _make_recall()
 
-        last_sat = (date.today() - timedelta(days=(date.today().weekday() + 2) % 7)).isoformat()
+        today = date.today()
+        days_back = (today.weekday() - 5) % 7 or 7
+        last_sat = (today - timedelta(days=days_back)).isoformat()
 
         # Store jarvis journal records mentioning Saturday (the contamination)
         for i in range(6):
@@ -257,7 +261,9 @@ class TestJournalContaminationRegression:
         k = _make_engine(tmp_path)
         recall = _make_recall()
 
-        last_sat = (date.today() - timedelta(days=(date.today().weekday() + 2) % 7)).isoformat()
+        today = date.today()
+        days_back = (today.weekday() - 5) % 7 or 7
+        last_sat = (today - timedelta(days=days_back)).isoformat()
 
         # jarvis record WITH a resolved: tag (edge case)
         k.store_memory(
@@ -304,7 +310,9 @@ class TestTemporalBeforeEpisodic:
         k = _make_engine(tmp_path)
         recall = _make_recall()
 
-        last_sat = (date.today() - timedelta(days=(date.today().weekday() + 2) % 7)).isoformat()
+        today = date.today()
+        days_back = (today.weekday() - 5) % 7 or 7
+        last_sat = (today - timedelta(days=days_back)).isoformat()
 
         k.store_memory(
             subject="user", category="event",
