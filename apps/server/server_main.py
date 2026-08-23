@@ -1,4 +1,4 @@
-﻿"""
+"""
 Jarvis Server Entry Point
 Mirrors apps/desktop/main.py exactly:
     1. Load .env
@@ -95,7 +95,7 @@ def main():
 
     # Step 3f -- Create MissionPipeline (Genesis-055 Sprint-001).
     from core.mission.pipeline import MissionPipeline
-    mission_pipeline = MissionPipeline(mission_registry=mission_registry)
+    mission_pipeline = MissionPipeline(mission_registry=mission_registry, project_root=project_root)
     logger.info("[SERVER] MissionPipeline initialised.")
 
     # Step 4 -- Create Flask app and inject the agent.

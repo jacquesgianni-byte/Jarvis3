@@ -1,4 +1,4 @@
-﻿"""
+"""
 Jarvis OS Mission Pipeline — Genesis-055 Sprint-001
 
 MissionPipeline is a minimal, capability-restricted processing pipeline
@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
 
 from core.mission.context import MissionContext, InterfaceMode
+from core.mission.investigation import ReadOnlyInvestigator
+from core.mission.authorised_sources import AuthorisedSourceRegistry
 from core.mission.policy import (
     MissionCapabilityPolicy,
     MissionBoundaryViolation,
@@ -218,6 +220,11 @@ class IntentStage:
         "modify", "change", "update", "write", "create file",
         "delete", "commit", "push",
     )
+    INVESTIGATE_KEYWORDS = (
+        "investigate", "why is", "why are", "diagnose", "root cause",
+        "wrong genesis", "wrong sprint", "stale", "showing wrong",
+        "showing the wrong", "why does mission", "find the problem",
+    )
 
     # HISTORICAL — requires project documents not yet in knowledge base
     HISTORICAL_KEYWORDS = (
@@ -239,10 +246,13 @@ class IntentStage:
         start = time.perf_counter()
         msg   = request.message.lower()
 
-        # Priority order: write > run_tests > historical > current > objectives > unknown
+        # Priority order: write > investigate > run_tests > historical > current > objectives > unknown
         if any(kw in msg for kw in self.WRITE_KEYWORDS):
             intent    = "write"
             knowledge = "approval_required"
+        elif any(kw in msg for kw in self.INVESTIGATE_KEYWORDS):
+            intent    = "investigate"
+            knowledge = "fact"
         elif any(kw in msg for kw in self.RUN_TEST_KEYWORDS):
             intent    = "run_tests"
             knowledge = "fact"
@@ -267,6 +277,78 @@ class IntentStage:
             executed=True,
             outcome=f"intent={intent!r} knowledge={knowledge!r}",
             duration_ms=round(duration, 2),
+        )
+
+
+class InvestigationStage:
+    """
+    Stage 3b: Run ReadOnlyInvestigator for investigate intents.
+
+    Genesis-056 Sprint-001.
+
+    Deliberately boring: if intent is investigate, hand the question
+    to ReadOnlyInvestigator and store the formatted report.
+    No filesystem logic, git logic, or approval logic here.
+    Those live in ReadOnlyInvestigator and authorised_sources.
+
+    If ReadOnlyInvestigator is not available, falls through
+    with a structured error ? never to ConversationPipeline.
+    """
+    NAME = "InvestigationStage"
+
+    def __init__(self, investigator=None) -> None:
+        self._investigator = investigator
+
+    def run(
+        self,
+        request: "MissionRequest",
+        state: dict,
+    ) -> "MissionStageResult":
+        start  = time.perf_counter()
+        intent = state.get("intent", "unknown")
+
+        if intent != "investigate":
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME,
+                executed=False,
+                outcome="skipped ? intent is not investigate",
+                duration_ms=round(duration, 2),
+            )
+
+        if self._investigator is None:
+            state["response_message"] = (
+                "Investigation capability is not available in this session."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME,
+                executed=True,
+                outcome="investigator not available",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        try:
+            report = self._investigator.investigate(request.message)
+            state["investigation_report"]  = report
+            state["response_message"]      = report.format_for_mission()
+            state["approval_required"]     = report.approval_required
+            state["investigation_terminal"] = True
+        except Exception as exc:
+            logger.exception("[INVESTIGATION_STAGE] Investigation failed: %s", exc)
+            state["response_message"] = (
+                "Investigation encountered an error. No changes were made."
+            )
+            state["investigation_terminal"] = True
+
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME,
+            executed=True,
+            outcome="investigation complete",
+            duration_ms=round(duration, 2),
+            terminal=state.get("investigation_terminal", False),
         )
 
 
@@ -476,10 +558,21 @@ class MissionPipeline:
     On any other failure: return structured error, never CHAT fallback.
     """
 
-    def __init__(self, mission_registry: Optional["MissionRegistry"] = None) -> None:
+    def __init__(self, mission_registry: Optional["MissionRegistry"] = None, project_root=None) -> None:
+        # Genesis-056 Sprint-001: ReadOnlyInvestigator
+        _investigator = None
+        if project_root is not None:
+            try:
+                _registry_inv = AuthorisedSourceRegistry(project_root)
+                _investigator = ReadOnlyInvestigator(_registry_inv, project_root)
+                logger.info("[MISSION_PIPELINE] ReadOnlyInvestigator ready.")
+            except Exception as e:
+                logger.warning("[MISSION_PIPELINE] ReadOnlyInvestigator unavailable: %s", e)
+
         self._policy_check   = PolicyCheckStage()
         self._context_build  = ContextBuildStage(mission_registry)
         self._intent         = IntentStage()
+        self._investigation  = InvestigationStage(_investigator)
         self._approval_gate  = ApprovalGateStage()
         self._dispatch       = DispatchStage()
         self._response       = ResponseStage()
@@ -506,6 +599,12 @@ class MissionPipeline:
             # Stage 3: Intent classification — interpretation only
             result = self._intent.run(request, state)
             trace.append(result)
+
+            # Stage 3b: Investigation (Genesis-056 Sprint-001)
+            result = self._investigation.run(request, state)
+            trace.append(result)
+            if result.terminal:
+                return self._response.run(request, state, trace)
 
             # Stage 4: Approval gate
             result = self._approval_gate.run(request, state)
