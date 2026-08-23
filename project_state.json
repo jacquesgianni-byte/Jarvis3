@@ -3,7 +3,7 @@
   "current_sprint": "Sprint-003",
   "current_mission": "Mission Control Reality Audit",
   "last_completed_genesis": "Genesis-053",
-  "next_milestone": "Genesis-055: TBD",
+  "next_milestone": "Genesis-056: ReadOnlyInvestigator complete",
   "objectives": [
     {
       "text": "Audit all stale dashboard values",

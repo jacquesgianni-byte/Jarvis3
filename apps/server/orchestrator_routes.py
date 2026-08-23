@@ -96,6 +96,34 @@ def orchestrator_status():
 
     try:
         sessions = coord.suspended_sessions()
+
+        # Genesis-056 Sprint-002: also include investigation proposals
+        # from SessionStore ? these are not in the coordinator's in-memory sessions
+        try:
+            from core.engineering.coordinator.session_store import SessionStore
+            store = SessionStore()
+            for session in store.load_resumable():
+                plan = session.execution_plan or {}
+                if "operation" in plan and plan.get("operation") == "UPDATE_PROJECT_STATE":
+                    inv_id = plan.get("investigation_id", session.session_id)
+                    sessions = sessions + [{
+                        "session_id": session.session_id,
+                        "request":    f"[INVESTIGATION] {inv_id}",
+                        "stage":      "AWAITING_APPROVAL",
+                        "status":     "AWAITING_APPROVAL",
+                        "approved_by": "",
+                        "approved_at": "",
+                        "plan_summary": {
+                            "operations": 1,
+                            "creates":    0,
+                            "modifies":   1,
+                            "deletes":    0,
+                            "files":      [plan.get("target", "project_state.json")],
+                        },
+                    }]
+        except Exception as inv_exc:
+            logger.warning("[ORCHESTRATOR] Could not load investigation proposals: %s", inv_exc)
+
         return jsonify({
             "ok":      True,
             "sessions": sessions,
