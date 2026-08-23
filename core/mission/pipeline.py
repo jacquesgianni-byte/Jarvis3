@@ -296,8 +296,9 @@ class InvestigationStage:
     """
     NAME = "InvestigationStage"
 
-    def __init__(self, investigator=None) -> None:
-        self._investigator = investigator
+    def __init__(self, investigator=None, session_store=None) -> None:
+        self._investigator  = investigator
+        self._session_store = session_store
 
     def run(
         self,
@@ -335,6 +336,16 @@ class InvestigationStage:
             state["response_message"]      = report.format_for_mission()
             state["approval_required"]     = report.approval_required
             state["investigation_terminal"] = True
+
+            # Genesis-056 Sprint-002: register BoundProposal in SessionStore
+            # so the existing approval workflow can execute it.
+            if report.bound_proposal is not None and self._session_store is not None:
+                try:
+                    self._register_proposal(report.bound_proposal, request)
+                except Exception as reg_exc:
+                    logger.warning(
+                        "[INVESTIGATION_STAGE] Could not register proposal: %s", reg_exc
+                    )
         except Exception as exc:
             logger.exception("[INVESTIGATION_STAGE] Investigation failed: %s", exc)
             state["response_message"] = (
@@ -349,6 +360,40 @@ class InvestigationStage:
             outcome="investigation complete",
             duration_ms=round(duration, 2),
             terminal=state.get("investigation_terminal", False),
+        )
+
+
+    def _register_proposal(self, proposal, request) -> None:
+        """
+        Register a BoundProposal as an EngineeringSession in SessionStore.
+        Uses the existing approval machinery ? no parallel approval system.
+        The proposal dict is stored in execution_plan for retrieval by the executor.
+        """
+        import time, uuid
+        from core.engineering.coordinator.models import (
+            EngineeringSession, EngineeringRequest, EngineeringStatus, EngineeringStage,
+        )
+        eng_request = EngineeringRequest(
+            request  = f"[INVESTIGATION PROPOSAL] {proposal.investigation_id}",
+            context  = "Mission Mode investigation proposal",
+            metadata = {"investigation_id": proposal.investigation_id, "type": "INVESTIGATION_PROPOSAL"},
+        )
+        session = EngineeringSession(
+            session_id    = proposal.investigation_id,
+            request       = eng_request,
+            status        = EngineeringStatus.AWAITING_APPROVAL,
+            started_at    = int(time.monotonic() * 1000),
+            current_stage = EngineeringStage.AWAITING_APPROVAL,
+            execution_plan = proposal.to_dict(),
+        )
+        session.events.record(
+            EngineeringStage.AWAITING_APPROVAL,
+            "Investigation proposal awaiting approval",
+        )
+        self._session_store.save(session)
+        logger.info(
+            "[INVESTIGATION_STAGE] BoundProposal %s registered in SessionStore.",
+            proposal.investigation_id,
         )
 
 
@@ -558,7 +603,10 @@ class MissionPipeline:
     On any other failure: return structured error, never CHAT fallback.
     """
 
-    def __init__(self, mission_registry: Optional["MissionRegistry"] = None, project_root=None) -> None:
+    def __init__(self, mission_registry: Optional["MissionRegistry"] = None, project_root=None, session_store=None) -> None:
+        # Genesis-056 Sprint-002: SessionStore for proposal registration
+        mission_session_store = session_store
+
         # Genesis-056 Sprint-001: ReadOnlyInvestigator
         _investigator = None
         if project_root is not None:
@@ -572,7 +620,7 @@ class MissionPipeline:
         self._policy_check   = PolicyCheckStage()
         self._context_build  = ContextBuildStage(mission_registry)
         self._intent         = IntentStage()
-        self._investigation  = InvestigationStage(_investigator)
+        self._investigation  = InvestigationStage(_investigator, session_store=mission_session_store)
         self._approval_gate  = ApprovalGateStage()
         self._dispatch       = DispatchStage()
         self._response       = ResponseStage()

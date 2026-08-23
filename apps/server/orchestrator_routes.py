@@ -31,6 +31,7 @@ import logging
 import os
 
 from flask import Blueprint, current_app, jsonify, request
+from core.mission.proposal import BoundProposal, BoundProposalExecutor, ProposalStatus
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,93 @@ def orchestrator_status():
 # POST /orchestrator/approve
 # ---------------------------------------------------------------------------
 
+def _try_execute_investigation_proposal(session_id, decision, decided_by, reason):
+    """
+    Genesis-056 Sprint-002.
+
+    If session_id matches an INVESTIGATION_PROPOSAL in SessionStore,
+    handle it via BoundProposalExecutor and return a Flask response.
+    Returns None if this is not an investigation proposal (caller handles normally).
+    """
+    from core.engineering.coordinator.session_store import SessionStore
+    from pathlib import Path
+
+    store = SessionStore()
+    session = store.load(session_id)
+
+    if session is None:
+        return None  # not found in store ? let coordinator handle
+
+    plan = session.execution_plan or {}
+    if plan.get("type") != "INVESTIGATION_PROPOSAL" and        "investigation_id" not in plan.get("metadata", {}) and        plan.get("operation") != "UPDATE_PROJECT_STATE":
+        # Check execution_plan directly for proposal data
+        if "operation" not in plan:
+            return None  # not an investigation proposal
+
+    # It's an investigation proposal
+    try:
+        proposal = BoundProposal.from_dict(plan)
+    except Exception as e:
+        logger.warning("[ORCHESTRATOR] Could not parse BoundProposal: %s", e)
+        return None
+
+    if decision == "reject":
+        from core.engineering.coordinator.models import EngineeringStatus, EngineeringStage
+        import datetime
+        session.reject(
+            rejected_by=decided_by,
+            rejected_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            reason=reason or "Rejected via approval workflow",
+        )
+        store.save(session)
+        return jsonify({
+            "ok":        True,
+            "message":   f"Investigation proposal {session_id[:8]}... rejected.",
+            "session_id": session_id,
+            "outcome":   "REJECTED",
+        })
+
+    # Approve ? execute via BoundProposalExecutor
+    project_root = Path(__file__).resolve().parents[2]
+    executor     = BoundProposalExecutor(project_root)
+    result       = executor.execute(proposal)
+
+    if result.success:
+        # Mark session complete in store
+        from core.engineering.coordinator.models import (
+            EngineeringStatus, EngineeringStage, EngineeringResult,
+        )
+        import datetime
+        session.approve(
+            approved_by=decided_by,
+            approved_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )
+        eng_result = EngineeringResult(
+            status    = EngineeringStatus.COMPLETE,
+            completed = True,
+            plan      = result.format_for_mission(),
+        )
+        session.complete(eng_result)
+        store.save(session)
+        logger.info(
+            "[ORCHESTRATOR] Investigation proposal %s executed successfully.",
+            session_id[:8],
+        )
+    else:
+        logger.warning(
+            "[ORCHESTRATOR] Investigation proposal %s execution failed: %s",
+            session_id[:8], result.message,
+        )
+
+    return jsonify({
+        "ok":           result.success,
+        "message":      result.format_for_mission(),
+        "session_id":   session_id,
+        "outcome":      "COMPLETE" if result.success else "FAILED",
+        "before_after": {k: list(v) for k, v in result.before_after.items()},
+    })
+
+
 @orchestrator_bp.route("/orchestrator/approve", methods=["POST"])
 def orchestrator_approve():
     """
@@ -145,6 +233,17 @@ def orchestrator_approve():
     coord = _coordinator()
     if coord is None:
         return jsonify({"ok": False, "error": "No coordinator registered"}), 503
+
+    # Genesis-056 Sprint-002: check if this is an investigation proposal
+    # before routing to the engineering coordinator
+    investigation_result = _try_execute_investigation_proposal(
+        session_id=session_id,
+        decision=decision,
+        decided_by=decided_by,
+        reason=reason,
+    )
+    if investigation_result is not None:
+        return investigation_result
 
     try:
         result = coord.resume_session(

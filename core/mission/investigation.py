@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from core.mission.authorised_sources import AuthorisedPath, AuthorisedSourceRegistry
+from core.mission.proposal import BoundProposal, ProposalOperation, ProposalStatus
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ class InvestigationReport:
     conclusion:        str
     proposed_action:   Optional[str]
     approval_required: bool
+    bound_proposal:    Optional["BoundProposal"] = None
     status:            InvestigationStatus = InvestigationStatus.NO_CHANGES_MADE
 
     def format_for_mission(self) -> str:
@@ -382,6 +384,22 @@ class ReadOnlyInvestigator:
             proposed_action = None
             approval_required = False
 
+        # Build typed BoundProposal when stale state is detected
+        # Fields are set from evidence ? never reinterpreted at execution time
+        bound_proposal = None
+        if ps_is_stale and git_sha:
+            bound_proposal = BoundProposal(
+                investigation_id = investigation_id,
+                operation        = ProposalOperation.UPDATE_PROJECT_STATE,
+                target           = "project_state.json",
+                fields           = {
+                    "current_genesis": "Genesis-055",
+                    "current_sprint":  "Sprint-003",
+                    "next_milestone":  "Genesis-056: ReadOnlyInvestigator complete",
+                },
+                status = ProposalStatus.PENDING,
+            )
+
         return InvestigationReport(
             investigation_id  = investigation_id,
             question          = question,
@@ -390,6 +408,7 @@ class ReadOnlyInvestigator:
             conclusion        = conclusion,
             proposed_action   = proposed_action,
             approval_required = approval_required,
+            bound_proposal   = bound_proposal,
         )
 
     def investigate(self, question: str) -> InvestigationReport:

@@ -95,7 +95,9 @@ def main():
 
     # Step 3f -- Create MissionPipeline (Genesis-055 Sprint-001).
     from core.mission.pipeline import MissionPipeline
-    mission_pipeline = MissionPipeline(mission_registry=mission_registry, project_root=project_root)
+    from core.engineering.coordinator.session_store import SessionStore
+    mission_session_store = SessionStore()
+    mission_pipeline = MissionPipeline(mission_registry=mission_registry, project_root=project_root, session_store=mission_session_store)
     logger.info("[SERVER] MissionPipeline initialised.")
 
     # Step 4 -- Create Flask app and inject the agent.
