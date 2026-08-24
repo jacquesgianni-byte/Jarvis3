@@ -365,34 +365,42 @@ class InvestigationStage:
 
     def _register_proposal(self, proposal, request) -> None:
         """
-        Register a BoundProposal as an EngineeringSession in SessionStore.
-        Uses the existing approval machinery ? no parallel approval system.
-        The proposal dict is stored in execution_plan for retrieval by the executor.
+        Register a BoundProposal in the dedicated investigations SessionStore.
+
+        Genesis-056 Sprint-003: uses data/orchestrator/investigations/ subdirectory
+        so investigation proposals never mix with engineering coordinator sessions.
+        This eliminates the duplicate approval card.
         """
-        import time, uuid
+        import time
+        from pathlib import Path
         from core.engineering.coordinator.models import (
             EngineeringSession, EngineeringRequest, EngineeringStatus, EngineeringStage,
         )
+        from core.engineering.coordinator.session_store import SessionStore
+
+        inv_store_dir = Path("data") / "orchestrator" / "investigations"
+        inv_store = SessionStore(directory=inv_store_dir)
+
         eng_request = EngineeringRequest(
             request  = f"[INVESTIGATION PROPOSAL] {proposal.investigation_id}",
             context  = "Mission Mode investigation proposal",
             metadata = {"investigation_id": proposal.investigation_id, "type": "INVESTIGATION_PROPOSAL"},
         )
         session = EngineeringSession(
-            session_id    = proposal.investigation_id,
-            request       = eng_request,
-            status        = EngineeringStatus.AWAITING_APPROVAL,
-            started_at    = int(time.monotonic() * 1000),
-            current_stage = EngineeringStage.AWAITING_APPROVAL,
+            session_id     = proposal.investigation_id,
+            request        = eng_request,
+            status         = EngineeringStatus.AWAITING_APPROVAL,
+            started_at     = int(time.monotonic() * 1000),
+            current_stage  = EngineeringStage.AWAITING_APPROVAL,
             execution_plan = proposal.to_dict(),
         )
         session.events.record(
             EngineeringStage.AWAITING_APPROVAL,
             "Investigation proposal awaiting approval",
         )
-        self._session_store.save(session)
+        inv_store.save(session)
         logger.info(
-            "[INVESTIGATION_STAGE] BoundProposal %s registered in SessionStore.",
+            "[INVESTIGATION_STAGE] BoundProposal %s registered in investigations store.",
             proposal.investigation_id,
         )
 

@@ -107,7 +107,7 @@ class InvestigationReport:
         """
         lines = [
             "INVESTIGATION",
-            "?" * 40,
+            "-" * 40,
             f"ID: {self.investigation_id}",
             "",
             "Question:",

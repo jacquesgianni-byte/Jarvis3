@@ -97,30 +97,30 @@ def orchestrator_status():
     try:
         sessions = coord.suspended_sessions()
 
-        # Genesis-056 Sprint-002: also include investigation proposals
-        # from SessionStore ? these are not in the coordinator's in-memory sessions
+        # Genesis-056 Sprint-003: load investigation proposals from dedicated store
         try:
             from core.engineering.coordinator.session_store import SessionStore
-            store = SessionStore()
-            for session in store.load_resumable():
+            from pathlib import Path
+            inv_store_dir = Path("data") / "orchestrator" / "investigations"
+            inv_store = SessionStore(directory=inv_store_dir)
+            for session in inv_store.load_resumable():
                 plan = session.execution_plan or {}
-                if "operation" in plan and plan.get("operation") == "UPDATE_PROJECT_STATE":
-                    inv_id = plan.get("investigation_id", session.session_id)
-                    sessions = sessions + [{
-                        "session_id": session.session_id,
-                        "request":    f"[INVESTIGATION] {inv_id}",
-                        "stage":      "AWAITING_APPROVAL",
-                        "status":     "AWAITING_APPROVAL",
-                        "approved_by": "",
-                        "approved_at": "",
-                        "plan_summary": {
-                            "operations": 1,
-                            "creates":    0,
-                            "modifies":   1,
-                            "deletes":    0,
-                            "files":      [plan.get("target", "project_state.json")],
-                        },
-                    }]
+                inv_id = plan.get("investigation_id", session.session_id)
+                sessions = sessions + [{
+                    "session_id": session.session_id,
+                    "request":    f"[INVESTIGATION] {inv_id}",
+                    "stage":      "AWAITING_APPROVAL",
+                    "status":     "AWAITING_APPROVAL",
+                    "approved_by": "",
+                    "approved_at": "",
+                    "plan_summary": {
+                        "operations": 1,
+                        "creates":    0,
+                        "modifies":   1,
+                        "deletes":    0,
+                        "files":      [plan.get("target", "project_state.json")],
+                    },
+                }]
         except Exception as inv_exc:
             logger.warning("[ORCHESTRATOR] Could not load investigation proposals: %s", inv_exc)
 
@@ -149,7 +149,8 @@ def _try_execute_investigation_proposal(session_id, decision, decided_by, reason
     from core.engineering.coordinator.session_store import SessionStore
     from pathlib import Path
 
-    store = SessionStore()
+    inv_store_dir = Path("data") / "orchestrator" / "investigations"
+    store = SessionStore(directory=inv_store_dir)
     session = store.load(session_id)
 
     if session is None:
@@ -210,6 +211,15 @@ def _try_execute_investigation_proposal(session_id, decision, decided_by, reason
             "[ORCHESTRATOR] Investigation proposal %s executed successfully.",
             session_id[:8],
         )
+        # Genesis-056 Sprint-003: reload MissionRegistry immediately
+        # so /dashboard reflects the change without a server restart
+        try:
+            mission_registry = current_app.config.get("MISSION_REGISTRY")
+            if mission_registry is not None:
+                mission_registry.load()
+                logger.info("[ORCHESTRATOR] MissionRegistry reloaded after proposal execution.")
+        except Exception as reload_exc:
+            logger.warning("[ORCHESTRATOR] MissionRegistry reload failed: %s", reload_exc)
     else:
         logger.warning(
             "[ORCHESTRATOR] Investigation proposal %s execution failed: %s",
@@ -257,6 +267,19 @@ def orchestrator_approve():
             "ok":    False,
             "error": "reason is required for rejection",
         }), 400
+
+    # Genesis-056 Sprint-003: short-circuit for investigation proposals
+    # INV- sessions must never reach coord.resume_session() ? it would block
+    if session_id.startswith("INV-"):
+        investigation_result = _try_execute_investigation_proposal(
+            session_id=session_id,
+            decision=decision,
+            decided_by=decided_by,
+            reason=reason,
+        )
+        if investigation_result is not None:
+            return investigation_result
+        return jsonify({"ok": False, "error": "Investigation proposal not found"}), 404
 
     coord = _coordinator()
     if coord is None:
