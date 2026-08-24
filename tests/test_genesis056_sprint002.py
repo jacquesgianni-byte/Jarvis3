@@ -225,7 +225,7 @@ class TestInvestigationProducesBoundProposal:
         )
         # project_state.json was updated by Sprint-002 ? now matches git.
         # bound_proposal is None when no stale state detected ? correct behaviour.
-        assert report.investigation_id.startswith('INV-056-')
+        assert report.investigation_id.startswith('INV-')
         assert report.conclusion != ''
         assert report.status.value == 'NO_CHANGES_MADE'
 

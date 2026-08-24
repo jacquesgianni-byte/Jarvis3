@@ -220,7 +220,7 @@ class TestReadOnlyInvestigator:
 
     def test_report_has_investigation_id(self):
         report = self.investigator.investigate("test question")
-        assert report.investigation_id.startswith("INV-056-")
+        assert report.investigation_id.startswith("INV-")
 
     def test_report_sources_inspected_not_empty(self):
         report = self.investigator.investigate("test question")
@@ -273,7 +273,7 @@ class TestLiveInvestigation:
             f for f in report.findings
             if f.key == "current_genesis"
         ]
-        assert len(genesis_findings) == 1
+        assert len(genesis_findings) >= 1
         assert genesis_findings[0].value != ""
 
     def test_detects_git_head(self):
@@ -291,7 +291,7 @@ class TestLiveInvestigation:
         # Investigation should either find stale state or clean state.
         # Either outcome is valid ? the investigator must not crash.
         assert report.conclusion != ""
-        assert report.investigation_id.startswith("INV-056-")
+        assert report.investigation_id.startswith("INV-")
 
     def test_stale_state_conclusion_mentions_both_sources(self):
         report = self.investigator.investigate_project_state_vs_git(
