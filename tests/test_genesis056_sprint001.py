@@ -215,38 +215,38 @@ class TestReadOnlyInvestigator:
         assert isinstance(report, InvestigationReport)
 
     def test_report_status_is_always_no_changes_made(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         assert report.status == InvestigationStatus.NO_CHANGES_MADE
 
     def test_report_has_investigation_id(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         assert report.investigation_id.startswith("INV-")
 
     def test_report_sources_inspected_not_empty(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         assert len(report.sources_inspected) > 0
 
     def test_report_findings_not_empty(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         assert len(report.findings) > 0
 
     def test_report_conclusion_not_empty(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         assert report.conclusion != ""
 
     def test_report_format_contains_investigation_id(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         formatted = report.format_for_mission()
         assert report.investigation_id in formatted
 
     def test_report_format_contains_no_changes_made(self):
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         formatted = report.format_for_mission()
         assert "NO_CHANGES_MADE" in formatted
 
     def test_report_cannot_express_changes_made_true(self):
         # InvestigationReport has no changes_made boolean field
-        report = self.investigator.investigate("test question")
+        report = self.investigator.investigate("Is everything consistent?")
         assert not hasattr(report, "changes_made")
 
     def test_each_investigation_gets_unique_id(self):

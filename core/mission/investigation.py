@@ -49,6 +49,8 @@ from typing import Dict, List, Optional
 
 from core.mission.authorised_sources import AuthorisedPath, AuthorisedSourceRegistry
 from core.mission.proposal import BoundProposal, ProposalOperation, ProposalStatus
+from core.mission.investigation_registry import InvestigationRegistry
+from core.mission.investigation_selector import InvestigationSelector
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +301,7 @@ class InvestigationReport:
     approval_required: bool
     bound_proposal:    Optional["BoundProposal"] = None
     status:            InvestigationStatus = InvestigationStatus.NO_CHANGES_MADE
+    investigation_name: str = ""
 
     def format_for_mission(self) -> str:
         lines = [
@@ -419,7 +422,14 @@ class ReadOnlyInvestigator:
     Mission Mode read-only investigation capability.
 
     Genesis-057: upgraded to use ReconciliationEngine + AuthorityPolicy.
-    Detects anomalies by comparing actual source values - not hardcoded strings.
+    Genesis-058: InvestigationSelector routes questions to registered
+                 investigations. investigate() no longer hardcodes a target.
+
+    Chain: question -> InvestigationSelector -> registered descriptor
+           -> dispatch to named method -> evidence -> InvestigationReport.
+
+    investigation_name in every report comes from the registered descriptor,
+    never reconstructed from the question.
     """
 
     def __init__(self, registry: AuthorisedSourceRegistry, project_root: Path):
@@ -427,6 +437,95 @@ class ReadOnlyInvestigator:
         self._file_reader = AuthorisedFileReader()
         self._git_reader  = ReadOnlyGitReader(project_root)
         self._engine      = ReconciliationEngine()
+
+        # Genesis-058 Sprint-003: selector wired from declared registry
+        _inv_registry  = InvestigationRegistry(project_root)
+        self._selector = InvestigationSelector(_inv_registry)
+
+        # Dispatch table: descriptor.name -> bound method
+        # Add new investigations here when registered in InvestigationRegistry.
+        self._dispatch: dict = {
+            "project_state_vs_git": self.investigate_project_state_vs_git,
+        }
+
+    def investigate(self, question: str) -> InvestigationReport:
+        """
+        Route a question to the appropriate registered investigation.
+
+        Genesis-058 Sprint-003: uses InvestigationSelector.
+        - No match  -> honest report, no proposal, approval_required=False
+        - Ambiguous -> honest report, no proposal, approval_required=False
+        - Match     -> dispatch to named method, investigation_name from descriptor
+
+        investigation_name always comes from the registered descriptor.
+        """
+        result = self._selector.select(question)
+
+        if result.no_match:
+            return InvestigationReport(
+                investigation_id   = f"INV-NOMATCH-{__import__('uuid').uuid4().hex[:6].upper()}",
+                question           = question,
+                sources_inspected  = [],
+                findings           = [],
+                conclusion         = "No available investigation matches this question.",
+                proposed_action    = None,
+                approval_required  = False,
+                bound_proposal     = None,
+                investigation_name = "",
+            )
+
+        if result.ambiguous:
+            candidate_names = ", ".join(c.display_name for c in result.candidates)
+            return InvestigationReport(
+                investigation_id   = f"INV-AMBIG-{__import__('uuid').uuid4().hex[:6].upper()}",
+                question           = question,
+                sources_inspected  = [],
+                findings           = [],
+                conclusion         = (
+                    "Multiple investigations match this question; "
+                    "I cannot safely choose between them. "
+                    f"Matched: {candidate_names}."
+                ),
+                proposed_action    = None,
+                approval_required  = False,
+                bound_proposal     = None,
+                investigation_name = "",
+            )
+
+        # Exactly one match - dispatch to the registered method
+        descriptor = result.descriptor
+        method = self._dispatch.get(descriptor.name)
+        if method is None:
+            # Registry has a descriptor but no wired method - report honestly
+            return InvestigationReport(
+                investigation_id   = f"INV-NOWIRE-{__import__('uuid').uuid4().hex[:6].upper()}",
+                question           = question,
+                sources_inspected  = [],
+                findings           = [],
+                conclusion         = (
+                    f"Investigation {descriptor.display_name!r} is registered "
+                    f"but not yet wired to an implementation."
+                ),
+                proposed_action    = None,
+                approval_required  = False,
+                bound_proposal     = None,
+                investigation_name = descriptor.name,
+            )
+
+        report = method(question)
+        # investigation_name always from the registered descriptor
+        return InvestigationReport(
+            investigation_id   = report.investigation_id,
+            question           = report.question,
+            sources_inspected  = report.sources_inspected,
+            findings           = report.findings,
+            conclusion         = report.conclusion,
+            proposed_action    = report.proposed_action,
+            approval_required  = report.approval_required,
+            bound_proposal     = report.bound_proposal,
+            status             = report.status,
+            investigation_name = descriptor.name,
+        )
 
     def investigate_project_state_vs_git(self, question: str) -> InvestigationReport:
         """
@@ -609,9 +708,4 @@ class ReadOnlyInvestigator:
             bound_proposal    = bound_proposal,
         )
 
-    def investigate(self, question: str) -> InvestigationReport:
-        """
-        Route an investigation question to the appropriate investigation.
-        Genesis-057: all questions route to reconciliation-based investigation.
-        """
-        return self.investigate_project_state_vs_git(question)
+
