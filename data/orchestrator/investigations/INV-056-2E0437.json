@@ -1,0 +1,34 @@
+{
+  "session_id": "INV-056-2E0437",
+  "status": "FAILED",
+  "current_stage": "FAILED",
+  "started_at": 177361857,
+  "completed_at": 177416525,
+  "approved_by": "ludovic",
+  "approved_at": "2026-08-24T02:41:55.370748+00:00",
+  "rejection_reason": "Rejected via Android app",
+  "execution_plan": {
+    "investigation_id": "INV-056-2E0437",
+    "operation": "UPDATE_PROJECT_STATE",
+    "target": "project_state.json",
+    "fields": {
+      "current_genesis": "Genesis-055",
+      "current_sprint": "Sprint-003",
+      "next_milestone": "Genesis-056: ReadOnlyInvestigator complete"
+    },
+    "status": "PENDING"
+  },
+  "execution_outcome": null,
+  "request": {
+    "request": "[INVESTIGATION PROPOSAL] INV-056-2E0437",
+    "context": "Mission Mode investigation proposal",
+    "priority": 0,
+    "metadata": {
+      "investigation_id": "INV-056-2E0437",
+      "type": "INVESTIGATION_PROPOSAL"
+    }
+  },
+  "timeline": [
+    "[FAILED] Rejected by 'ludovic': Rejected via Android app"
+  ]
+}
