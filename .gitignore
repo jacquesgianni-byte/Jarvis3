@@ -40,3 +40,6 @@ data/knowledge_backup_*.json
 
 # Server logs
 data/logs/*.log
+
+# Investigation proposal session files
+data/orchestrator/investigations/
