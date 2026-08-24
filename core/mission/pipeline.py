@@ -234,6 +234,8 @@ class IntentStage:
         "investigate", "why is", "why are", "diagnose", "root cause",
         "wrong genesis", "wrong sprint", "stale", "showing wrong",
         "showing the wrong", "why does mission", "find the problem",
+        "consistent", "consistency", "is everything", "check everything",
+        "anything wrong", "any issues", "any problems", "any inconsistencies",
     )
 
     # HISTORICAL — requires project documents not yet in knowledge base
