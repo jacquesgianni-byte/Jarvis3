@@ -198,6 +198,16 @@ class IntentStage:
     """
     NAME = "IntentStage"
 
+    @staticmethod
+    def _matches_any(msg: str, keywords: tuple) -> bool:
+        """Whole-word match ? prevents changes matching change."""
+        import re as _re
+        for kw in keywords:
+            pattern = r'\b' + _re.escape(kw) + r'\b'
+            if _re.search(pattern, msg):
+                return True
+        return False
+
     # FACT — answerable from MissionRegistry current state
     CURRENT_STATE_KEYWORDS = (
         "current genesis", "what genesis", "which genesis",
@@ -247,22 +257,23 @@ class IntentStage:
         msg   = request.message.lower()
 
         # Priority order: write > investigate > run_tests > historical > current > objectives > unknown
-        if any(kw in msg for kw in self.WRITE_KEYWORDS):
+        # Whole-word matching prevents 'changes' matching 'change', etc. Genesis-056 Sprint-004 fix.
+        if self._matches_any(msg, self.WRITE_KEYWORDS):
             intent    = "write"
             knowledge = "approval_required"
-        elif any(kw in msg for kw in self.INVESTIGATE_KEYWORDS):
+        elif self._matches_any(msg, self.INVESTIGATE_KEYWORDS):
             intent    = "investigate"
             knowledge = "fact"
-        elif any(kw in msg for kw in self.RUN_TEST_KEYWORDS):
+        elif self._matches_any(msg, self.RUN_TEST_KEYWORDS):
             intent    = "run_tests"
             knowledge = "fact"
-        elif any(kw in msg for kw in self.HISTORICAL_KEYWORDS):
+        elif self._matches_any(msg, self.HISTORICAL_KEYWORDS):
             intent    = "historical"
             knowledge = "historical"
-        elif any(kw in msg for kw in self.CURRENT_STATE_KEYWORDS):
+        elif self._matches_any(msg, self.CURRENT_STATE_KEYWORDS):
             intent    = "read_current"
             knowledge = "fact"
-        elif any(kw in msg for kw in self.OBJECTIVES_KEYWORDS):
+        elif self._matches_any(msg, self.OBJECTIVES_KEYWORDS):
             intent    = "read_objectives"
             knowledge = "fact"
         else:
