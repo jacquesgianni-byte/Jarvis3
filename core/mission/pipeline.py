@@ -31,6 +31,8 @@ from typing import Optional, TYPE_CHECKING
 from core.mission.context import MissionContext, InterfaceMode
 from core.mission.investigation import ReadOnlyInvestigator
 from core.mission.authorised_sources import AuthorisedSourceRegistry
+from core.knowledge.concept_resolver import ConceptResolver
+from core.knowledge.genesis_record import GenesisDeliveryStore
 from core.mission.policy import (
     MissionCapabilityPolicy,
     MissionBoundaryViolation,
@@ -173,6 +175,107 @@ class ContextBuildStage:
         )
 
 
+class KnowledgePreclassificationStage:
+    """
+    Stage 2b: Attempt concept resolution before intent classification.
+
+    Genesis-059 Sprint-002.
+
+    Responsibility: one job only.
+        Can this question be resolved to a known knowledge concept
+        AND is it delivery-shaped (not investigation-shaped)?
+
+    If yes:
+        state["knowledge_query"] = {"resolved_id": ..., "query_type": "delivery"}
+    If no:
+        state["knowledge_query"] = None
+
+    Uses ConceptResolver (pure, injected) with current_genesis from
+    engineering_context - no filesystem access here.
+
+    IntentStage reads state["knowledge_query"] and respects it.
+    This stage never modifies IntentStage behaviour directly.
+    """
+    NAME = "KnowledgePreclassificationStage"
+
+    # Questions that contain a resolvable concept but are NOT knowledge queries.
+    # These stay in the investigation path even if concept resolves.
+    _INVESTIGATION_SIGNALS = (
+        "investigate", "consistent", "why", "should we",
+        "diagnose", "root cause", "any issues", "any problems",
+        "anything wrong", "reconcile", "reconciliation",
+    )
+
+    # Questions must contain at least one delivery signal to be classified
+    # as a knowledge query. This prevents concept-only hijacking.
+    _DELIVERY_SIGNALS = (
+        "what changed", "what did", "what was changed",
+        "what was delivered", "what was added", "what was introduced",
+        "what did it deliver", "what did it change", "what did it add",
+        "tell me what", "show me what", "delivered", "introduced",
+    )
+
+    def run(self, request, state: dict):
+        import time
+        start = time.perf_counter()
+
+        state["knowledge_query"] = None
+
+        ctx              = state.get("engineering_context", {})
+        current_genesis  = ctx.get("current_genesis", "")
+
+        if not current_genesis:
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="no current_genesis in context ? skipped",
+                duration_ms=round(duration, 2),
+            )
+
+        resolver   = ConceptResolver(current_genesis_id=current_genesis)
+        msg_lower  = request.message.lower()
+        resolved   = resolver.resolve(request.message)
+
+        if resolved is None:
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="no concept resolved",
+                duration_ms=round(duration, 2),
+            )
+
+        # Concept resolved ? now check shape
+        # Investigation-shaped questions stay out of knowledge path
+        if any(sig in msg_lower for sig in self._INVESTIGATION_SIGNALS):
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome=f"concept resolved ({resolved}) but investigation-shaped ? not knowledge",
+                duration_ms=round(duration, 2),
+            )
+
+        # Must be delivery-shaped to claim the knowledge path
+        if not any(sig in msg_lower for sig in self._DELIVERY_SIGNALS):
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome=f"concept resolved ({resolved}) but not delivery-shaped ? not knowledge",
+                duration_ms=round(duration, 2),
+            )
+
+        # Both conditions met: resolvable concept + delivery shape
+        state["knowledge_query"] = {
+            "resolved_id": resolved,
+            "query_type":  "delivery",
+        }
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME, executed=True,
+            outcome=f"knowledge query: delivery / {resolved}",
+            duration_ms=round(duration, 2),
+        )
+
+
 class IntentStage:
     """
     Stage 3: Classify the intent of the request.
@@ -258,6 +361,19 @@ class IntentStage:
         start = time.perf_counter()
         msg   = request.message.lower()
 
+        # Genesis-059 Sprint-002: respect KnowledgePreclassificationStage signal.
+        # If a knowledge query was already identified, assign intent and skip matching.
+        if state.get("knowledge_query") is not None:
+            state["intent"]    = "read_knowledge"
+            state["knowledge"] = "fact"
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME,
+                executed=True,
+                outcome="intent=read_knowledge (from KnowledgePreclassificationStage)",
+                duration_ms=round(duration, 2),
+            )
+
         # Priority order: write > investigate > run_tests > historical > current > objectives > unknown
         # Whole-word matching prevents 'changes' matching 'change', etc. Genesis-056 Sprint-004 fix.
         if self._matches_any(msg, self.WRITE_KEYWORDS):
@@ -290,6 +406,92 @@ class IntentStage:
             executed=True,
             outcome=f"intent={intent!r} knowledge={knowledge!r}",
             duration_ms=round(duration, 2),
+        )
+
+
+class KnowledgeQueryStage:
+    """
+    Stage 3c: Answer knowledge queries from GenesisDeliveryStore.
+
+    Genesis-059 Sprint-002.
+
+    Runs only when state["knowledge_query"] is set by
+    KnowledgePreclassificationStage. Never runs for investigation intents.
+
+    Queries GenesisDeliveryStore with the resolved genesis_id.
+    Returns a formatted answer from GenesisDeliveryRecord.format_answer().
+    Terminal on success or honest no-record response.
+    No LLM. No filesystem access beyond GenesisDeliveryStore.latest_id().
+    """
+    NAME = "KnowledgeQueryStage"
+
+    def __init__(self, project_root=None) -> None:
+        self._project_root = project_root
+
+    def run(self, request, state: dict):
+        import time
+        start  = time.perf_counter()
+        kq     = state.get("knowledge_query")
+
+        if kq is None:
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=False,
+                outcome="skipped ? no knowledge query",
+                duration_ms=round(duration, 2),
+            )
+
+        resolved_id = kq.get("resolved_id")
+        query_type  = kq.get("query_type")
+
+        if query_type != "delivery" or not resolved_id:
+            state["response_message"] = (
+                "I recognised a project concept in your question "
+                "but I don't yet support that type of query."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="unsupported query type",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        if self._project_root is None:
+            state["response_message"] = (
+                "Knowledge store is not available in this session."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="no project root",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        store  = GenesisDeliveryStore(self._project_root)
+        record = store.get(resolved_id)
+
+        if record is None:
+            state["response_message"] = (
+                f"I resolved your question to {resolved_id} "
+                f"but I don't have a delivery record for it yet."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome=f"no record for {resolved_id}",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        state["response_message"] = record.format_answer()
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME, executed=True,
+            outcome=f"delivery record returned for {resolved_id}",
+            duration_ms=round(duration, 2),
+            terminal=True,
         )
 
 
@@ -638,13 +840,15 @@ class MissionPipeline:
             except Exception as e:
                 logger.warning("[MISSION_PIPELINE] ReadOnlyInvestigator unavailable: %s", e)
 
-        self._policy_check   = PolicyCheckStage()
-        self._context_build  = ContextBuildStage(mission_registry)
-        self._intent         = IntentStage()
-        self._investigation  = InvestigationStage(_investigator, session_store=mission_session_store)
-        self._approval_gate  = ApprovalGateStage()
-        self._dispatch       = DispatchStage()
-        self._response       = ResponseStage()
+        self._policy_check        = PolicyCheckStage()
+        self._context_build       = ContextBuildStage(mission_registry)
+        self._knowledge_preclassify = KnowledgePreclassificationStage()
+        self._intent              = IntentStage()
+        self._knowledge_query     = KnowledgeQueryStage(project_root)
+        self._investigation       = InvestigationStage(_investigator, session_store=mission_session_store)
+        self._approval_gate       = ApprovalGateStage()
+        self._dispatch            = DispatchStage()
+        self._response            = ResponseStage()
 
     def process(self, request: MissionRequest) -> MissionResponse:
         """
@@ -665,9 +869,19 @@ class MissionPipeline:
             result = self._context_build.run(request, state)
             trace.append(result)
 
-            # Stage 3: Intent classification — interpretation only
+            # Stage 2b: Knowledge preclassification (Genesis-059 Sprint-002)
+            result = self._knowledge_preclassify.run(request, state)
+            trace.append(result)
+
+            # Stage 3: Intent classification — respects knowledge_query signal
             result = self._intent.run(request, state)
             trace.append(result)
+
+            # Stage 3c: Knowledge query (Genesis-059 Sprint-002)
+            result = self._knowledge_query.run(request, state)
+            trace.append(result)
+            if result.terminal:
+                return self._response.run(request, state, trace)
 
             # Stage 3b: Investigation (Genesis-056 Sprint-001)
             result = self._investigation.run(request, state)

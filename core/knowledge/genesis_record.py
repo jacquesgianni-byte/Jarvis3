@@ -95,6 +95,25 @@ def _declare(record: GenesisDeliveryRecord) -> None:
 # ---------------------------------------------------------------------------
 
 _declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-055",
+    display_name = "Mission Control Reality Audit",
+    sprints      = (
+        "Sprint-001: MissionPipeline, MissionCapabilityPolicy, MissionContext",
+        "Sprint-002A: retrieval-first honesty hierarchy, IntentStage, DispatchStage",
+        "Sprint-003: MissionRegistry as single source of truth, live dashboard",
+    ),
+    components_delivered = (
+        "MissionPipeline",
+        "MissionCapabilityPolicy",
+        "MissionContext",
+        "MissionRegistry",
+        "InterfaceContextResolver",
+    ),
+    tests_added = 47,
+    commit      = "f2a7744",
+))
+
+_declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-057",
     display_name = "Evidence Reconciliation",
     sprints      = (
