@@ -301,11 +301,17 @@ class TestPipelineEndToEnd:
     def test_delivery_question_returns_genesis_058_answer(self):
         """
         Full chain: delivery question -> KnowledgeQueryStage -> Genesis-058 record.
-        Uses controlled genesis_id=Genesis-058 so record is always in the store.
+        Mocks both project_state.json (Genesis-058) and Git HEAD (Genesis-058)
+        so authority resolution produces Genesis-058 consistently.
         """
+        from unittest.mock import patch
         pipeline = self._make_pipeline_with_genesis("Genesis-058")
         req      = _make_request("What changed in the latest Genesis?")
-        response = pipeline.process(req)
+        with patch("core.mission.pipeline.ReadOnlyGitReader") as MockGit:
+            MockGit.return_value.head_message.return_value = (
+                "Genesis-058 Sprint-003 - Selector wired"
+            )
+            response = pipeline.process(req)
         assert response.success is True
         # KnowledgeQueryStage must have been reached
         assert "KnowledgeQueryStage" in response.stage_trace
@@ -319,9 +325,14 @@ class TestPipelineEndToEnd:
 
     def test_delivery_question_answer_contains_components(self):
         """Delivery record response contains component names."""
+        from unittest.mock import patch
         pipeline = self._make_pipeline_with_genesis("Genesis-058")
         req      = _make_request("What did the latest Genesis deliver?")
-        response = pipeline.process(req)
+        with patch("core.mission.pipeline.ReadOnlyGitReader") as MockGit:
+            MockGit.return_value.head_message.return_value = (
+                "Genesis-058 Sprint-003 - Selector wired"
+            )
+            response = pipeline.process(req)
         assert response.success is True
         assert "InvestigationDescriptor" in response.message or "Components" in response.message
 
@@ -330,9 +341,14 @@ class TestPipelineEndToEnd:
         Investigation question must NOT route to KnowledgeQueryStage
         even when it contains a resolvable genesis concept.
         """
+        from unittest.mock import patch
         pipeline = self._make_pipeline_with_genesis("Genesis-058")
         req      = _make_request("Is the latest Genesis consistent with Git?")
-        response = pipeline.process(req)
+        with patch("core.mission.pipeline.ReadOnlyGitReader") as MockGit:
+            MockGit.return_value.head_message.return_value = "Genesis-058 Sprint-003 - Selector wired"
+            MockGit.return_value.head_sha.return_value = "b43484a"
+            MockGit.return_value.branch.return_value = "main"
+            response = pipeline.process(req)
         assert response.success is True
         # KnowledgeQueryStage must have been skipped (not terminal)
         assert "KnowledgeQueryStage" in response.stage_trace

@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
 
 from core.mission.context import MissionContext, InterfaceMode
-from core.mission.investigation import ReadOnlyInvestigator
+from core.mission.investigation import ReadOnlyInvestigator, ReadOnlyGitReader
 from core.mission.authorised_sources import AuthorisedSourceRegistry
 from core.knowledge.concept_resolver import ConceptResolver
 from core.knowledge.genesis_record import GenesisDeliveryStore
@@ -143,8 +143,9 @@ class ContextBuildStage:
     """
     NAME = "ContextBuildStage"
 
-    def __init__(self, mission_registry: Optional["MissionRegistry"]) -> None:
-        self._registry = mission_registry
+    def __init__(self, mission_registry: Optional["MissionRegistry"], project_root=None) -> None:
+        self._registry     = mission_registry
+        self._project_root = project_root
 
     def run(
         self,
@@ -164,6 +165,27 @@ class ContextBuildStage:
                     "Mission Mode context unavailable. "
                     "MissionRegistry could not be read."
                 ) from e
+
+        # Genesis-059 Sprint-003: apply AuthorityPolicy for current_genesis and current_sprint.
+        # Git HEAD is declared authoritative for these keys (AuthorityPolicy.AUTHORITY).
+        # ContextBuildStage is the single point where authority is resolved.
+        # Downstream stages consume engineering_context and never re-decide authority.
+        if self._project_root is not None:
+            try:
+                git_reader  = ReadOnlyGitReader(self._project_root)
+                git_message = git_reader.head_message()
+                from core.mission.investigation import extract_genesis_label, extract_sprint_label
+                genesis_ex = extract_genesis_label(git_message)
+                sprint_ex  = extract_sprint_label(git_message)
+                if genesis_ex.present and genesis_ex.value:
+                    engineering_context["current_genesis"] = genesis_ex.value
+                if sprint_ex.present and sprint_ex.value:
+                    engineering_context["current_sprint"] = sprint_ex.value
+            except Exception as e:
+                logger.warning(
+                    "[CONTEXT_BUILD] Git authority resolution failed: %s - "
+                    "engineering_context retains project_state.json values.", e
+                )
 
         state["engineering_context"] = engineering_context
         duration = (time.perf_counter() - start) * 1000
@@ -841,7 +863,7 @@ class MissionPipeline:
                 logger.warning("[MISSION_PIPELINE] ReadOnlyInvestigator unavailable: %s", e)
 
         self._policy_check        = PolicyCheckStage()
-        self._context_build       = ContextBuildStage(mission_registry)
+        self._context_build       = ContextBuildStage(mission_registry, project_root)
         self._knowledge_preclassify = KnowledgePreclassificationStage()
         self._intent              = IntentStage()
         self._knowledge_query     = KnowledgeQueryStage(project_root)
