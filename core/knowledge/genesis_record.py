@@ -114,6 +114,26 @@ _declare(GenesisDeliveryRecord(
 ))
 
 _declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-059",
+    display_name = "Project Knowledge Foundation",
+    sprints      = (
+        "Sprint-001: GenesisDeliveryRecord, GenesisDeliveryStore, ConceptResolver -- 42 tests",
+        "Sprint-002: KnowledgePreclassificationStage, KnowledgeQueryStage, pipeline wiring -- 31 tests",
+        "Sprint-003: ContextBuildStage Git authority resolution -- 10 tests",
+    ),
+    components_delivered = (
+        "GenesisDeliveryRecord",
+        "GenesisDeliveryStore",
+        "ConceptResolver",
+        "KnowledgePreclassificationStage",
+        "KnowledgeQueryStage",
+        "ContextBuildStage (authority resolution)",
+    ),
+    tests_added = 83,
+    commit      = "2f26927",
+))
+
+_declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-057",
     display_name = "Evidence Reconciliation",
     sprints      = (
