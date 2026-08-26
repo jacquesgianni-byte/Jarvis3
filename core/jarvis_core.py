@@ -13,6 +13,7 @@ from core import telemetry
 from core.conversation import InterruptManager
 from core.voice.manager import VoiceManager
 from core.voice.providers.system_tts import SystemTTSProvider
+from core.voice.providers.elevenlabs_tts import ElevenLabsTTSProvider
 from core.ai.manager import AIManager
 from core.ai.providers.openai_provider import OpenAIProvider
 from core.ai.providers.anthropic_provider import AnthropicProvider
@@ -55,7 +56,16 @@ class JarvisCore:
             self.agent = Agent(ai=self.ai)
 
         self.voice = VoiceManager()
-        self.voice.set_provider(SystemTTSProvider())
+        _elevenlabs = ElevenLabsTTSProvider.from_env(
+            voice_id = "ydOzToQj00qmJ4VuQWPU",
+            speed    = 1.08,
+        )
+        if _elevenlabs is not None:
+            self.voice.set_provider(_elevenlabs)
+            logger.info("Voice: ElevenLabs provider active.")
+        else:
+            self.voice.set_provider(SystemTTSProvider())
+            logger.info("Voice: SystemTTS fallback active (ELEVENLABS_API_KEY not set).")
 
     def process(self, request: str):
         """Process a user request (blocking)."""
