@@ -33,6 +33,8 @@ from core.mission.investigation import ReadOnlyInvestigator, ReadOnlyGitReader
 from core.mission.authorised_sources import AuthorisedSourceRegistry
 from core.knowledge.concept_resolver import ConceptResolver
 from core.knowledge.genesis_record import GenesisDeliveryStore
+from core.knowledge.capability_gap import GapObservationStore
+from core.knowledge.gap_observation_engine import GapObservationEngine
 from core.mission.policy import (
     MissionCapabilityPolicy,
     MissionBoundaryViolation,
@@ -862,6 +864,11 @@ class MissionPipeline:
             except Exception as e:
                 logger.warning("[MISSION_PIPELINE] ReadOnlyInvestigator unavailable: %s", e)
 
+        # Genesis-060 Sprint-002: capability gap observation
+        _gap_data_dir = (project_root / "data" / "observations") if project_root else None
+        _gap_store    = GapObservationStore(_gap_data_dir) if _gap_data_dir else None
+        self._gap_engine = GapObservationEngine(_gap_store) if _gap_store else None
+
         self._policy_check        = PolicyCheckStage()
         self._context_build       = ContextBuildStage(mission_registry, project_root)
         self._knowledge_preclassify = KnowledgePreclassificationStage()
@@ -920,7 +927,11 @@ class MissionPipeline:
             trace.append(result)
 
             # Stage 6: Response
-            return self._response.run(request, state, trace)
+            final_response = self._response.run(request, state, trace)
+            # Genesis-060 Sprint-002: observe outcome for capability-gap evidence
+            if self._gap_engine is not None:
+                self._gap_engine.observe(request, state, final_response)
+            return final_response
 
         except MissionBoundaryViolation as violation:
             # Hard boundary crossed — structured error, no CHAT fallback
