@@ -365,6 +365,18 @@ class IntentStage:
         "anything wrong", "any issues", "any problems", "any inconsistencies",
     )
 
+    # Genesis-060 Sprint-003: gap reporting intents
+    WHY_FAILED_KEYWORDS = (
+        "why couldn't you", "why could you not", "why didn't you answer",
+        "why don't you know", "why can't you answer", "what went wrong",
+        "why did you fail", "why did jarvis fail",
+    )
+    WHAT_NEEDED_KEYWORDS = (
+        "what would you need", "what do you need", "what's missing",
+        "what is missing", "what capability", "what would be needed",
+        "what knowledge", "what would help you answer",
+    )
+
     # HISTORICAL — requires project documents not yet in knowledge base
     HISTORICAL_KEYWORDS = (
         "why did", "why was", "why were", "why have",
@@ -398,11 +410,17 @@ class IntentStage:
                 duration_ms=round(duration, 2),
             )
 
-        # Priority order: write > investigate > run_tests > historical > current > objectives > unknown
+        # Priority order: write > why_failed > what_needed > investigate > run_tests > historical > current > objectives > unknown
         # Whole-word matching prevents 'changes' matching 'change', etc. Genesis-056 Sprint-004 fix.
         if self._matches_any(msg, self.WRITE_KEYWORDS):
             intent    = "write"
             knowledge = "approval_required"
+        elif self._matches_any(msg, self.WHY_FAILED_KEYWORDS):
+            intent    = "why_failed"
+            knowledge = "fact"
+        elif self._matches_any(msg, self.WHAT_NEEDED_KEYWORDS):
+            intent    = "what_needed"
+            knowledge = "fact"
         elif self._matches_any(msg, self.INVESTIGATE_KEYWORDS):
             intent    = "investigate"
             knowledge = "fact"
@@ -517,6 +535,191 @@ class KnowledgeQueryStage:
             duration_ms=round(duration, 2),
             terminal=True,
         )
+
+
+class GapReportStage:
+    """
+    Stage 3d: Report capability-gap evidence for why_failed / what_needed intents.
+
+    Genesis-060 Sprint-003.
+
+    Responsibilities:
+        - Report stored gap observations for why_failed intent
+        - Derive missing capability from observations for what_needed intent
+        - Never create new observations
+        - Never modify GapObservationStore
+        - Never invoke an LLM
+        - Never recommend a mission
+        - Report boundary violations and knowledge gaps as what they are
+          (not as capability gaps)
+
+    A single observation is reported as an observation.
+    Two or more matching observations are reported as a recurring gap.
+    All report content is derived from stored evidence ? never developer-written.
+    """
+    NAME = "GapReportStage"
+
+    def __init__(self, gap_store=None) -> None:
+        self._store = gap_store
+
+    def run(self, request, state: dict) -> "MissionStageResult":
+        import time
+        start  = time.perf_counter()
+        intent = state.get("intent", "unknown")
+
+        if intent not in ("why_failed", "what_needed"):
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=False,
+                outcome="skipped ? intent is not why_failed or what_needed",
+                duration_ms=round(duration, 2),
+            )
+
+        if self._store is None:
+            state["response_message"] = (
+                "Gap observation store is not available in this session."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="store unavailable",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        from core.knowledge.capability_gap import CAPABILITY_GAP_SIGNATURE, RECURRENCE_THRESHOLD
+        observations = self._store.observations_by_signature(CAPABILITY_GAP_SIGNATURE)
+        count        = len(observations)
+
+        if intent == "why_failed":
+            state["response_message"] = self._format_why_failed(observations, count)
+        else:  # what_needed
+            state["response_message"] = self._format_what_needed(observations, count)
+
+        state["gap_report_terminal"] = True
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME, executed=True,
+            outcome=f"gap report: intent={intent!r} observations={count}",
+            duration_ms=round(duration, 2),
+            terminal=True,
+        )
+
+    @staticmethod
+    def _format_why_failed(observations: list, count: int) -> str:
+        """
+        Format a why_failed report from stored evidence.
+        Content derived entirely from observations ? no developer sentences.
+        """
+        if count == 0:
+            return (
+                "I have no recorded capability-gap observations in this session.\n"
+                "I may not have attempted to answer an uncovered question yet, "
+                "or the observation store was reset."
+            )
+
+        recent = observations[-1]
+        lines  = [
+            "CAPABILITY GAP EVIDENCE",
+            "-" * 40,
+            "",
+            f"Observations recorded: {count}",
+            f"Failure signature:     {recent.failure_signature}",
+            "",
+            "Most recent failure:",
+            f"  Question:             {recent.question!r}",
+            f"  Observed at:          {recent.observed_at}",
+            f"  Intent classified:    {recent.intent_result}",
+            f"  Knowledge path match: {'yes' if recent.knowledge_match else 'no'}",
+            f"  Investigation match:  {'yes' if recent.investigation_match else 'no'}",
+            f"  Boundary violation:   {'yes' if recent.boundary_violation else 'no'}",
+            "",
+        ]
+
+        if count >= 2:
+            lines += [
+                f"Pattern: this failure signature has occurred {count} times.",
+                "This is a recurring capability gap.",
+                "",
+                "Questions that produced this gap:",
+            ]
+            for obs in observations[-5:]:
+                lines.append(f"  - {obs.question!r} ({obs.observed_at[:10]})")
+        else:
+            lines += [
+                "Pattern: single observation ? not yet a confirmed recurring gap.",
+                f"(Recurring gap threshold: {2} or more matching observations)",
+            ]
+
+        lines += [
+            "",
+            "Evidence interpretation:",
+            "  No registered investigation matched the question.",
+            "  No knowledge path resolved a concept in the question.",
+            "  The request was not blocked by policy.",
+            "  Conclusion: the question type has no registered capability.",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_what_needed(observations: list, count: int) -> str:
+        """
+        Format a what_needed report derived from stored evidence.
+        Derives the missing capability from the failure signature ? not hardcoded.
+        """
+        if count == 0:
+            return (
+                "I have no recorded capability-gap observations to derive from.\n"
+                "Ask me something I cannot answer, then ask what I would need."
+            )
+
+        recent = observations[-1]
+        lines  = [
+            "DERIVED CAPABILITY REQUIREMENT",
+            "-" * 40,
+            "",
+            f"Based on {count} recorded observation(s) with signature:",
+            f"  {recent.failure_signature}",
+            "",
+            "What was missing:",
+        ]
+
+        # Derive from the evidence signals ? not from developer sentences
+        if not recent.knowledge_match:
+            lines.append(
+                "  - A knowledge record covering the concept in the question."
+            )
+            lines.append(
+                "    (No entry in GenesisDeliveryStore or equivalent resolved the request.)"
+            )
+
+        if not recent.investigation_match:
+            lines.append(
+                "  - A registered investigation covering the question type."
+            )
+            lines.append(
+                "    (No entry in InvestigationRegistry matched the request.)"
+            )
+
+        if recent.intent_result == "unknown":
+            lines.append(
+                "  - A classified intent for this question type in IntentStage."
+            )
+            lines.append(
+                "    (The question type is not yet recognised by the pipeline.)"
+            )
+
+        lines += [
+            "",
+            "To answer questions of this type, Jarvis would need at least one of:",
+            "  1. A registered investigation that covers this question domain.",
+            "  2. A knowledge record for the concept the question refers to.",
+            "  3. A classified intent that routes this question type to a handler.",
+            "",
+            "No action has been taken. This is an observation report only.",
+            "Any capability addition requires Gianni's approval.",
+        ]
+        return "\n".join(lines)
 
 
 class InvestigationStage:
@@ -874,6 +1077,7 @@ class MissionPipeline:
         self._knowledge_preclassify = KnowledgePreclassificationStage()
         self._intent              = IntentStage()
         self._knowledge_query     = KnowledgeQueryStage(project_root)
+        self._gap_report          = GapReportStage(_gap_store)
         self._investigation       = InvestigationStage(_investigator, session_store=mission_session_store)
         self._approval_gate       = ApprovalGateStage()
         self._dispatch            = DispatchStage()
@@ -911,6 +1115,15 @@ class MissionPipeline:
             trace.append(result)
             if result.terminal:
                 return self._response.run(request, state, trace)
+
+            # Stage 3d: Gap report (Genesis-060 Sprint-003)
+            result = self._gap_report.run(request, state)
+            trace.append(result)
+            if result.terminal:
+                final_response = self._response.run(request, state, trace)
+                if self._gap_engine is not None:
+                    self._gap_engine.observe(request, state, final_response)
+                return final_response
 
             # Stage 3b: Investigation (Genesis-056 Sprint-001)
             result = self._investigation.run(request, state)
