@@ -220,6 +220,19 @@ class TestIntentStageGapKeywords:
     def test_investigate_still_classifies_correctly(self):
         assert self._classify("Is everything consistent?") == "investigate"
 
+    # Natural variation coverage added after phone test (Genesis-061 Sprint-002 fix)
+    def test_why_wouldnt_you_classifies_why_failed(self):
+        assert self._classify("Why wouldn't you answer that?") == "why_failed"
+
+    def test_why_wont_you_classifies_why_failed(self):
+        assert self._classify("Why won't you answer that?") == "why_failed"
+
+    def test_why_didnt_you_classifies_why_failed(self):
+        assert self._classify("Why didn't you answer that?") == "why_failed"
+
+    def test_why_arent_you_classifies_why_failed(self):
+        assert self._classify("Why aren't you answering?") == "why_failed"
+
 
 class TestAcceptanceExperiment:
     """

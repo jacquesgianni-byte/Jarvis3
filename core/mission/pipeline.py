@@ -372,6 +372,8 @@ class IntentStage:
         "why couldn't you", "why could you not", "why didn't you answer",
         "why don't you know", "why can't you answer", "what went wrong",
         "why did you fail", "why did jarvis fail",
+        "why wouldn't you", "why won't you",
+        "why didn't you", "why aren't you",
     )
     WHAT_NEEDED_KEYWORDS = (
         "what would you need", "what do you need", "what's missing",

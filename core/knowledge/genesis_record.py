@@ -114,6 +114,22 @@ _declare(GenesisDeliveryRecord(
 ))
 
 _declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-061",
+    display_name = "Capability Gap Proximity Analysis",
+    sprints      = (
+        "Sprint-001: ProximityResult, CapabilityProximityAnalyser, deterministic keyword overlap -- 26 tests",
+        "Sprint-002: Proximity wired into GapReportStage, audit trail in why_failed + what_needed -- 15 tests",
+    ),
+    components_delivered = (
+        "ProximityResult",
+        "CapabilityProximityAnalyser",
+        "GapReportStage (proximity enrichment)",
+    ),
+    tests_added = 41,
+    commit      = "d648f46",
+))
+
+_declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-060",
     display_name = "Evidence-Derived Capability Gap Observation",
     sprints      = (
