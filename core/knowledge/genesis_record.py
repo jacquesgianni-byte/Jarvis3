@@ -114,6 +114,25 @@ _declare(GenesisDeliveryRecord(
 ))
 
 _declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-060",
+    display_name = "Evidence-Derived Capability Gap Observation",
+    sprints      = (
+        "Sprint-001: CapabilityGapObservation, GapObservationStore, append-only evidence journal -- 28 tests",
+        "Sprint-002: GapObservationEngine wired into pipeline, observational only -- 15 tests",
+        "Sprint-003: GapReportStage, evidence-derived why_failed + what_needed reporting -- 24 tests",
+    ),
+    components_delivered = (
+        "CapabilityGapObservation",
+        "GapObservationStore",
+        "GapObservationEngine",
+        "GapReportStage",
+        "IntentStage (why_failed + what_needed intents)",
+    ),
+    tests_added = 67,
+    commit      = "330425d",
+))
+
+_declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-059",
     display_name = "Project Knowledge Foundation",
     sprints      = (

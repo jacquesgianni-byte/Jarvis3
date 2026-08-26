@@ -1,0 +1,1 @@
+{"observation_id": "OBS-93EC53", "observed_at": "2026-08-26T03:21:46.339359+00:00", "question": "what should our next mission be?", "intent_result": "unknown", "knowledge_match": false, "investigation_match": false, "boundary_violation": false, "failure_signature": "intent=unknown+knowledge=no+investigation=no+boundary=no", "session_id": "mission-bb13266b"}
