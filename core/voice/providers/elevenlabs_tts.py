@@ -53,7 +53,7 @@ class ElevenLabsTTSProvider:
         self,
         api_key: str,
         voice_id: str = "ydOzToQj00qmJ4VuQWPU",
-        speed: float = 1.08,
+        speed: float = 0.9,
         stability: float = 0.5,
         similarity_boost: float = 0.75,
     ) -> None:
@@ -68,7 +68,7 @@ class ElevenLabsTTSProvider:
     def from_env(
         cls,
         voice_id: str = "ydOzToQj00qmJ4VuQWPU",
-        speed: float = 1.08,
+        speed: float = 0.9,
     ) -> Optional["ElevenLabsTTSProvider"]:
         """
         Construct from environment variable ELEVENLABS_API_KEY.
@@ -150,38 +150,24 @@ class ElevenLabsTTSProvider:
     def _play_audio(self, audio_bytes: bytes) -> None:
         """
         Decode MP3 bytes and play via sounddevice.
-        Checks stop flag between chunks.
+        Plays the full decoded audio in one call for reliable playback.
+        Stop flag is checked before playback begins.
         """
         try:
             import soundfile as sf
             import sounddevice as sd
-            import numpy as np
+
+            if self._stop_requested.is_set():
+                logger.info("[ElevenLabsTTSProvider] Playback stopped before start.")
+                return
 
             buffer = io.BytesIO(audio_bytes)
             data, samplerate = sf.read(buffer, dtype="float32")
 
-            # Mono: reshape to (frames, 1) for sounddevice
-            if data.ndim == 1:
-                data = data.reshape(-1, 1)
-
-            total_frames = len(data)
-            pos = 0
-
-            while pos < total_frames:
-                if self._stop_requested.is_set():
-                    logger.info(
-                        "[ElevenLabsTTSProvider] Playback stopped at chunk boundary."
-                    )
-                    return
-
-                chunk = data[pos: pos + _PLAYBACK_CHUNK_FRAMES]
-                sd.play(chunk, samplerate=samplerate)
-                sd.wait()
-                pos += _PLAYBACK_CHUNK_FRAMES
+            sd.play(data, samplerate)
+            sd.wait()
 
             logger.info("[ElevenLabsTTSProvider] Playback complete.")
 
         except Exception as e:
-            logger.warning(
-                "[ElevenLabsTTSProvider] Playback failed: %s", e
-            )
+            logger.warning("[ElevenLabsTTSProvider] Playback failed: %s", e)

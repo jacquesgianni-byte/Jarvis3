@@ -60,12 +60,13 @@ class JarvisCore:
             voice_id = "ydOzToQj00qmJ4VuQWPU",
             speed    = 1.08,
         )
+        import logging as _log
         if _elevenlabs is not None:
             self.voice.set_provider(_elevenlabs)
-            logger.info("Voice: ElevenLabs provider active.")
+            _log.getLogger(__name__).info("Voice: ElevenLabs provider active.")
         else:
             self.voice.set_provider(SystemTTSProvider())
-            logger.info("Voice: SystemTTS fallback active (ELEVENLABS_API_KEY not set).")
+            _log.getLogger(__name__).info("Voice: SystemTTS fallback active (ELEVENLABS_API_KEY not set).")
 
     def process(self, request: str):
         """Process a user request (blocking)."""
