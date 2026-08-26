@@ -35,6 +35,8 @@ from core.knowledge.concept_resolver import ConceptResolver
 from core.knowledge.genesis_record import GenesisDeliveryStore
 from core.knowledge.capability_gap import GapObservationStore
 from core.knowledge.gap_observation_engine import GapObservationEngine
+from core.knowledge.proximity import CapabilityProximityAnalyser
+from core.mission.investigation_registry import InvestigationRegistry as _InvRegistry
 from core.mission.policy import (
     MissionCapabilityPolicy,
     MissionBoundaryViolation,
@@ -559,8 +561,13 @@ class GapReportStage:
     """
     NAME = "GapReportStage"
 
-    def __init__(self, gap_store=None) -> None:
-        self._store = gap_store
+    def __init__(self, gap_store=None, registry=None) -> None:
+        self._store    = gap_store
+        self._registry = registry
+        # NOTE: proximity uses the most recent observation from the store.
+        # This is deliberately simple for Genesis-061 Sprint-002.
+        # Session-scoped filtering can be added when the store grows large enough
+        # to make per-session isolation necessary.
 
     def run(self, request, state: dict) -> "MissionStageResult":
         import time
@@ -591,10 +598,26 @@ class GapReportStage:
         observations = self._store.observations_by_signature(CAPABILITY_GAP_SIGNATURE)
         count        = len(observations)
 
+        # Proximity analysis ? only when observations exist and registry available
+        # Uses most recent observation (Sprint-002: deliberately simple, see __init__)
+        proximity = None
+        if count > 0 and self._registry is not None:
+            try:
+                recent   = observations[-1]
+                analyser = CapabilityProximityAnalyser()
+                proximity = analyser.analyse(
+                    question       = recent.question,
+                    observation_id = recent.observation_id,
+                    registry       = self._registry,
+                )
+            except Exception as e:
+                logger.warning("[GapReportStage] Proximity analysis failed: %s", e)
+                proximity = None
+
         if intent == "why_failed":
-            state["response_message"] = self._format_why_failed(observations, count)
+            state["response_message"] = self._format_why_failed(observations, count, proximity)
         else:  # what_needed
-            state["response_message"] = self._format_what_needed(observations, count)
+            state["response_message"] = self._format_what_needed(observations, count, proximity)
 
         state["gap_report_terminal"] = True
         duration = (time.perf_counter() - start) * 1000
@@ -606,7 +629,7 @@ class GapReportStage:
         )
 
     @staticmethod
-    def _format_why_failed(observations: list, count: int) -> str:
+    def _format_why_failed(observations: list, count: int, proximity=None) -> str:
         """
         Format a why_failed report from stored evidence.
         Content derived entirely from observations ? no developer sentences.
@@ -659,10 +682,20 @@ class GapReportStage:
             "  The request was not blocked by policy.",
             "  Conclusion: the question type has no registered capability.",
         ]
+
+        if proximity is not None:
+            lines += ["", proximity.format_for_report()]
+        else:
+            lines += [
+                "",
+                "Proximity analysis: not available",
+                "  (no registry or no observations to analyse)",
+            ]
+
         return "\n".join(lines)
 
     @staticmethod
-    def _format_what_needed(observations: list, count: int) -> str:
+    def _format_what_needed(observations: list, count: int, proximity=None) -> str:
         """
         Format a what_needed report derived from stored evidence.
         Derives the missing capability from the failure signature ? not hardcoded.
@@ -719,6 +752,16 @@ class GapReportStage:
             "No action has been taken. This is an observation report only.",
             "Any capability addition requires Gianni's approval.",
         ]
+
+        if proximity is not None:
+            lines += ["", proximity.format_for_report()]
+        else:
+            lines += [
+                "",
+                "Proximity analysis: not available",
+                "  (no registry or no observations to analyse)",
+            ]
+
         return "\n".join(lines)
 
 
@@ -1077,7 +1120,12 @@ class MissionPipeline:
         self._knowledge_preclassify = KnowledgePreclassificationStage()
         self._intent              = IntentStage()
         self._knowledge_query     = KnowledgeQueryStage(project_root)
-        self._gap_report          = GapReportStage(_gap_store)
+        # Genesis-061 Sprint-002: separate InvestigationRegistry instance for
+        # GapReportStage proximity analysis. Both this instance and the one
+        # inside ReadOnlyInvestigator read from the same declared _REGISTRY dict.
+        # No coupling between GapReportStage and ReadOnlyInvestigator.
+        _inv_registry_for_gap = _InvRegistry(project_root) if project_root else None
+        self._gap_report          = GapReportStage(_gap_store, _inv_registry_for_gap)
         self._investigation       = InvestigationStage(_investigator, session_store=mission_session_store)
         self._approval_gate       = ApprovalGateStage()
         self._dispatch            = DispatchStage()
