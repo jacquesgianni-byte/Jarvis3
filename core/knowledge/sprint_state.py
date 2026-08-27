@@ -254,9 +254,13 @@ class SprintStateStore:
     )
 
     def __init__(self, data_dir: Path) -> None:
-        self._dir = data_dir / "sprint_states"
+        self._dir     = data_dir / "sprint_states"
         self._dir.mkdir(parents=True, exist_ok=True)
         self._machine = SprintStateMachine()
+        # In-memory cache: tracks records loaded in this process session.
+        # Restart safety (EXECUTING->INTERRUPTED) only applies on first load
+        # from disk, not on subsequent same-session loads.
+        self._session_cache: dict = {}
 
     def create(self, proposal_id: str) -> SprintStateRecord:
         """Create a new SprintStateRecord in PROPOSED state."""
@@ -268,6 +272,7 @@ class SprintStateStore:
             updated_at    = now,
         )
         self._persist(record)
+        self._session_cache[proposal_id] = record
         logger.info("[SprintStateStore] Created %s in PROPOSED.", proposal_id)
         return record
 
@@ -275,7 +280,12 @@ class SprintStateStore:
         """
         Load a SprintStateRecord from disk.
         Applies restart recovery: EXECUTING/VALIDATING -> INTERRUPTED.
+        Restart safety only applies on first load (not cached in this session).
         """
+        # Return cached record if already loaded in this session
+        if proposal_id in self._session_cache:
+            return self._session_cache[proposal_id]
+
         path = self._path_for(proposal_id)
         if not path.exists():
             return None
@@ -283,7 +293,7 @@ class SprintStateStore:
             data   = json.loads(path.read_text(encoding="utf-8"))
             record = SprintStateRecord.from_dict(data)
 
-            # Restart safety: interrupt mid-execution states
+            # Restart safety: interrupt mid-execution states (first load only)
             if record.state in self._INTERRUPT_ON_RESTART:
                 logger.warning(
                     "[SprintStateStore] %s was %s on restart -- marking INTERRUPTED.",
@@ -298,6 +308,7 @@ class SprintStateStore:
                 if result.success:
                     self._persist(record)
 
+            self._session_cache[proposal_id] = record
             return record
         except Exception as e:
             logger.warning("[SprintStateStore] Could not load %s: %s", proposal_id, e)
@@ -338,10 +349,12 @@ class SprintStateStore:
     def all_active(self) -> List[SprintStateRecord]:
         """Return all non-terminal sprint state records."""
         result = []
-        for path in self._dir.glob("*.json"):
+        for p in self._dir.glob("*.json"):
             try:
-                record = self.load(path.stem)
-                if record and not record.is_terminal:
+                # Read from disk directly (not cache) to get current file state
+                data   = json.loads(p.read_text(encoding="utf-8"))
+                record = SprintStateRecord.from_dict(data)
+                if not record.is_terminal:
                     result.append(record)
             except Exception:
                 pass

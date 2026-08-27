@@ -37,6 +37,8 @@ from core.knowledge.capability_gap import GapObservationStore
 from core.knowledge.gap_observation_engine import GapObservationEngine
 from core.knowledge.proximity import CapabilityProximityAnalyser
 from core.knowledge.objective_proximity import ObjectiveProximityAnalyser
+from core.knowledge.sprint_proposal import SprintProposalEngine, BoundSprintProposal, InsufficientEvidenceResult
+from core.knowledge.sprint_state import SprintStateStore, SprintState
 from core.mission.investigation_registry import InvestigationRegistry as _InvRegistry
 from core.mission.policy import (
     MissionCapabilityPolicy,
@@ -382,6 +384,14 @@ class IntentStage:
         "what knowledge", "what would help you answer",
     )
 
+    # Genesis-064 Sprint-003b: sprint proposal intent
+    PROPOSE_SPRINT_KEYWORDS = (
+        "propose a sprint", "suggest a sprint", "what should we work on next",
+        "propose sprint", "suggest next sprint", "what do you suggest",
+        "can you propose", "recommend a sprint", "what should we build next",
+        "what should we do next", "propose the next sprint",
+    )
+
     # Genesis-062 Sprint-003: capability inventory intent
     CAPABILITY_INVENTORY_KEYWORDS = (
         "what can you do", "what can jarvis do", "what are your capabilities",
@@ -435,6 +445,9 @@ class IntentStage:
             knowledge = "fact"
         elif self._matches_any(msg, self.WHAT_NEEDED_KEYWORDS):
             intent    = "what_needed"
+            knowledge = "fact"
+        elif self._matches_any(msg, self.PROPOSE_SPRINT_KEYWORDS):
+            intent    = "propose_sprint"
             knowledge = "fact"
         elif self._matches_any(msg, self.CAPABILITY_INVENTORY_KEYWORDS):
             intent    = "capability_inventory"
@@ -554,6 +567,197 @@ class KnowledgeQueryStage:
             terminal=True,
         )
 
+
+
+class SprintProposalStage:
+    """
+    Stage 3f: Generate a BoundSprintProposal from evidence.
+
+    Genesis-064 Sprint-003b.
+
+    Handles intent=propose_sprint.
+    Calls SprintProposalEngine to derive proposal from stored evidence.
+    If sufficient evidence: creates SprintStateRecord in PROPOSED state,
+    stores proposal in state["sprint_proposal"], sets terminal=True.
+    If insufficient: returns honest InsufficientEvidenceResult response.
+    Never executes anything. Never advances sprint state automatically.
+    """
+    NAME = "SprintProposalStage"
+
+    def __init__(self, gap_store=None, inv_registry=None, delivery_store=None,
+                 sprint_state_store=None, project_root=None) -> None:
+        self._gap_store          = gap_store
+        self._inv_registry       = inv_registry
+        self._delivery_store     = delivery_store
+        self._sprint_state_store = sprint_state_store
+        self._project_root       = project_root
+
+    def run(self, request, state: dict):
+        import time
+        start  = time.perf_counter()
+        intent = state.get("intent", "unknown")
+
+        if intent != "propose_sprint":
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=False,
+                outcome="skipped -- intent is not propose_sprint",
+                duration_ms=round(duration, 2),
+            )
+
+        if (self._gap_store is None or self._inv_registry is None
+                or self._delivery_store is None or self._project_root is None):
+            state["response_message"] = (
+                "Sprint proposal engine is not available in this session."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="engine unavailable",
+                duration_ms=round(duration, 2), terminal=True,
+            )
+
+        engine = SprintProposalEngine(
+            self._gap_store, self._inv_registry,
+            self._delivery_store, self._project_root,
+        )
+        result = engine.propose()
+
+        if isinstance(result, InsufficientEvidenceResult):
+            state["response_message"] = result.format_for_mission()
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="insufficient evidence",
+                duration_ms=round(duration, 2), terminal=True,
+            )
+
+        # Valid proposal -- create PROPOSED state record
+        if self._sprint_state_store is not None:
+            self._sprint_state_store.create(result.proposal_id)
+
+        state["sprint_proposal"]  = result
+        state["response_message"] = result.format_for_approval()
+        state["approval_required"] = True
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME, executed=True,
+            outcome=f"proposal generated: {result.proposal_id}",
+            duration_ms=round(duration, 2), terminal=True,
+        )
+
+
+class SprintApprovalGateStage:
+    """
+    Manages the three-layer sprint approval workflow.
+
+    Genesis-064 Sprint-003b.
+
+    Layer 1: Chief approves plan      (PROPOSED -> APPROVED)
+    Layer 2: Chief authorises exec    (APPROVED -> EXECUTING)
+    Layer 3: Chief reviews result     (AWAITING_RESULT_REVIEW -> COMPLETED/REJECTED)
+
+    Each layer requires an explicit Chief action.
+    INTERRUPTED and FAILED produce reports -- never auto-resume.
+    This stage manages approval state only. SprintExecutor is called separately.
+    """
+    NAME = "SprintApprovalGateStage"
+
+    def __init__(self, sprint_state_store=None) -> None:
+        self._store = sprint_state_store
+
+    def approve_plan(self, proposal_id: str) -> dict:
+        """Layer 1: Chief approves the proposed plan."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.APPROVED,
+            reason="Chief approved the sprint plan (Layer 1).", chief_action=True,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def approve_execution(self, proposal_id: str) -> dict:
+        """Layer 2: Chief explicitly authorises execution."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.EXECUTING,
+            reason="Chief authorised execution (Layer 2).", chief_action=True,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def mark_validating(self, proposal_id: str) -> dict:
+        """Called by SprintExecutor after execution completes."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.VALIDATING,
+            reason="Execution complete -- validation running.", chief_action=False,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def mark_awaiting_review(self, proposal_id: str, result_summary: str) -> dict:
+        """Called after validation. Chief must review before completion."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.AWAITING_RESULT_REVIEW,
+            reason="Validation complete -- awaiting Chief review (Layer 3).", chief_action=False,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def accept_result(self, proposal_id: str) -> dict:
+        """Layer 3: Chief accepts the sprint result."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.COMPLETED,
+            reason="Chief accepted the sprint result (Layer 3).", chief_action=True,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def reject(self, proposal_id: str, layer: int) -> dict:
+        """Chief rejects at any layer."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.REJECTED,
+            reason=f"Chief rejected at Layer {layer}.", chief_action=True,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def mark_failed(self, proposal_id: str, reason: str) -> dict:
+        """Mark sprint FAILED. No auto-retry. Report only."""
+        if self._store is None:
+            return {"success": False, "error": "Sprint state store not available."}
+        result = self._store.transition(
+            proposal_id=proposal_id, to_state=SprintState.FAILED,
+            reason=f"Sprint failed: {reason}", chief_action=False,
+        )
+        return {"success": result.success, "from": result.from_state,
+                "to": result.to_state, "error": result.error}
+
+    def get_status(self, proposal_id: str) -> Optional[dict]:
+        """Return current sprint status."""
+        if self._store is None:
+            return None
+        record = self._store.load(proposal_id)
+        if record is None:
+            return None
+        return {
+            "proposal_id":      record.proposal_id,
+            "current_state":    record.current_state,
+            "requires_chief":   record.requires_chief_action,
+            "is_terminal":      record.is_terminal,
+            "transition_count": len(record.transitions),
+            "result_summary":   record.result_summary,
+        }
 
 class CapabilityInventoryStage:
     """
@@ -1268,9 +1472,18 @@ class MissionPipeline:
         # inside ReadOnlyInvestigator read from the same declared _REGISTRY dict.
         # No coupling between GapReportStage and ReadOnlyInvestigator.
         _inv_registry_for_gap      = _InvRegistry(project_root) if project_root else None
+        _sprint_state_dir          = (project_root / "data") if project_root else None
+        _sprint_state_store        = SprintStateStore(_sprint_state_dir) if _sprint_state_dir else None
         _delivery_store_for_inv    = GenesisDeliveryStore(project_root) if project_root else None
         self._capability_inventory = CapabilityInventoryStage(_inv_registry_for_gap, _delivery_store_for_inv)
         self._gap_report           = GapReportStage(_gap_store, _inv_registry_for_gap)
+        self._sprint_proposal      = SprintProposalStage(
+            gap_store=_gap_store, inv_registry=_inv_registry_for_gap,
+            delivery_store=_delivery_store_for_inv,
+            sprint_state_store=_sprint_state_store,
+            project_root=project_root,
+        )
+        self._sprint_approval      = SprintApprovalGateStage(_sprint_state_store)
         self._investigation       = InvestigationStage(_investigator, session_store=mission_session_store)
         self._approval_gate       = ApprovalGateStage()
         self._dispatch            = DispatchStage()
@@ -1311,6 +1524,15 @@ class MissionPipeline:
 
             # Stage 3e: Capability inventory (Genesis-062 Sprint-003)
             result = self._capability_inventory.run(request, state)
+            trace.append(result)
+            if result.terminal:
+                final_response = self._response.run(request, state, trace)
+                if self._gap_engine is not None:
+                    self._gap_engine.observe(request, state, final_response)
+                return final_response
+
+            # Stage 3f: Sprint proposal (Genesis-064 Sprint-003b)
+            result = self._sprint_proposal.run(request, state)
             trace.append(result)
             if result.terminal:
                 final_response = self._response.run(request, state, trace)
