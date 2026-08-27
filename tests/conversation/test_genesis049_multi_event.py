@@ -13,7 +13,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, date
 import pytest
 
-TARGET_DATE = "2026-08-15"
+from datetime import date as _date, timedelta as _timedelta
+def _last_saturday() -> str:
+    today = _date.today()
+    days_since_saturday = (today.weekday() - 5) % 7
+    if days_since_saturday == 0:
+        days_since_saturday = 7
+    return (today - _timedelta(days=days_since_saturday)).strftime("%Y-%m-%d")
+
+TARGET_DATE = _last_saturday()
 TARGET_TAG  = f"resolved:{TARGET_DATE}"
 
 
