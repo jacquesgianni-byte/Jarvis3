@@ -381,6 +381,16 @@ class IntentStage:
         "what knowledge", "what would help you answer",
     )
 
+    # Genesis-062 Sprint-003: capability inventory intent
+    CAPABILITY_INVENTORY_KEYWORDS = (
+        "what can you do", "what can jarvis do", "what are your capabilities",
+        "what investigations can you run", "what investigations do you have",
+        "what can you investigate", "list your capabilities",
+        "what do you know how to do", "show me your capabilities",
+        "what are you capable of", "what investigations are available",
+        "what can you check", "what can you analyse",
+    )
+
     # HISTORICAL — requires project documents not yet in knowledge base
     HISTORICAL_KEYWORDS = (
         "why did", "why was", "why were", "why have",
@@ -424,6 +434,9 @@ class IntentStage:
             knowledge = "fact"
         elif self._matches_any(msg, self.WHAT_NEEDED_KEYWORDS):
             intent    = "what_needed"
+            knowledge = "fact"
+        elif self._matches_any(msg, self.CAPABILITY_INVENTORY_KEYWORDS):
+            intent    = "capability_inventory"
             knowledge = "fact"
         elif self._matches_any(msg, self.INVESTIGATE_KEYWORDS):
             intent    = "investigate"
@@ -539,6 +552,98 @@ class KnowledgeQueryStage:
             duration_ms=round(duration, 2),
             terminal=True,
         )
+
+
+class CapabilityInventoryStage:
+    """
+    Stage 3e: Answer capability inventory queries.
+
+    Genesis-062 Sprint-003.
+
+    Handles intent="capability_inventory" ? questions like:
+        "What can you do?"
+        "What investigations can you run?"
+        "What are your capabilities?"
+
+    Report is generated entirely from InvestigationRegistry.all_descriptors()
+    and GenesisDeliveryStore ? no hardcoded prose, no developer-written
+    capability descriptions. Every line in the report comes from declared,
+    registered evidence.
+
+    Does not create observations. Does not modify any store.
+    Does not invoke an LLM. Terminal when it fires.
+    """
+    NAME = "CapabilityInventoryStage"
+
+    def __init__(self, registry=None, delivery_store=None) -> None:
+        self._registry       = registry
+        self._delivery_store = delivery_store
+
+    def run(self, request, state: dict):
+        import time
+        start  = time.perf_counter()
+        intent = state.get("intent", "unknown")
+
+        if intent != "capability_inventory":
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=False,
+                outcome="skipped ? intent is not capability_inventory",
+                duration_ms=round(duration, 2),
+            )
+
+        state["response_message"] = self._format_inventory()
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME, executed=True,
+            outcome="capability inventory returned",
+            duration_ms=round(duration, 2),
+            terminal=True,
+        )
+
+    def _format_inventory(self) -> str:
+        """
+        Format a capability inventory from registered evidence only.
+        No hardcoded prose. Every item comes from declared registry data.
+        """
+        lines = [
+            "CAPABILITY INVENTORY",
+            "-" * 40,
+            "",
+        ]
+
+        if self._registry is not None:
+            descriptors = self._registry.all_descriptors()
+            lines.append(f"Registered investigations ({len(descriptors)}):")
+            for d in descriptors:
+                lines.append(f"  [{d.name}]")
+                lines.append(f"    {d.description}")
+                lines.append(f"    Evidence sources: {', '.join(d.evidence_sources)}")
+        else:
+            lines.append("Investigation registry: not available.")
+
+        lines.append("")
+
+        if self._delivery_store is not None:
+            all_ids = self._delivery_store.all_ids()
+            lines.append(f"Genesis delivery records ({len(all_ids)}):")
+            for gid in all_ids:
+                record = self._delivery_store.get(gid)
+                if record:
+                    lines.append(f"  {gid} ? {record.display_name}")
+        else:
+            lines.append("Genesis delivery store: not available.")
+
+        lines += [
+            "",
+            "Knowledge query types supported:",
+            "  [delivery] What changed in the latest Genesis?",
+            "",
+            "Note: this inventory is generated from registered evidence.",
+            "It reflects actual declared capabilities, not a developer-written description.",
+        ]
+
+        return "\n".join(lines)
 
 
 class GapReportStage:
@@ -1126,8 +1231,10 @@ class MissionPipeline:
         # GapReportStage proximity analysis. Both this instance and the one
         # inside ReadOnlyInvestigator read from the same declared _REGISTRY dict.
         # No coupling between GapReportStage and ReadOnlyInvestigator.
-        _inv_registry_for_gap = _InvRegistry(project_root) if project_root else None
-        self._gap_report          = GapReportStage(_gap_store, _inv_registry_for_gap)
+        _inv_registry_for_gap      = _InvRegistry(project_root) if project_root else None
+        _delivery_store_for_inv    = GenesisDeliveryStore(project_root) if project_root else None
+        self._capability_inventory = CapabilityInventoryStage(_inv_registry_for_gap, _delivery_store_for_inv)
+        self._gap_report           = GapReportStage(_gap_store, _inv_registry_for_gap)
         self._investigation       = InvestigationStage(_investigator, session_store=mission_session_store)
         self._approval_gate       = ApprovalGateStage()
         self._dispatch            = DispatchStage()
@@ -1165,6 +1272,15 @@ class MissionPipeline:
             trace.append(result)
             if result.terminal:
                 return self._response.run(request, state, trace)
+
+            # Stage 3e: Capability inventory (Genesis-062 Sprint-003)
+            result = self._capability_inventory.run(request, state)
+            trace.append(result)
+            if result.terminal:
+                final_response = self._response.run(request, state, trace)
+                if self._gap_engine is not None:
+                    self._gap_engine.observe(request, state, final_response)
+                return final_response
 
             # Stage 3d: Gap report (Genesis-060 Sprint-003)
             result = self._gap_report.run(request, state)
