@@ -36,6 +36,7 @@ from core.knowledge.genesis_record import GenesisDeliveryStore
 from core.knowledge.capability_gap import GapObservationStore
 from core.knowledge.gap_observation_engine import GapObservationEngine
 from core.knowledge.proximity import CapabilityProximityAnalyser
+from core.knowledge.objective_proximity import ObjectiveProximityAnalyser
 from core.mission.investigation_registry import InvestigationRegistry as _InvRegistry
 from core.mission.policy import (
     MissionCapabilityPolicy,
@@ -705,8 +706,7 @@ class GapReportStage:
         observations = self._store.observations_by_signature(CAPABILITY_GAP_SIGNATURE)
         count        = len(observations)
 
-        # Proximity analysis ? only when observations exist and registry available
-        # Uses most recent observation (Sprint-002: deliberately simple, see __init__)
+        # Capability proximity analysis
         proximity = None
         if count > 0 and self._registry is not None:
             try:
@@ -721,10 +721,26 @@ class GapReportStage:
                 logger.warning("[GapReportStage] Proximity analysis failed: %s", e)
                 proximity = None
 
+        # Objective proximity analysis (Genesis-063 Sprint-002)
+        # Reads objectives from state["engineering_context"] ? refreshed per request
+        obj_proximity = None
+        if count > 0:
+            try:
+                recent     = observations[-1]
+                objectives = state.get("engineering_context", {}).get("objectives", [])
+                obj_analyser  = ObjectiveProximityAnalyser(objectives)
+                obj_proximity = obj_analyser.analyse(
+                    question       = recent.question,
+                    observation_id = recent.observation_id,
+                )
+            except Exception as e:
+                logger.warning("[GapReportStage] Objective proximity analysis failed: %s", e)
+                obj_proximity = None
+
         if intent == "why_failed":
-            state["response_message"] = self._format_why_failed(observations, count, proximity)
+            state["response_message"] = self._format_why_failed(observations, count, proximity, obj_proximity)
         else:  # what_needed
-            state["response_message"] = self._format_what_needed(observations, count, proximity)
+            state["response_message"] = self._format_what_needed(observations, count, proximity, obj_proximity)
 
         state["gap_report_terminal"] = True
         duration = (time.perf_counter() - start) * 1000
@@ -736,7 +752,7 @@ class GapReportStage:
         )
 
     @staticmethod
-    def _format_why_failed(observations: list, count: int, proximity=None) -> str:
+    def _format_why_failed(observations: list, count: int, proximity=None, obj_proximity=None) -> str:
         """
         Format a why_failed report from stored evidence.
         Content derived entirely from observations ? no developer sentences.
@@ -799,10 +815,20 @@ class GapReportStage:
                 "  (no registry or no observations to analyse)",
             ]
 
+        # Objective relevance (Genesis-063 Sprint-002)
+        if obj_proximity is not None:
+            lines += ["", obj_proximity.format_for_report()]
+        else:
+            lines += [
+                "",
+                "Objective relevance: not available",
+                "  (no objectives in current context)",
+            ]
+
         return "\n".join(lines)
 
     @staticmethod
-    def _format_what_needed(observations: list, count: int, proximity=None) -> str:
+    def _format_what_needed(observations: list, count: int, proximity=None, obj_proximity=None) -> str:
         """
         Format a what_needed report derived from stored evidence.
         Derives the missing capability from the failure signature ? not hardcoded.
@@ -867,6 +893,16 @@ class GapReportStage:
                 "",
                 "Proximity analysis: not available",
                 "  (no registry or no observations to analyse)",
+            ]
+
+        # Objective relevance (Genesis-063 Sprint-002)
+        if obj_proximity is not None:
+            lines += ["", obj_proximity.format_for_report()]
+        else:
+            lines += [
+                "",
+                "Objective relevance: not available",
+                "  (no objectives in current context)",
             ]
 
         return "\n".join(lines)
