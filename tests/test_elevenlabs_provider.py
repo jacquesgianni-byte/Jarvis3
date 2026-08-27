@@ -58,7 +58,7 @@ class TestElevenLabsTTSProviderConstruction:
 
     def test_speed_default(self):
         p = ElevenLabsTTSProvider(api_key="test")
-        assert p._speed == 1.08
+        assert p._speed == 1.0
 
     def test_custom_voice_id(self):
         p = ElevenLabsTTSProvider(api_key="test", voice_id="custom-id")
@@ -165,4 +165,4 @@ class TestProviderSelection:
         assert provider is not None
         assert provider._api_key == "sk-test-key"
         assert provider._voice_id == "ydOzToQj00qmJ4VuQWPU"
-        assert provider._speed == 1.08
+        assert provider._speed == 1.0

@@ -33,6 +33,7 @@ Remaining limitations:
       opt-in — that is GC-007 if needed.
 """
 
+import pathlib
 import tempfile
 import os
 import pytest
@@ -72,3 +73,53 @@ def isolate_knowledge_store(tmp_path_factory):
 
     # Restore original __init__ after session
     JsonKnowledgeRepository.__init__ = original_init
+
+# ---------------------------------------------------------------------------
+# GC-008: project_state.json isolation
+# ---------------------------------------------------------------------------
+# Root cause:
+#     Several tests write a controlled current_genesis value to
+#     project_state.json (e.g. "Genesis-055") to set up MissionRegistry
+#     state. If the test fails or the restore path is skipped, the file
+#     is left stale, corrupting MissionRegistry reads in subsequent tests
+#     and in the running server.
+#
+# Fix:
+#     A session-scoped autouse fixture saves the original content of
+#     project_state.json at session start and restores it at session end.
+#     This guarantees the file is always restored regardless of test
+#     outcome, interruption, or exception.
+#
+#     Individual tests that need to write a specific genesis value should
+#     still save/restore within the test itself (as they currently do) for
+#     intra-session isolation. This fixture is the safety net that catches
+#     any test that forgets to restore.
+
+import json as _json
+
+@pytest.fixture(autouse=True, scope="session")
+def isolate_project_state(tmp_path_factory):
+    """
+    Save and restore project_state.json around the entire test session.
+
+    Automatically applied to every test ? no opt-in required.
+    The production project_state.json is always restored after the session,
+    regardless of test outcome.
+    """
+    ps_path = pathlib.Path(__file__).parent.parent / "project_state.json"
+
+    # Save original content
+    try:
+        original_content = ps_path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        original_content = None
+
+    yield
+
+    # Restore original content unconditionally
+    if original_content is not None:
+        try:
+            ps_path.write_text(original_content, encoding="utf-8")
+        except Exception as e:
+            import warnings
+            warnings.warn(f"[GC-008] Could not restore project_state.json: {e}")
