@@ -114,6 +114,24 @@ _declare(GenesisDeliveryRecord(
 ))
 
 _declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-063",
+    display_name = "Gap-to-Objective Evidence Chain",
+    sprints      = (
+        "Sprint-001: ObjectiveProximityAnalyser, deterministic keyword overlap vs objectives -- 26 tests",
+        "Sprint-002: Objective proximity wired into GapReportStage, why_failed + what_needed enriched -- 12 tests",
+        "Sprint-003: Phone acceptance test -- golden conversation passed",
+    ),
+    components_delivered = (
+        "ObjectiveProximityAnalyser",
+        "ObjectiveProximityResult",
+        "ObjectiveMatch",
+        "GapReportStage (objective proximity enrichment)",
+    ),
+    tests_added = 38,
+    commit      = "847e66b",
+))
+
+_declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-062",
     display_name = "Richer Capability Surface",
     sprints      = (
