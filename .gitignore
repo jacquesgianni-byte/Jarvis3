@@ -43,3 +43,6 @@ data/logs/*.log
 
 # Investigation proposal session files
 data/orchestrator/investigations/
+
+# Sprint state files (live data, not for version control)
+data/sprint_states/

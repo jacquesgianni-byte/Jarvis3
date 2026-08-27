@@ -1,9 +1,17 @@
 {
   "proposal_id": "PROP-EB2305",
-  "current_state": "proposed",
+  "current_state": "rejected",
   "created_at": "2026-08-27T12:20:58.993897+00:00",
-  "updated_at": "2026-08-27T12:20:58.993897+00:00",
-  "transitions": [],
+  "updated_at": "2026-08-27T12:34:56.106154+00:00",
+  "transitions": [
+    {
+      "from_state": "proposed",
+      "to_state": "rejected",
+      "timestamp": "2026-08-27T12:34:56.106154+00:00",
+      "reason": "Chief rejected at Layer 1 via ApprovalCard.",
+      "chief_action": true
+    }
+  ],
   "execution_trace": [],
   "validation_result": null,
   "result_summary": null

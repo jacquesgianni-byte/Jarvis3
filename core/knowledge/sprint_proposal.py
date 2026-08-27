@@ -570,26 +570,42 @@ class SprintProposalEngine:
             return "work_prioritisation"
         return "uncategorised_gap"
 
+    # Common question words that are too generic to use as capability keywords
+    _STOP_WORDS = frozenset({
+        "what", "should", "next", "would", "could", "tell", "know",
+        "that", "this", "with", "from", "have", "will", "your",
+        "does", "done", "about", "which", "where", "when", "help",
+        "like", "make", "need", "work", "just", "also", "than",
+    })
+
     @staticmethod
     def _derive_keywords(observations: list) -> list:
         """
         Extract recurring significant words from observation questions.
         Words appearing in >= 50% of observations are included as keywords.
-        Short words (<=3 chars) are excluded.
+        Short words (<=3 chars) and common question words are excluded.
+        Multi-word domain phrases are preferred over single generic words.
         """
         import re
         from collections import Counter
         all_words = []
         for obs in observations:
             words = re.findall(r"\b[a-z]{4,}\b", obs.question.lower())
+            # Exclude stop words
+            words = [w for w in words if w not in SprintProposalEngine._STOP_WORDS]
             all_words.extend(words)
-        counts  = Counter(all_words)
-        n       = len(observations)
+        counts   = Counter(all_words)
+        n        = len(observations)
         keywords = [w for w, c in counts.items() if c >= max(1, n // 2)]
-        # Always include the core theme words
+
+        # Always prefer multi-word domain phrases over single words
+        domain_phrases = []
         for obs in observations:
             q = obs.question.lower()
-            for phrase in ("next mission", "should we", "work on", "mission be"):
-                if phrase in q and phrase not in keywords:
-                    keywords.append(phrase)
-        return list(dict.fromkeys(keywords))[:12]  # max 12 keywords, deduplicated
+            for phrase in ("next mission", "mission planning", "work on next",
+                           "mission recommend", "next sprint", "recommend mission"):
+                if phrase in q and phrase not in domain_phrases:
+                    domain_phrases.append(phrase)
+        # Put domain phrases first, single words after
+        result = domain_phrases + [w for w in keywords if w not in domain_phrases]
+        return list(dict.fromkeys(result))[:12]  # max 12, deduplicated
