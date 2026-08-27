@@ -53,7 +53,7 @@ class ElevenLabsTTSProvider:
         self,
         api_key: str,
         voice_id: str = "ydOzToQj00qmJ4VuQWPU",
-        speed: float = 0.9,
+        speed: float = 1.0,
         stability: float = 0.5,
         similarity_boost: float = 0.75,
     ) -> None:
@@ -68,7 +68,7 @@ class ElevenLabsTTSProvider:
     def from_env(
         cls,
         voice_id: str = "ydOzToQj00qmJ4VuQWPU",
-        speed: float = 0.9,
+        speed: float = 1.0,
     ) -> Optional["ElevenLabsTTSProvider"]:
         """
         Construct from environment variable ELEVENLABS_API_KEY.
