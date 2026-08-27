@@ -51,6 +51,7 @@ from core.mission.authorised_sources import AuthorisedPath, AuthorisedSourceRegi
 from core.mission.proposal import BoundProposal, ProposalOperation, ProposalStatus
 from core.mission.investigation_registry import InvestigationRegistry
 from core.mission.investigation_selector import InvestigationSelector
+from core.knowledge.genesis_record import GenesisDeliveryStore
 
 logger = logging.getLogger(__name__)
 
@@ -445,8 +446,12 @@ class ReadOnlyInvestigator:
         # Dispatch table: descriptor.name -> bound method
         # Add new investigations here when registered in InvestigationRegistry.
         self._dispatch: dict = {
-            "project_state_vs_git": self.investigate_project_state_vs_git,
+            "project_state_vs_git":       self.investigate_project_state_vs_git,
+            "mission_registry_consistency": self.investigate_mission_registry_consistency,
+            "test_health":                self.investigate_test_health,
+            "roadmap_vs_state":           self.investigate_roadmap_vs_state,
         }
+        self._delivery_store = GenesisDeliveryStore(project_root)
 
     def investigate(self, question: str) -> InvestigationReport:
         """
@@ -525,6 +530,280 @@ class ReadOnlyInvestigator:
             bound_proposal     = report.bound_proposal,
             status             = report.status,
             investigation_name = descriptor.name,
+        )
+
+
+    def investigate_mission_registry_consistency(self, question: str) -> InvestigationReport:
+        """
+        Compare MissionRegistry state against GenesisDeliveryStore records.
+
+        Detects:
+        - current_genesis in project_state.json not matching any delivery record
+        - last_completed_genesis not matching the second-most-recent delivery record
+        - next_milestone still referencing a genesis that has already been delivered
+        """
+        investigation_id   = f"INV-MRC-{uuid.uuid4().hex[:6].upper()}"
+        sources_inspected: List[SourceRecord] = []
+        findings:          List[Finding]      = []
+
+        # Read project_state.json
+        ps_record = SourceRecord(logical_name="project_state", found=False)
+        project_state: dict = {}
+        try:
+            ap = self._registry.resolve("project_state")
+            ps_record.found = ap.resolved.exists()
+            if ps_record.found:
+                project_state = self._file_reader.read_json(ap)
+                ps_record.raw_value = json.dumps(project_state, indent=2)
+            else:
+                ps_record.error = "File not found on disk"
+        except ValueError as e:
+            ps_record.error = str(e)
+        sources_inspected.append(ps_record)
+
+        current_genesis        = project_state.get("current_genesis", "")
+        last_completed_genesis = project_state.get("last_completed_genesis", "")
+        next_milestone         = project_state.get("next_milestone", "")
+
+        findings.append(Finding(source="project_state.json", key="current_genesis",        value=current_genesis or "UNKNOWN"))
+        findings.append(Finding(source="project_state.json", key="last_completed_genesis", value=last_completed_genesis or "UNKNOWN"))
+        findings.append(Finding(source="project_state.json", key="next_milestone",         value=next_milestone or "UNKNOWN"))
+
+        # Compare against GenesisDeliveryStore
+        store_record = SourceRecord(logical_name="genesis_delivery_store", found=True)
+        sources_inspected.append(store_record)
+
+        all_ids        = self._delivery_store.all_ids()
+        known_ids      = set(all_ids)
+        anomalies      = []
+
+        findings.append(Finding(source="GenesisDeliveryStore", key="known_genesis_ids", value=", ".join(all_ids) or "NONE"))
+
+        # Check 1: current_genesis has a delivery record
+        if current_genesis and current_genesis not in known_ids:
+            anomalies.append(
+                f"current_genesis={current_genesis!r} has no delivery record in GenesisDeliveryStore."
+            )
+            findings.append(Finding(source="reconciliation", key="current_genesis", value="ANOMALY",
+                note=f"{current_genesis!r} not in delivery store"))
+
+        # Check 2: next_milestone references a genesis already delivered
+        if next_milestone:
+            for gid in known_ids:
+                if gid in next_milestone:
+                    anomalies.append(
+                        f"next_milestone={next_milestone!r} references {gid!r} which has already been delivered."
+                    )
+                    findings.append(Finding(source="reconciliation", key="next_milestone", value="STALE",
+                        note=f"{gid!r} already in delivery store"))
+                    break
+
+        if anomalies:
+            conclusion = "Inconsistencies detected in mission registry: " + " | ".join(anomalies)
+        elif not ps_record.found:
+            conclusion = "project_state.json could not be read. Investigation incomplete."
+        else:
+            conclusion = (
+                f"Mission registry appears consistent. "
+                f"current_genesis={current_genesis!r} is known to the delivery store."
+            )
+
+        return InvestigationReport(
+            investigation_id   = investigation_id,
+            question           = question,
+            sources_inspected  = sources_inspected,
+            findings           = findings,
+            conclusion         = conclusion,
+            proposed_action    = None,
+            approval_required  = False,
+            bound_proposal     = None,
+            investigation_name = "mission_registry_consistency",
+        )
+
+    def investigate_test_health(self, question: str) -> InvestigationReport:
+        """
+        Inspect test run results from project_state.json and compare
+        against current Git HEAD to detect stale or failing tests.
+
+        Detects:
+        - test failures (tests_failed > 0)
+        - stale results (tests_commit != current git HEAD sha)
+        - no test results recorded
+        """
+        investigation_id   = f"INV-TST-{uuid.uuid4().hex[:6].upper()}"
+        sources_inspected: List[SourceRecord] = []
+        findings:          List[Finding]      = []
+
+        # Read project_state.json
+        ps_record = SourceRecord(logical_name="project_state", found=False)
+        project_state: dict = {}
+        try:
+            ap = self._registry.resolve("project_state")
+            ps_record.found = ap.resolved.exists()
+            if ps_record.found:
+                project_state = self._file_reader.read_json(ap)
+                ps_record.raw_value = json.dumps(project_state, indent=2)
+            else:
+                ps_record.error = "File not found on disk"
+        except ValueError as e:
+            ps_record.error = str(e)
+        sources_inspected.append(ps_record)
+
+        tests_passed  = project_state.get("tests_passed",  0)
+        tests_skipped = project_state.get("tests_skipped", 0)
+        tests_failed  = project_state.get("tests_failed",  0)
+        tests_commit  = project_state.get("tests_commit",  "")
+
+        findings.append(Finding(source="project_state.json", key="tests_passed",  value=str(tests_passed)))
+        findings.append(Finding(source="project_state.json", key="tests_skipped", value=str(tests_skipped)))
+        findings.append(Finding(source="project_state.json", key="tests_failed",  value=str(tests_failed)))
+        findings.append(Finding(source="project_state.json", key="tests_commit",  value=tests_commit or "NOT RECORDED"))
+
+        # Read current Git HEAD
+        git_record = SourceRecord(logical_name="git_head", found=True)
+        git_sha    = ""
+        try:
+            git_sha = self._git_reader.head_sha()
+            git_record.raw_value = git_sha
+        except Exception as e:
+            git_record.found  = False
+            git_record.error  = str(e)
+        sources_inspected.append(git_record)
+        findings.append(Finding(source="git HEAD", key="commit", value=git_sha or "UNAVAILABLE"))
+
+        anomalies = []
+
+        if tests_failed > 0:
+            anomalies.append(f"{tests_failed} test(s) failing.")
+
+        if not tests_commit:
+            anomalies.append("No test run recorded in project_state.json.")
+        elif git_sha and tests_commit != git_sha:
+            anomalies.append(
+                f"Test results are stale: recorded against {tests_commit!r}, "
+                f"current HEAD is {git_sha!r}."
+            )
+
+        if anomalies:
+            conclusion = "Test health issues detected: " + " | ".join(anomalies)
+        elif not ps_record.found:
+            conclusion = "project_state.json could not be read. Investigation incomplete."
+        else:
+            conclusion = (
+                f"Tests appear healthy. "
+                f"{tests_passed} passed / {tests_skipped} skipped / {tests_failed} failed. "
+                f"Results current against HEAD {git_sha!r}."
+            )
+
+        return InvestigationReport(
+            investigation_id   = investigation_id,
+            question           = question,
+            sources_inspected  = sources_inspected,
+            findings           = findings,
+            conclusion         = conclusion,
+            proposed_action    = None,
+            approval_required  = False,
+            bound_proposal     = None,
+            investigation_name = "test_health",
+        )
+
+    def investigate_roadmap_vs_state(self, question: str) -> InvestigationReport:
+        """
+        Compare project_state.json roadmap fields against GenesisDeliveryStore
+        to detect stale milestones, objectives, or completion status.
+
+        Detects:
+        - next_milestone referencing an already-delivered genesis
+        - last_completed_genesis not matching the most recently delivered genesis
+        - objectives all completed but project_state not updated
+        """
+        investigation_id   = f"INV-RVS-{uuid.uuid4().hex[:6].upper()}"
+        sources_inspected: List[SourceRecord] = []
+        findings:          List[Finding]      = []
+
+        # Read project_state.json
+        ps_record = SourceRecord(logical_name="project_state", found=False)
+        project_state: dict = {}
+        try:
+            ap = self._registry.resolve("project_state")
+            ps_record.found = ap.resolved.exists()
+            if ps_record.found:
+                project_state = self._file_reader.read_json(ap)
+                ps_record.raw_value = json.dumps(project_state, indent=2)
+            else:
+                ps_record.error = "File not found"
+        except ValueError as e:
+            ps_record.error = str(e)
+        sources_inspected.append(ps_record)
+
+        next_milestone         = project_state.get("next_milestone", "")
+        last_completed_genesis = project_state.get("last_completed_genesis", "")
+        objectives             = project_state.get("objectives", [])
+
+        findings.append(Finding(source="project_state.json", key="next_milestone",         value=next_milestone or "NOT SET"))
+        findings.append(Finding(source="project_state.json", key="last_completed_genesis", value=last_completed_genesis or "NOT SET"))
+        findings.append(Finding(source="project_state.json", key="objectives_count",       value=str(len(objectives))))
+
+        done_count = sum(1 for o in objectives if o.get("done"))
+        findings.append(Finding(source="project_state.json", key="objectives_done", value=f"{done_count}/{len(objectives)}"))
+
+        # Compare against delivery store
+        store_record = SourceRecord(logical_name="genesis_delivery_store", found=True)
+        sources_inspected.append(store_record)
+        all_ids = self._delivery_store.all_ids()
+        findings.append(Finding(source="GenesisDeliveryStore", key="delivered_geneses", value=", ".join(all_ids) or "NONE"))
+
+        anomalies = []
+
+        # Check: next_milestone references an already-delivered genesis
+        if next_milestone:
+            for gid in all_ids:
+                if gid in next_milestone:
+                    anomalies.append(
+                        f"next_milestone={next_milestone!r} references {gid!r} which has already been delivered."
+                    )
+                    break
+
+        # Check: last_completed_genesis is behind the most recently delivered
+        if all_ids and last_completed_genesis:
+            # Sort by genesis number to get true most-recent, not insertion order
+            import re as _re
+            def _genesis_num(g): m = _re.search(r'\d+', g); return int(m.group()) if m else 0
+            most_recent_delivered = max(all_ids, key=_genesis_num)
+            if last_completed_genesis != most_recent_delivered:
+                anomalies.append(
+                    f"last_completed_genesis={last_completed_genesis!r} but most recently delivered is {most_recent_delivered!r}."
+                )
+
+        # Check: all objectives done but this may not be reflected
+        if objectives and done_count == len(objectives):
+            findings.append(Finding(
+                source="project_state.json", key="objectives_status",
+                value="ALL COMPLETE",
+                note="All objectives marked done ? roadmap may need updating."
+            ))
+
+        if anomalies:
+            conclusion = "Roadmap inconsistencies detected: " + " | ".join(anomalies)
+        elif not ps_record.found:
+            conclusion = "project_state.json could not be read. Investigation incomplete."
+        else:
+            conclusion = (
+                f"Roadmap appears consistent with delivery history. "
+                f"last_completed_genesis={last_completed_genesis!r}. "
+                f"Objectives: {done_count}/{len(objectives)} complete."
+            )
+
+        return InvestigationReport(
+            investigation_id   = investigation_id,
+            question           = question,
+            sources_inspected  = sources_inspected,
+            findings           = findings,
+            conclusion         = conclusion,
+            proposed_action    = None,
+            approval_required  = False,
+            bound_proposal     = None,
+            investigation_name = "roadmap_vs_state",
         )
 
     def investigate_project_state_vs_git(self, question: str) -> InvestigationReport:

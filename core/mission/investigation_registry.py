@@ -81,14 +81,63 @@ _register(InvestigationDescriptor(
     ),
 ))
 
+_register(InvestigationDescriptor(
+    name         = "mission_registry_consistency",
+    display_name = "Mission Registry Consistency",
+    description  = (
+        "Compares MissionRegistry state against GenesisDeliveryStore records "
+        "to detect stale or inconsistent mission metadata."
+    ),
+    question_keywords = (
+        "mission registry", "dashboard", "showing wrong", "wrong genesis",
+        "mission consistent", "is the dashboard", "is mission control",
+        "registry consistent", "mission metadata", "registry up to date",
+        "dashboard showing", "mission mode showing",
+    ),
+    evidence_sources = (
+        "project_state",
+    ),
+))
+
+_register(InvestigationDescriptor(
+    name         = "test_health",
+    display_name = "Test Health Investigation",
+    description  = (
+        "Inspects the most recent test run results from project_state.json "
+        "and compares against current Git HEAD to detect stale or failing tests."
+    ),
+    question_keywords = (
+        "tests passing", "tests failing", "test results", "test health",
+        "are tests green", "are tests passing", "test failures",
+        "tests stale", "when were tests run", "last test run",
+        "tests current", "suite passing", "suite failing",
+        "how many tests", "tests skipped",
+    ),
+    evidence_sources = (
+        "project_state",
+    ),
+))
+
+_register(InvestigationDescriptor(
+    name         = "roadmap_vs_state",
+    display_name = "Roadmap vs State Consistency",
+    description  = (
+        "Compares project_state.json roadmap fields against GenesisDeliveryStore "
+        "records to detect stale milestones, objectives, or completion status."
+    ),
+    question_keywords = (
+        "roadmap", "next milestone", "milestone", "objectives",
+        "is the roadmap", "roadmap up to date", "roadmap consistent",
+        "what have we completed", "last completed genesis",
+        "is the milestone", "objectives up to date", "stale milestone",
+        "roadmap accurate", "project plan",
+    ),
+    evidence_sources = (
+        "project_state",
+    ),
+))
+
 # Future investigations registered here:
-# _register(InvestigationDescriptor(
-#     name             = "mission_registry_consistency",
-#     display_name     = "Mission Registry Consistency",
-#     description      = "...",
-#     question_keywords = (...),
-#     evidence_sources  = ("registry", "project_state"),
-# ))
 
 
 class InvestigationRegistry:
