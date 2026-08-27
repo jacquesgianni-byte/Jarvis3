@@ -1,9 +1,9 @@
 {
-  "current_genesis": "Genesis-055",
+  "current_genesis": "Genesis-062",
   "current_sprint": "Sprint-003",
-  "current_mission": "Capability Gap Proximity Analysis",
-  "last_completed_genesis": "Genesis-060",
-  "next_milestone": "Genesis-062: TBD",
+  "current_mission": "Richer Capability Surface",
+  "last_completed_genesis": "Genesis-061",
+  "next_milestone": "Genesis-063: TBD",
   "objectives": [
     {
       "text": "Audit all stale dashboard values",

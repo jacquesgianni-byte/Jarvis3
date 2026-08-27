@@ -114,6 +114,25 @@ _declare(GenesisDeliveryRecord(
 ))
 
 _declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-062",
+    display_name = "Richer Capability Surface",
+    sprints      = (
+        "Sprint-001: project_state.json isolation fixture (GC-008)",
+        "Sprint-002: mission_registry_consistency, test_health, roadmap_vs_state investigations -- 33 tests",
+        "Sprint-003: CapabilityInventoryStage, evidence-backed capability report -- 18 tests",
+    ),
+    components_delivered = (
+        "mission_registry_consistency investigation",
+        "test_health investigation",
+        "roadmap_vs_state investigation",
+        "CapabilityInventoryStage",
+        "conftest.py GC-008 fixture",
+    ),
+    tests_added = 51,
+    commit      = "7e37a6b",
+))
+
+_declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-061",
     display_name = "Capability Gap Proximity Analysis",
     sprints      = (
