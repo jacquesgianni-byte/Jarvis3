@@ -124,6 +124,35 @@ def orchestrator_status():
         except Exception as inv_exc:
             logger.warning("[ORCHESTRATOR] Could not load investigation proposals: %s", inv_exc)
 
+        # Genesis-064 Sprint-003c: include pending sprint proposals
+        try:
+            from core.knowledge.sprint_state import SprintStateStore, SprintState
+            from pathlib import Path as _Path
+            _sprint_store = current_app.config.get("sprint_state_store")
+            if _sprint_store is None:
+                _sprint_data  = _Path(__file__).resolve().parents[2] / "data"
+                _sprint_store = SprintStateStore(_sprint_data)
+            for record in _sprint_store.all_active():
+                if record.state in (SprintState.PROPOSED, SprintState.APPROVED,
+                                    SprintState.AWAITING_RESULT_REVIEW):
+                    sessions = sessions + [{
+                        "session_id":  record.proposal_id,
+                        "request":     f"[SPRINT] {record.proposal_id} ? state: {record.current_state}",
+                        "stage":       "AWAITING_APPROVAL",
+                        "status":      record.current_state.upper(),
+                        "approved_by": "",
+                        "approved_at": "",
+                        "plan_summary": {
+                            "operations": 1,
+                            "creates":    1,
+                            "modifies":   0,
+                            "sprint_state": record.current_state,
+                            "transitions":  len(record.transitions),
+                        },
+                    }]
+        except Exception as sprint_exc:
+            logger.warning("[ORCHESTRATOR] Could not load sprint proposals: %s", sprint_exc)
+
         return jsonify({
             "ok":      True,
             "sessions": sessions,
@@ -137,6 +166,105 @@ def orchestrator_status():
 # ---------------------------------------------------------------------------
 # POST /orchestrator/approve
 # ---------------------------------------------------------------------------
+
+def _try_handle_sprint_proposal(session_id, decision, decided_by, reason):
+    """
+    Genesis-064 Sprint-003c.
+    Handle sprint proposal approvals from the Android ApprovalCard.
+    Routes Layer 1 (PROPOSED->APPROVED) and Layer 3 (AWAITING->COMPLETED/REJECTED).
+    Layer 2 (APPROVED->EXECUTING) requires explicit /sprint/approve-execution call.
+    """
+    from core.knowledge.sprint_state import SprintStateStore, SprintState
+    from pathlib import Path as _Path
+
+    sprint_store = current_app.config.get("sprint_state_store")
+    if sprint_store is None:
+        _sprint_data = _Path(__file__).resolve().parents[2] / "data"
+        sprint_store = SprintStateStore(_sprint_data)
+
+    record = sprint_store.load(session_id)
+    if record is None:
+        return jsonify({"ok": False, "error": f"Sprint {session_id} not found."}), 404
+
+    if decision == "reject":
+        layer = {
+            "proposed":               1,
+            "approved":               2,
+            "awaiting_result_review": 3,
+        }.get(record.current_state, 1)
+        result = sprint_store.transition(
+            session_id, SprintState.REJECTED,
+            f"Chief rejected at Layer {layer} via ApprovalCard.", chief_action=True,
+        )
+        return jsonify({
+            "ok":        result.success,
+            "message":   f"Sprint {session_id} rejected.",
+            "session_id": session_id,
+            "outcome":   "REJECTED",
+        })
+
+    # approve
+    if record.current_state == SprintState.PROPOSED.value:
+        # Layer 1
+        result = sprint_store.transition(
+            session_id, SprintState.APPROVED,
+            "Chief approved sprint plan via ApprovalCard (Layer 1).", chief_action=True,
+        )
+        return jsonify({
+            "ok":        result.success,
+            "message":   f"Sprint plan approved. Tap APPROVE again to authorise execution (Layer 2).",
+            "session_id": session_id,
+            "outcome":   "APPROVED" if result.success else "ERROR",
+            "next_action": "approve_execution",
+        })
+
+    elif record.current_state == SprintState.APPROVED.value:
+        # Layer 2 -- trigger execution
+        result = sprint_store.transition(
+            session_id, SprintState.EXECUTING,
+            "Chief authorised execution via ApprovalCard (Layer 2).", chief_action=True,
+        )
+        if result.success:
+            # Start background execution
+            import threading
+            from pathlib import Path as _Path2
+            project_root = _Path2(__file__).resolve().parents[2]
+            gap_store    = current_app.config.get("gap_store")
+            from apps.server.sprint_routes import _run_sprint_execution
+            t = threading.Thread(
+                target=_run_sprint_execution,
+                args=(session_id, project_root, sprint_store, gap_store),
+                daemon=True,
+            )
+            t.start()
+        return jsonify({
+            "ok":        result.success,
+            "message":   f"Execution started. Jarvis is working. Check status for updates.",
+            "session_id": session_id,
+            "outcome":   "EXECUTING" if result.success else "ERROR",
+        })
+
+    elif record.current_state == SprintState.AWAITING_RESULT_REVIEW.value:
+        # Layer 3
+        result = sprint_store.transition(
+            session_id, SprintState.COMPLETED,
+            "Chief accepted sprint result via ApprovalCard (Layer 3).", chief_action=True,
+        )
+        return jsonify({
+            "ok":        result.success,
+            "message":   f"Sprint {session_id} completed and accepted.",
+            "session_id": session_id,
+            "outcome":   "COMPLETE" if result.success else "ERROR",
+        })
+
+    else:
+        return jsonify({
+            "ok":      False,
+            "message": f"Sprint is in state {record.current_state!r} -- no approval action available.",
+            "session_id": session_id,
+            "outcome": "NO_ACTION",
+        })
+
 
 def _try_execute_investigation_proposal(session_id, decision, decided_by, reason):
     """
@@ -284,6 +412,10 @@ def orchestrator_approve():
     coord = _coordinator()
     if coord is None:
         return jsonify({"ok": False, "error": "No coordinator registered"}), 503
+
+    # Genesis-064 Sprint-003c: check if this is a sprint proposal
+    if session_id.startswith("PROP-"):
+        return _try_handle_sprint_proposal(session_id, decision, decided_by, reason)
 
     # Genesis-056 Sprint-002: check if this is an investigation proposal
     # before routing to the engineering coordinator

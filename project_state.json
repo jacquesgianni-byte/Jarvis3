@@ -1,25 +1,33 @@
 {
-  "current_genesis": "Genesis-063",
-  "current_sprint": "Sprint-003",
-  "current_mission": "Gap-to-Objective Evidence Chain",
-  "last_completed_genesis": "Genesis-062",
-  "next_milestone": "Genesis-064: TBD",
+  "current_genesis": "Genesis-064",
+  "current_sprint": "Sprint-003c",
+  "current_mission": "Chief-Governed Engineering Sprint",
+  "last_completed_genesis": "Genesis-063",
+  "next_milestone": "Genesis-064: Phone acceptance test",
   "objectives": [
     {
-      "text": "Build ObjectiveProximityAnalyser",
+      "text": "BoundSprintProposal + SprintProposalEngine",
       "done": true
     },
     {
-      "text": "Wire objective proximity into GapReportStage",
+      "text": "ScopeEnforcer + InvestigationRegistryWriter",
       "done": true
     },
     {
-      "text": "Phone acceptance test ? golden conversation",
+      "text": "SprintStateMachine + SprintStateStore",
       "done": true
     },
     {
-      "text": "Close Genesis-063",
+      "text": "SprintProposalStage + SprintApprovalGateStage",
       "done": true
+    },
+    {
+      "text": "Flask routes + server registration",
+      "done": true
+    },
+    {
+      "text": "Phone acceptance test",
+      "done": false
     }
   ]
 }
