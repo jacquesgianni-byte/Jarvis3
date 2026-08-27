@@ -1,0 +1,477 @@
+"""
+Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
+
+Endpoints for the three-layer sprint approval workflow.
+All state transitions go through SprintStateMachine -- no separate logic here.
+
+Endpoints:
+    POST /sprint/propose
+        Trigger sprint proposal generation from evidence.
+        Body: {} (no body required)
+        Response: {"ok": bool, "proposal_id": str, "proposal": str, "state": str}
+
+    POST /sprint/approve-plan
+        Layer 1: Chief approves the proposed sprint plan.
+        Body: {"proposal_id": str}
+        Response: {"ok": bool, "from": str, "to": str, "error": str}
+
+    POST /sprint/approve-execution
+        Layer 2: Chief explicitly authorises execution to begin.
+        Body: {"proposal_id": str}
+        Response: {"ok": bool, "from": str, "to": str, "error": str}
+
+    POST /sprint/review-result
+        Layer 3: Chief accepts or rejects the sprint result.
+        Body: {"proposal_id": str, "decision": "accept"|"reject"}
+        Response: {"ok": bool, "from": str, "to": str, "error": str}
+
+    GET /sprint/status/<proposal_id>
+        Return current sprint state.
+        Response: {"ok": bool, "status": {...}}
+
+Authentication:
+    Header: X-Orchestrator-Token: <value>
+    Same token as orchestrator routes (ORCHESTRATOR_TOKEN env var).
+    Fails closed: if token not set, all requests rejected.
+
+State machine invariant:
+    Every transition is validated by SprintStateMachine.
+    The API has no separate transition logic.
+    An invalid transition (e.g. PROPOSED -> EXECUTING) is rejected by the
+    state machine regardless of which endpoint is called.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from flask import Blueprint, current_app, jsonify, request
+
+logger = logging.getLogger(__name__)
+
+sprint_bp = Blueprint("sprint", __name__)
+
+_TOKEN_ENV_VAR = "ORCHESTRATOR_TOKEN"
+
+
+# ---------------------------------------------------------------------------
+# Authentication -- same pattern as orchestrator_routes
+# ---------------------------------------------------------------------------
+
+def _check_auth() -> bool:
+    expected = os.getenv(_TOKEN_ENV_VAR, "")
+    if not expected:
+        logger.warning("[SPRINT] %s not set -- all requests rejected.", _TOKEN_ENV_VAR)
+        return False
+    provided = request.headers.get("X-Orchestrator-Token", "")
+    return provided == expected
+
+
+def _auth_error():
+    return jsonify({"ok": False, "error": "Unauthorised"}), 401
+
+
+# ---------------------------------------------------------------------------
+# POST /sprint/propose
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/propose", methods=["POST"])
+def propose_sprint():
+    """
+    Trigger sprint proposal generation from stored evidence.
+    The SprintProposalEngine derives the proposal -- no body required.
+    Returns the proposal text and initial PROPOSED state.
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    try:
+        # Build proposal via SprintProposalEngine directly
+        from core.knowledge.sprint_proposal import SprintProposalEngine, InsufficientEvidenceResult
+        from core.knowledge.sprint_state import SprintStateStore
+        from core.mission.investigation_registry import InvestigationRegistry
+        from core.knowledge.genesis_record import GenesisDeliveryStore
+        from core.knowledge.capability_gap import GapObservationStore
+
+        project_root  = current_app.config.get("project_root")
+        gap_store     = current_app.config.get("gap_store")
+        sprint_store  = current_app.config.get("sprint_state_store")
+
+        if not all([project_root, gap_store, sprint_store]):
+            return jsonify({"ok": False, "error": "Sprint infrastructure not available."}), 503
+
+        inv_registry   = InvestigationRegistry(project_root)
+        delivery_store = GenesisDeliveryStore(project_root)
+
+        engine = SprintProposalEngine(gap_store, inv_registry, delivery_store, project_root)
+        result = engine.propose()
+
+        if isinstance(result, InsufficientEvidenceResult):
+            return jsonify({
+                "ok":      False,
+                "error":   "insufficient_evidence",
+                "message": result.format_for_mission(),
+                "gap_observation_count": result.gap_observation_count,
+                "required_count":        result.required_count,
+            }), 200
+
+        # Create PROPOSED state record
+        sprint_store.create(result.proposal_id)
+
+        return jsonify({
+            "ok":          True,
+            "proposal_id": result.proposal_id,
+            "proposal":    result.format_for_approval(),
+            "state":       "proposed",
+            "template":    result.template_id,
+        }), 200
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/propose error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# POST /sprint/approve-plan  (Layer 1)
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/approve-plan", methods=["POST"])
+def approve_plan():
+    """
+    Layer 1: Chief approves the proposed sprint plan.
+    Transitions PROPOSED -> APPROVED via SprintStateMachine.
+    Rejected if current state is not PROPOSED.
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        result = sprint_store.transition(
+            proposal_id  = proposal_id,
+            to_state     = SprintState.APPROVED,
+            reason       = "Chief approved the sprint plan via /sprint/approve-plan (Layer 1).",
+            chief_action = True,
+        )
+        return jsonify({
+            "ok":    result.success,
+            "from":  result.from_state,
+            "to":    result.to_state,
+            "error": result.error,
+        }), 200 if result.success else 409
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/approve-plan error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# POST /sprint/approve-execution  (Layer 2)
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/approve-execution", methods=["POST"])
+def approve_execution():
+    """
+    Layer 2: Chief explicitly authorises execution.
+    Transitions APPROVED -> EXECUTING via SprintStateMachine.
+    Rejected if current state is not APPROVED.
+    Nothing executes until this endpoint is called.
+    After transition, triggers SprintExecutor in background thread.
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        from core.knowledge.sprint_proposal import SprintProposalEngine, InsufficientEvidenceResult
+        from core.knowledge.genesis_record import GenesisDeliveryStore
+        from core.mission.investigation_registry import InvestigationRegistry
+
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        # Transition to EXECUTING -- state machine enforces this
+        result = sprint_store.transition(
+            proposal_id  = proposal_id,
+            to_state     = SprintState.EXECUTING,
+            reason       = "Chief authorised execution via /sprint/approve-execution (Layer 2).",
+            chief_action = True,
+        )
+
+        if not result.success:
+            return jsonify({
+                "ok":    False,
+                "from":  result.from_state,
+                "to":    result.to_state,
+                "error": result.error,
+            }), 409
+
+        # Retrieve stored proposal and execute in background
+        project_root = current_app.config.get("project_root")
+        gap_store    = current_app.config.get("gap_store")
+
+        if project_root and gap_store:
+            import threading
+            t = threading.Thread(
+                target=_run_sprint_execution,
+                args=(proposal_id, project_root, sprint_store, gap_store),
+                daemon=True,
+            )
+            t.start()
+
+        return jsonify({
+            "ok":    True,
+            "from":  result.from_state,
+            "to":    result.to_state,
+            "error": "",
+            "message": "Execution started in background. Use /sprint/status to monitor.",
+        }), 200
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/approve-execution error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_store):
+    """
+    Background thread: execute the approved sprint.
+    Uses SprintProposalEngine to re-derive the proposal (it is deterministic),
+    then SprintExecutor to run the declared steps.
+    Records results in SprintStateStore.
+    Never auto-advances beyond VALIDATING -- Layer 3 requires Chief action.
+    """
+    try:
+        from core.knowledge.sprint_proposal import SprintProposalEngine
+        from core.knowledge.sprint_executor import SprintExecutor
+        from core.knowledge.sprint_state import SprintState
+        from core.mission.investigation_registry import InvestigationRegistry
+        from core.knowledge.genesis_record import GenesisDeliveryStore
+
+        inv_registry   = InvestigationRegistry(project_root)
+        delivery_store = GenesisDeliveryStore(project_root)
+        engine         = SprintProposalEngine(gap_store, inv_registry, delivery_store, project_root)
+        proposal       = engine.propose()
+
+        if not hasattr(proposal, "proposal_id"):
+            sprint_store.transition(
+                proposal_id=proposal_id,
+                to_state=SprintState.FAILED,
+                reason="Could not re-derive proposal for execution.",
+                chief_action=False,
+            )
+            return
+
+        executor   = SprintExecutor(proposal, project_root)
+        success, step_results = executor.execute()
+
+        # Record execution trace
+        record = sprint_store.load(proposal_id)
+        if record:
+            record.execution_trace = [
+                {"step": r.step_number, "action": r.action_type,
+                 "success": r.success, "detail": r.detail,
+                 "commit_sha": r.commit_sha}
+                for r in step_results
+            ]
+            sprint_store._persist(record)
+
+        if not success:
+            sprint_store.transition(
+                proposal_id=proposal_id,
+                to_state=SprintState.FAILED,
+                reason=f"Execution failed at step {step_results[-1].step_number if step_results else 0}.",
+                chief_action=False,
+            )
+            return
+
+        # Move to VALIDATING -- desktop validation runs
+        sprint_store.transition(
+            proposal_id=proposal_id,
+            to_state=SprintState.VALIDATING,
+            reason="Execution complete -- running desktop validation.",
+            chief_action=False,
+        )
+
+        # Desktop validation (bounded)
+        validation_result = _run_desktop_validation(proposal, project_root)
+
+        # Record validation result
+        record = sprint_store.load(proposal_id)
+        if record:
+            record.validation_result = {
+                "passed":   validation_result.get("passed", False),
+                "detail":   validation_result.get("detail", ""),
+            }
+            sprint_store._persist(record)
+
+        # Move to AWAITING_RESULT_REVIEW -- Chief must review
+        commit_sha = next((r.commit_sha for r in reversed(step_results) if r.commit_sha), "")
+        summary = (
+            f"Execution: {'SUCCESS' if success else 'FAILED'}. "
+            f"Steps: {len(step_results)}. "
+            f"Commit: {commit_sha}. "
+            f"Desktop validation: {'PASS' if validation_result.get('passed') else 'FAIL'}."
+        )
+        sprint_store.transition(
+            proposal_id=proposal_id,
+            to_state=SprintState.AWAITING_RESULT_REVIEW,
+            reason="Validation complete -- awaiting Chief review (Layer 3).",
+            chief_action=False,
+        )
+
+        logger.info("[SPRINT] %s ready for Chief review. Summary: %s", proposal_id, summary)
+
+    except Exception as e:
+        logger.exception("[SPRINT] Background execution error for %s: %s", proposal_id, e)
+        try:
+            from core.knowledge.sprint_state import SprintState
+            sprint_store.transition(
+                proposal_id=proposal_id,
+                to_state=SprintState.FAILED,
+                reason=f"Unhandled execution error: {e}",
+                chief_action=False,
+            )
+        except Exception:
+            pass
+
+
+def _run_desktop_validation(proposal, project_root) -> dict:
+    """
+    Run bounded desktop validation if proposal has acceptance criteria.
+    Returns {"passed": bool, "detail": str}.
+    """
+    try:
+        from core.knowledge.sprint_executor import DesktopValidationRunner
+        import sys
+
+        # Find proximity_nonzero criterion
+        for criterion in proposal.acceptance_criteria:
+            if criterion.criterion_type == "proximity_nonzero":
+                # Build validation spec
+                class Spec:
+                    command = " ".join([sys.executable, "-m", "apps.desktop.main"])
+                    test_message = criterion.test_input
+                    expected_contains = "score"
+                    timeout_seconds = 30
+
+                runner = DesktopValidationRunner(project_root)
+                result = runner.run(Spec())
+                return {"passed": result.passed, "detail": result.format_for_report()}
+
+        return {"passed": True, "detail": "No desktop validation criterion declared."}
+    except Exception as e:
+        return {"passed": False, "detail": f"Desktop validation error: {e}"}
+
+
+# ---------------------------------------------------------------------------
+# POST /sprint/review-result  (Layer 3)
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/review-result", methods=["POST"])
+def review_result():
+    """
+    Layer 3: Chief accepts or rejects the sprint result.
+    Transitions AWAITING_RESULT_REVIEW -> COMPLETED or REJECTED.
+    Rejected if current state is not AWAITING_RESULT_REVIEW.
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    decision    = body.get("decision", "").strip().lower()
+
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+    if decision not in ("accept", "reject"):
+        return jsonify({"ok": False, "error": "decision must be accept or reject"}), 400
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        to_state = SprintState.COMPLETED if decision == "accept" else SprintState.REJECTED
+        reason   = (
+            f"Chief accepted the sprint result via /sprint/review-result (Layer 3)."
+            if decision == "accept"
+            else f"Chief rejected the sprint result via /sprint/review-result (Layer 3)."
+        )
+
+        result = sprint_store.transition(
+            proposal_id  = proposal_id,
+            to_state     = to_state,
+            reason       = reason,
+            chief_action = True,
+        )
+        return jsonify({
+            "ok":    result.success,
+            "from":  result.from_state,
+            "to":    result.to_state,
+            "error": result.error,
+        }), 200 if result.success else 409
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/review-result error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# GET /sprint/status/<proposal_id>
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/status/<proposal_id>", methods=["GET"])
+def sprint_status(proposal_id: str):
+    """
+    Return current sprint state for a proposal_id.
+    Used by Android to poll status between layers.
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    try:
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        record = sprint_store.load(proposal_id)
+        if record is None:
+            return jsonify({"ok": False, "error": f"No sprint found for {proposal_id!r}"}), 404
+
+        return jsonify({
+            "ok": True,
+            "status": {
+                "proposal_id":      record.proposal_id,
+                "current_state":    record.current_state,
+                "requires_chief":   record.requires_chief_action,
+                "is_terminal":      record.is_terminal,
+                "transition_count": len(record.transitions),
+                "transitions":      record.transitions[-5:],  # last 5 only
+                "execution_trace":  record.execution_trace,
+                "validation_result": record.validation_result,
+                "result_summary":   record.result_summary,
+            }
+        }), 200
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/status error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
