@@ -238,12 +238,29 @@ class TestSprintRecordStore:
 
 class TestSprintProposalEngine:
 
-    def _make_engine(self, tmp_path, observations=None):
+    def _make_engine(self, tmp_path, observations=None, use_mock_registry=False):
         gap_store = GapObservationStore(tmp_path / "gaps")
         if observations:
             for obs in observations:
                 gap_store.record(obs)
-        reg   = InvestigationRegistry(PROJECT_ROOT)
+        if use_mock_registry:
+            # Use a mock registry with only base investigations
+            # so tests are not affected by descriptors Jarvis registers at runtime
+            from unittest.mock import MagicMock
+            from core.mission.investigation_registry import InvestigationDescriptor
+            mock_reg = MagicMock()
+            mock_reg.all_descriptors.return_value = [
+                InvestigationDescriptor(
+                    name="project_state_vs_git",
+                    display_name="Project State vs Git",
+                    description="Test",
+                    question_keywords=("consistent", "reconcile", "git"),
+                    evidence_sources=("project_state",),
+                )
+            ]
+            reg = mock_reg
+        else:
+            reg = InvestigationRegistry(PROJECT_ROOT)
         store = GenesisDeliveryStore(PROJECT_ROOT)
         return SprintProposalEngine(gap_store, reg, store, PROJECT_ROOT)
 
@@ -264,14 +281,12 @@ class TestSprintProposalEngine:
 
     def test_template_a_when_threshold_met(self, tmp_path):
         obs = [_make_observation("What should our next mission be?") for _ in range(TEMPLATE_A_MIN_OBSERVATIONS)]
-        engine = self._make_engine(tmp_path, obs)
+        engine = self._make_engine(tmp_path, obs, use_mock_registry=True)
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.stdout = ""
             result = engine.propose()
-        # Template A requires all observations ISOLATED -- if mission_planning
-        # descriptor is registered, questions score > 0 so Template B fires instead.
-        # Both are valid sprint proposals -- assert we get a BoundSprintProposal.
         assert isinstance(result, BoundSprintProposal)
+        assert result.template_id == TEMPLATE_A
 
     def test_proposal_steps_in_order(self, tmp_path):
         obs = [_make_observation() for _ in range(TEMPLATE_A_MIN_OBSERVATIONS)]
@@ -298,10 +313,13 @@ class TestSprintProposalEngine:
 
     def test_proposal_recurring_question(self, tmp_path):
         obs = [_make_observation("What should our next mission be?") for _ in range(TEMPLATE_A_MIN_OBSERVATIONS)]
-        engine = self._make_engine(tmp_path, obs)
-        result = engine.propose()
-        if isinstance(result, BoundSprintProposal):
-            assert result.recurring_question == "What should our next mission be?"
+        engine = self._make_engine(tmp_path, obs, use_mock_registry=True)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.stdout = ""
+            result = engine.propose()
+        assert isinstance(result, BoundSprintProposal)
+        assert result.template_id == TEMPLATE_A
+        assert result.recurring_question == "What should our next mission be?"
 
     def test_template_a_no_implementation_in_not_doing(self, tmp_path):
         obs = [_make_observation() for _ in range(TEMPLATE_A_MIN_OBSERVATIONS)]
