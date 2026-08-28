@@ -118,8 +118,15 @@ def propose_sprint():
                 "required_count":        result.required_count,
             }), 200
 
-        # Create PROPOSED state record
-        sprint_store.create(result.proposal_id)
+        # Create PROPOSED state record and store proposal data
+        record = sprint_store.create(result.proposal_id)
+        record.result_summary = result.to_dict().__str__()  # store for retrieval
+        # Store proposal JSON in sprint state for background execution
+        import json as _json
+        state_path = sprint_store._path_for(result.proposal_id)
+        state_data = _json.loads(state_path.read_text(encoding="utf-8"))
+        state_data["stored_proposal"] = result.to_dict()
+        state_path.write_text(_json.dumps(state_data, indent=2), encoding="utf-8")
 
         return jsonify({
             "ok":          True,
@@ -265,16 +272,54 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
         from core.mission.investigation_registry import InvestigationRegistry
         from core.knowledge.genesis_record import GenesisDeliveryStore
 
-        inv_registry   = InvestigationRegistry(project_root)
-        delivery_store = GenesisDeliveryStore(project_root)
-        engine         = SprintProposalEngine(gap_store, inv_registry, delivery_store, project_root)
-        proposal       = engine.propose()
+        # Load stored proposal from sprint state instead of re-deriving
+        # Re-deriving is unreliable as the capability surface may have changed
+        import json as _json
+        state_path = sprint_store._path_for(proposal_id)
+        proposal = None
+        if state_path.exists():
+            state_data = _json.loads(state_path.read_text(encoding="utf-8"))
+            stored = state_data.get("stored_proposal")
+            if stored:
+                from core.knowledge.sprint_proposal import (
+                    BoundSprintProposal, ProposalStep, AcceptanceCriterion
+                )
+                try:
+                    steps = tuple(ProposalStep(
+                        step_number=s["step_number"],
+                        description=s["description"],
+                        action_type=s["action_type"],
+                        parameters=tuple(map(tuple, s["parameters"])),
+                    ) for s in stored.get("steps", []))
+                    criteria = tuple(AcceptanceCriterion(
+                        description=c["description"],
+                        criterion_type=c["criterion_type"],
+                        test_input=c["test_input"],
+                        expected_outcome=c["expected_outcome"],
+                        guaranteed_by=c["guaranteed_by"],
+                    ) for c in stored.get("acceptance_criteria", []))
+                    proposal = BoundSprintProposal(
+                        proposal_id=stored["proposal_id"],
+                        created_at=stored["created_at"],
+                        template_id=stored["template_id"],
+                        proposed_sprint_name=stored["proposed_sprint_name"],
+                        rationale=stored["rationale"],
+                        evidence_summary=stored["evidence_summary"],
+                        gap_observation_count=stored["gap_observation_count"],
+                        recurring_question=stored["recurring_question"],
+                        steps=steps,
+                        acceptance_criteria=criteria,
+                        not_doing=tuple(stored.get("not_doing", [])),
+                        evidence_sources=tuple(stored.get("evidence_sources", [])),
+                    )
+                except Exception as e:
+                    logger.warning("[SPRINT] Could not restore proposal: %s", e)
 
-        if not hasattr(proposal, "proposal_id"):
+        if proposal is None:
             sprint_store.transition(
                 proposal_id=proposal_id,
                 to_state=SprintState.FAILED,
-                reason="Could not re-derive proposal for execution.",
+                reason="Could not load stored proposal for execution.",
                 chief_action=False,
             )
             return

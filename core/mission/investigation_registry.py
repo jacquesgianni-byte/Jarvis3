@@ -137,21 +137,6 @@ _register(InvestigationDescriptor(
     ),
 ))
 
-_register(InvestigationDescriptor(
-    name         = "mission_planning",
-    display_name = "Mission Planning",
-    description  = (
-        "Investigation for mission planning questions."
-    ),
-    question_keywords = (
-        "next mission",
-        "mission",
-    ),
-    evidence_sources = (
-        "project_state",
-    ),
-))
-
 # Future investigations registered here:
 
 
