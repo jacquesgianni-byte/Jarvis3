@@ -118,15 +118,11 @@ def propose_sprint():
                 "required_count":        result.required_count,
             }), 200
 
-        # Create PROPOSED state record and store proposal data
+        # Create PROPOSED state record and store proposal for background execution
         record = sprint_store.create(result.proposal_id)
-        record.result_summary = result.to_dict().__str__()  # store for retrieval
-        # Store proposal JSON in sprint state for background execution
-        import json as _json
-        state_path = sprint_store._path_for(result.proposal_id)
-        state_data = _json.loads(state_path.read_text(encoding="utf-8"))
-        state_data["stored_proposal"] = result.to_dict()
-        state_path.write_text(_json.dumps(state_data, indent=2), encoding="utf-8")
+        record.stored_proposal = result.to_dict()
+        sprint_store._persist(record)
+        logger.info("[SPRINT] stored_proposal persisted for %s", result.proposal_id)
 
         return jsonify({
             "ok":          True,
