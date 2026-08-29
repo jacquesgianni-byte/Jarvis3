@@ -119,6 +119,30 @@ CAPABILITY_GAP_SIGNATURE = "intent=unknown+knowledge=no+investigation=no+boundar
 # Minimum number of matching observations before a gap is reportable
 RECURRENCE_THRESHOLD = 2
 
+# Maximum age in days for an observation to count as active evidence
+RECENCY_WINDOW_DAYS = 30
+
+
+@dataclass(frozen=True)
+class GapCluster:
+    """
+    Genesis-066 Sprint-001: A group of observations sharing a normalised question.
+
+    Represents one recurring capability gap family. Evaluated independently
+    from other clusters -- one resolved cluster cannot poison another.
+
+    normalised_question: lowercased, stripped, punctuation-removed question
+    observations:        all observations in this cluster (sorted by observed_at)
+    recurring_question:  the most frequent raw question text in the cluster
+    latest_observed_at:  ISO timestamp of the most recent observation
+    is_active:           True if size >= threshold and within recency window
+    """
+    normalised_question: str
+    observations:        tuple          # tuple of CapabilityGapObservation
+    recurring_question:  str
+    latest_observed_at:  str
+    is_active:           bool
+
 
 class GapObservationStore:
     """
@@ -193,6 +217,110 @@ class GapObservationStore:
             )
         except Exception as e:
             logger.warning("[GapObservationStore] Could not persist observation: %s", e)
+
+    @staticmethod
+    def _normalise_question(question: str) -> str:
+        """
+        Normalise a question for clustering.
+        Lowercased, stripped, punctuation removed, whitespace collapsed.
+        Deterministic and auditable.
+        """
+        import re as _re
+        q = question.lower().strip()
+        q = _re.sub(r"[^a-z0-9\s]", "", q)
+        q = _re.sub(r"\s+", " ", q).strip()
+        return q
+
+    def active_clusters(
+        self,
+        inv_registry=None,
+        min_observations: int = RECURRENCE_THRESHOLD,
+        recency_days: int = RECENCY_WINDOW_DAYS,
+    ) -> List["GapCluster"]:
+        """
+        Genesis-066 Sprint-001: Group genuine capability gaps into clusters.
+
+        Each cluster groups observations by normalised question text.
+        A cluster is ACTIVE if:
+          1. It has >= min_observations observations
+          2. Its most recent observation is within recency_days
+          3. If inv_registry is provided: the cluster's recurring question
+             scores 0 (ISOLATED) against all registered descriptors
+
+        Clusters are returned sorted by size descending (largest first).
+        Each cluster is evaluated independently -- one non-isolated cluster
+        does not affect eligibility of other clusters.
+
+        inv_registry: optional InvestigationRegistry for isolation check.
+                      If None, isolation is not checked.
+        """
+        from datetime import datetime, timezone, timedelta
+        from collections import Counter
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=recency_days)
+
+        # Group genuine gaps by normalised question
+        groups: dict = {}
+        for obs in self._observations:
+            if not obs.is_genuine_capability_gap():
+                continue
+            key = self._normalise_question(obs.question)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(obs)
+
+        clusters: List[GapCluster] = []
+        for norm_q, obs_list in groups.items():
+            obs_list_sorted = sorted(obs_list, key=lambda o: o.observed_at)
+            latest_at = obs_list_sorted[-1].observed_at
+
+            # Recency check
+            try:
+                latest_dt = datetime.fromisoformat(latest_at)
+                if latest_dt.tzinfo is None:
+                    latest_dt = latest_dt.replace(tzinfo=timezone.utc)
+                recent_enough = latest_dt >= cutoff
+            except Exception:
+                recent_enough = True  # if parse fails, don't exclude
+
+            # Size check
+            large_enough = len(obs_list) >= min_observations
+
+            is_active = large_enough and recent_enough
+
+            # Isolation check (only if registry provided and cluster passes other checks)
+            if is_active and inv_registry is not None:
+                try:
+                    from core.knowledge.proximity import CapabilityProximityAnalyser
+                    analyser = CapabilityProximityAnalyser()
+                    # Use the most frequent raw question as representative
+                    counts = Counter(o.question for o in obs_list)
+                    rep_question = counts.most_common(1)[0][0]
+                    rep_id = obs_list_sorted[-1].observation_id
+                    result = analyser.analyse(rep_question, rep_id, inv_registry)
+                    if not result.gap_is_isolated:
+                        is_active = False   # cluster is covered by an existing descriptor
+                except Exception:
+                    pass   # if proximity check fails, keep cluster active (conservative)
+
+            counts2 = Counter(o.question for o in obs_list)
+            recurring = counts2.most_common(1)[0][0]
+
+            clusters.append(GapCluster(
+                normalised_question = norm_q,
+                observations        = tuple(obs_list_sorted),
+                recurring_question  = recurring,
+                latest_observed_at  = latest_at,
+                is_active           = is_active,
+            ))
+
+        # Sort by cluster size descending
+        clusters.sort(key=lambda c: len(c.observations), reverse=True)
+        return clusters
+
+    def active_eligible_clusters(self, inv_registry=None) -> List["GapCluster"]:
+        """Return only clusters that are active (is_active=True)."""
+        return [c for c in self.active_clusters(inv_registry=inv_registry) if c.is_active]
 
     def all_observations(self) -> List[CapabilityGapObservation]:
         """Return all recorded observations. Read-only view."""

@@ -365,24 +365,32 @@ class SprintProposalEngine:
         )
 
     def _try_template_a(self):
-        """Attempt Template A: register new investigation descriptor."""
-        from core.knowledge.capability_gap import CAPABILITY_GAP_SIGNATURE
-        from core.knowledge.proximity import CapabilityProximityAnalyser
+        """
+        Genesis-066 Sprint-001: Attempt Template A using active gap clusters.
 
-        observations = self._gap_store.observations_by_signature(CAPABILITY_GAP_SIGNATURE)
+        Evaluates each cluster independently. One resolved cluster (where a
+        descriptor already covers the recurring question) does not prevent
+        an unrelated active cluster from generating a proposal.
+
+        Selects the largest active eligible cluster.
+        """
+        # Get active eligible clusters (size >= threshold, recent, isolated)
+        clusters = self._gap_store.active_eligible_clusters(
+            inv_registry=self._inv_registry
+        )
+
+        if not clusters:
+            return None
+
+        # Use the largest active cluster
+        best_cluster = clusters[0]
+        observations = list(best_cluster.observations)
 
         if len(observations) < TEMPLATE_A_MIN_OBSERVATIONS:
             return None
 
-        # Verify all are ISOLATED
-        analyser = CapabilityProximityAnalyser()
-        for obs in observations:
-            result = analyser.analyse(obs.question, obs.observation_id, self._inv_registry)
-            if not result.gap_is_isolated:
-                return None  # not all isolated ? another investigation covers this
-
         # Derive descriptor fields from recurring question keywords
-        recurring_question = self._most_common_question(observations)
+        recurring_question = best_cluster.recurring_question
         descriptor_name    = self._derive_descriptor_name(recurring_question)
         keywords           = self._derive_keywords(observations)
 
@@ -447,11 +455,11 @@ class SprintProposalEngine:
         )
 
         evidence_summary = (
-            f"{len(observations)} gap observations with signature "
-            f"intent=unknown+knowledge=no+investigation=no+boundary=no. "
-            f"All questions are ISOLATED (score 0) against {len(self._inv_registry.all_descriptors())} "
-            f"registered investigations. "
-            f"Most recurring question: {recurring_question!r}."
+            f"{len(observations)} gap observations in active cluster. "
+            f"Cluster recurring question: {recurring_question!r}. "
+            f"Cluster is ISOLATED (score 0) against all "
+            f"{len(self._inv_registry.all_descriptors())} registered investigations. "
+            f"Cluster selected from {len(clusters)} active cluster(s) by size."
         )
 
         return BoundSprintProposal(
