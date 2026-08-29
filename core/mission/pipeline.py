@@ -632,9 +632,16 @@ class SprintProposalStage:
                 duration_ms=round(duration, 2), terminal=True,
             )
 
-        # Valid proposal -- create PROPOSED state record
+        # Valid proposal -- create PROPOSED state record and persist proposal
+        # so the background execution thread can load it without re-deriving.
         if self._sprint_state_store is not None:
-            self._sprint_state_store.create(result.proposal_id)
+            _record = self._sprint_state_store.create(result.proposal_id)
+            _record.stored_proposal = result.to_dict()
+            self._sprint_state_store._persist(_record)
+            import logging as _logging
+            _logging.getLogger(__name__).info(
+                "[SprintProposalStage] stored_proposal persisted for %s", result.proposal_id
+            )
 
         state["sprint_proposal"]  = result
         state["response_message"] = result.format_for_approval()
