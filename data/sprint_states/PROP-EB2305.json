@@ -14,5 +14,7 @@
   ],
   "execution_trace": [],
   "validation_result": null,
-  "result_summary": null
+  "result_summary": null,
+  "stored_proposal": null,
+  "chief_acknowledged": true
 }

@@ -152,6 +152,23 @@ _register(InvestigationDescriptor(
     ),
 ))
 
+_register(InvestigationDescriptor(
+    name         = "uncategorised_gap",
+    display_name = "Uncategorised Gap",
+    description  = (
+        "Investigation for uncategorised gap questions."
+    ),
+    question_keywords = (
+        "many",
+        "sprint",
+        "jarvis",
+        "completed",
+    ),
+    evidence_sources = (
+        "project_state",
+    ),
+))
+
 # Future investigations registered here:
 
 
