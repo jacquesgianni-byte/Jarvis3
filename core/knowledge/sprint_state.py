@@ -96,6 +96,7 @@ class SprintStateRecord:
     result_summary:    Optional[str]  = None
     stored_proposal:    Optional[dict] = None
     chief_acknowledged: bool         = False
+    test_result:        Optional[dict] = None   # independent test suite result
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +110,7 @@ class SprintStateRecord:
             "result_summary":    self.result_summary,
             "stored_proposal":    self.stored_proposal,
             "chief_acknowledged": self.chief_acknowledged,
+            "test_result":        self.test_result,
         }
 
     @classmethod
@@ -124,6 +126,7 @@ class SprintStateRecord:
             result_summary   = d.get("result_summary"),
             stored_proposal   = d.get("stored_proposal"),
             chief_acknowledged= d.get("chief_acknowledged", False),
+            test_result       = d.get("test_result"),
         )
 
     @property

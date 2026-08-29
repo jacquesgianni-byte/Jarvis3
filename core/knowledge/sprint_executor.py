@@ -5,7 +5,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 _DESKTOP_CMD  = [sys.executable, "-m", "apps.desktop.main"]
-_DESKTOP_HTTP = "http://localhost:5001"
+_DESKTOP_HTTP = "http://localhost:5002"
 
 @dataclass(frozen=True)
 class ScopeViolation:
@@ -96,55 +96,230 @@ class InvestigationRegistryWriter:
 
 @dataclass(frozen=True)
 class DesktopValidationResult:
-    passed:           bool
-    criterion_type:   str
-    test_input:       str
-    expected_outcome: str
-    actual_response:  str
-    timed_out:        bool = False
-    error:            str  = ""
+    """
+    Genesis-065 Sprint-002: Structured desktop validation result.
+    Distinguishes infrastructure / communication / behaviour failures.
+    """
+    passed:            bool
+    criterion_type:    str
+    test_input:        str
+    expected_outcome:  str
+    actual_response:   str
+    # Lifecycle diagnostics
+    process_started:   bool  = False
+    process_ready:     bool  = False
+    http_status:       int   = 0
+    criterion_met:     bool  = False
+    process_exit_code: int   = -1
+    elapsed_seconds:   float = 0.0
+    timed_out:         bool  = False
+    failure_reason:    str   = ""
+    error:             str   = ""
 
     def format_for_report(self) -> str:
-        status = "PASS" if self.passed else ("TIMEOUT" if self.timed_out else "FAIL")
-        return f"Desktop validation: {status}"
+        if self.passed:
+            return f"Desktop validation: PASS ({self.elapsed_seconds:.1f}s)"
+        if self.timed_out:
+            return f"Desktop validation: TIMEOUT ({self.elapsed_seconds:.1f}s)"
+        return (
+            f"Desktop validation: FAIL -- {self.failure_reason} "
+            f"(process_started={self.process_started}, "
+            f"process_ready={self.process_ready}, "
+            f"http={self.http_status}, "
+            f"criterion={self.criterion_met})"
+        )
 
+    def to_dict(self) -> dict:
+        return {
+            "passed":            self.passed,
+            "criterion_type":    self.criterion_type,
+            "test_input":        self.test_input,
+            "expected_outcome":  self.expected_outcome,
+            "actual_response":   self.actual_response[:500] if self.actual_response else "",
+            "process_started":   self.process_started,
+            "process_ready":     self.process_ready,
+            "http_status":       self.http_status,
+            "criterion_met":     self.criterion_met,
+            "process_exit_code": self.process_exit_code,
+            "elapsed_seconds":   round(self.elapsed_seconds, 2),
+            "timed_out":         self.timed_out,
+            "failure_reason":    self.failure_reason,
+            "error":             self.error,
+            "detail":            self.format_for_report(),
+        }
 class DesktopValidationRunner:
+    """
+    Genesis-065 Sprint-002: Redesigned desktop validation runner.
+
+    Replaces flat 3-second sleep with bounded readiness probe.
+    Captures full process lifecycle: started / ready / HTTP / criterion / exit.
+    Distinguishes infrastructure / communication / behaviour failures.
+
+    Readiness probe: polls _DESKTOP_HTTP/health every 500ms up to READY_TIMEOUT_S.
+    Hard timeout: HARD_TIMEOUT_S covers the entire validation run.
+    """
+
+    PROBE_INTERVAL_S = 0.5
+    READY_TIMEOUT_S  = 20.0
+    HARD_TIMEOUT_S   = 60.0
+
     def __init__(self, project_root: Path) -> None:
         self._root = project_root
 
     def run(self, spec) -> DesktopValidationResult:
+        import httpx as _httpx
+
         declared = getattr(spec, "command", "")
         expected = " ".join(_DESKTOP_CMD)
         if declared != expected:
-            return DesktopValidationResult(passed=False, criterion_type="command_whitelist",
+            return DesktopValidationResult(
+                passed=False, criterion_type="command_whitelist",
                 test_input=declared, expected_outcome=expected,
-                actual_response="", error="Command not in whitelist -- execution refused.")
-        proc = None
+                actual_response="",
+                failure_reason="Command not in whitelist -- execution refused.",
+                error="Command not in whitelist -- execution refused.",
+            )
+
+        t_start = time.monotonic()
+        proc    = None
+
+        def elapsed():
+            return time.monotonic() - t_start
+
         try:
-            proc = subprocess.Popen(_DESKTOP_CMD, cwd=str(self._root),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(3)
-            import httpx
+            proc = subprocess.Popen(
+                _DESKTOP_CMD, cwd=str(self._root),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            process_started = True
+            logger.info("[DesktopValidation] Process started (pid=%s)", proc.pid)
+
+            # Readiness probe
+            process_ready = False
+            while elapsed() < self.READY_TIMEOUT_S:
+                if elapsed() >= self.HARD_TIMEOUT_S:
+                    break
+                try:
+                    r = _httpx.get(f"{_DESKTOP_HTTP}/health", timeout=1.0)
+                    if r.status_code < 500:
+                        process_ready = True
+                        logger.info("[DesktopValidation] Ready after %.1fs", elapsed())
+                        break
+                except Exception:
+                    pass
+                time.sleep(self.PROBE_INTERVAL_S)
+
+            if not process_ready:
+                return DesktopValidationResult(
+                    passed=False,
+                    criterion_type=getattr(spec, "criterion_type", ""),
+                    test_input=getattr(spec, "test_message", ""),
+                    expected_outcome=getattr(spec, "expected_outcome", ""),
+                    actual_response="",
+                    process_started=process_started,
+                    process_ready=False,
+                    elapsed_seconds=elapsed(),
+                    timed_out=elapsed() >= self.READY_TIMEOUT_S,
+                    failure_reason="Infrastructure failure: desktop never became ready.",
+                )
+
+            # Send test message
+            http_status   = 0
+            response_body = ""
+            criterion_met = False
+            remaining     = max(1.0, self.HARD_TIMEOUT_S - elapsed())
+
             try:
-                resp = httpx.post(f"{_DESKTOP_HTTP}/chat",
-                    json={"message": spec.test_message}, timeout=spec.timeout_seconds)
-                rt = resp.json().get("response", "")
+                resp = _httpx.post(
+                    f"{_DESKTOP_HTTP}/chat",
+                    json={"message": getattr(spec, "test_message", "")},
+                    timeout=min(remaining, getattr(spec, "timeout_seconds", 30)),
+                )
+                http_status   = resp.status_code
+                response_body = resp.text[:2000]
+                expected_contains = getattr(spec, "expected_contains", "")
+                criterion_met = (
+                    expected_contains.lower() in response_body.lower()
+                    if expected_contains else http_status < 400
+                )
+                logger.info(
+                    "[DesktopValidation] HTTP %s criterion_met=%s elapsed=%.1fs",
+                    http_status, criterion_met, elapsed(),
+                )
+            except _httpx.TimeoutException:
+                return DesktopValidationResult(
+                    passed=False,
+                    criterion_type=getattr(spec, "criterion_type", ""),
+                    test_input=getattr(spec, "test_message", ""),
+                    expected_outcome=getattr(spec, "expected_outcome", ""),
+                    actual_response="",
+                    process_started=process_started,
+                    process_ready=process_ready,
+                    http_status=0,
+                    criterion_met=False,
+                    elapsed_seconds=elapsed(),
+                    timed_out=True,
+                    failure_reason="Communication failure: HTTP request timed out.",
+                )
             except Exception as e:
-                rt = f"HTTP error: {e}"
-            passed = spec.expected_contains.lower() in rt.lower()
-            return DesktopValidationResult(passed=passed, criterion_type="response_contains",
-                test_input=spec.test_message,
-                expected_outcome=f"response contains {spec.expected_contains!r}",
-                actual_response=rt)
+                return DesktopValidationResult(
+                    passed=False,
+                    criterion_type=getattr(spec, "criterion_type", ""),
+                    test_input=getattr(spec, "test_message", ""),
+                    expected_outcome=getattr(spec, "expected_outcome", ""),
+                    actual_response="",
+                    process_started=process_started,
+                    process_ready=process_ready,
+                    http_status=0,
+                    criterion_met=False,
+                    elapsed_seconds=elapsed(),
+                    failure_reason="Communication failure: HTTP request failed.",
+                    error=str(e),
+                )
+
+            failure_reason = "" if criterion_met else (
+                f"Behaviour failure: response did not satisfy criterion "
+                f"{getattr(spec, 'expected_contains', '')!r}."
+            )
+            return DesktopValidationResult(
+                passed=criterion_met,
+                criterion_type=getattr(spec, "criterion_type", "response_contains"),
+                test_input=getattr(spec, "test_message", ""),
+                expected_outcome=getattr(spec, "expected_outcome", ""),
+                actual_response=response_body,
+                process_started=process_started,
+                process_ready=process_ready,
+                http_status=http_status,
+                criterion_met=criterion_met,
+                elapsed_seconds=elapsed(),
+                failure_reason=failure_reason,
+            )
+
         except Exception as e:
-            return DesktopValidationResult(passed=False, criterion_type="response_contains",
-                test_input=getattr(spec,"test_message",""), expected_outcome="",
-                actual_response="", error=str(e))
+            logger.exception("[DesktopValidation] Unexpected error: %s", e)
+            return DesktopValidationResult(
+                passed=False,
+                criterion_type=getattr(spec, "criterion_type", ""),
+                test_input=getattr(spec, "test_message", ""),
+                expected_outcome=getattr(spec, "expected_outcome", ""),
+                actual_response="",
+                process_started=proc is not None,
+                elapsed_seconds=elapsed(),
+                failure_reason="Infrastructure failure: unexpected error.",
+                error=str(e),
+            )
         finally:
             if proc:
-                try: proc.terminate(); proc.wait(timeout=5)
-                except Exception: proc.kill()
-
+                exit_code = -1
+                try:
+                    proc.terminate()
+                    exit_code = proc.wait(timeout=5)
+                except Exception:
+                    try: proc.kill()
+                    except Exception: pass
+                logger.info(
+                    "[DesktopValidation] Process terminated (exit_code=%s)", exit_code
+                )
 @dataclass
 class ExecutionStepResult:
     step_number: int

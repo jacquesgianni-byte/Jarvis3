@@ -365,11 +365,14 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
 
         # Move to AWAITING_RESULT_REVIEW -- Chief must review
         commit_sha = next((r.commit_sha for r in reversed(step_results) if r.commit_sha), "")
+        val_passed = validation_result.get("passed", False)
+        val_reason = validation_result.get("failure_reason", "")
         summary = (
             f"Execution: {'SUCCESS' if success else 'FAILED'}. "
             f"Steps: {len(step_results)}. "
             f"Commit: {commit_sha}. "
-            f"Desktop validation: {'PASS' if validation_result.get('passed') else 'FAIL'}."
+            f"Desktop validation: {'PASS' if val_passed else 'FAIL'}."
+            + (f" Reason: {val_reason}" if val_reason else "")
         )
         sprint_store.transition(
             proposal_id=proposal_id,
@@ -396,31 +399,61 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
 
 def _run_desktop_validation(proposal, project_root) -> dict:
     """
-    Run bounded desktop validation if proposal has acceptance criteria.
-    Returns {"passed": bool, "detail": str}.
+    Genesis-065 Sprint-002: Run bounded desktop validation.
+    Returns full structured diagnostics dict from DesktopValidationResult.
     """
     try:
         from core.knowledge.sprint_executor import DesktopValidationRunner
         import sys
 
-        # Find proximity_nonzero criterion
-        for criterion in proposal.acceptance_criteria:
-            if criterion.criterion_type == "proximity_nonzero":
-                # Build validation spec
-                class Spec:
-                    command = " ".join([sys.executable, "-m", "apps.desktop.main"])
-                    test_message = criterion.test_input
-                    expected_contains = "score"
-                    timeout_seconds = 30
+        desktop_criteria = [
+            c for c in proposal.acceptance_criteria
+            if c.criterion_type in ("proximity_nonzero", "record_exists")
+        ]
 
-                runner = DesktopValidationRunner(project_root)
-                result = runner.run(Spec())
-                return {"passed": result.passed, "detail": result.format_for_report()}
+        if not desktop_criteria:
+            return {
+                "passed": True,
+                "detail": "No desktop validation criterion declared.",
+                "failure_reason": "",
+            }
 
-        return {"passed": True, "detail": "No desktop validation criterion declared."}
+        criterion = desktop_criteria[0]
+
+        if criterion.criterion_type == "proximity_nonzero":
+            expected_contains = "score"
+        elif criterion.criterion_type == "record_exists":
+            expected_contains = criterion.test_input
+        else:
+            expected_contains = criterion.expected_outcome
+
+        class Spec:
+            command           = " ".join([sys.executable, "-m", "apps.desktop.main"])
+            criterion_type    = criterion.criterion_type
+            test_message      = criterion.test_input
+            expected_outcome  = criterion.expected_outcome
+            expected_contains = expected_contains
+            timeout_seconds   = 30
+
+        runner = DesktopValidationRunner(project_root)
+        result = runner.run(Spec())
+
+        logger.info(
+            "[SPRINT] Desktop validation: passed=%s process_ready=%s http=%s "
+            "criterion=%s elapsed=%.1fs reason=%r",
+            result.passed, result.process_ready, result.http_status,
+            result.criterion_met, result.elapsed_seconds, result.failure_reason,
+        )
+
+        return result.to_dict()
+
     except Exception as e:
-        return {"passed": False, "detail": f"Desktop validation error: {e}"}
-
+        logger.exception("[SPRINT] _run_desktop_validation error: %s", e)
+        return {
+            "passed": False,
+            "detail": f"Desktop validation error: {e}",
+            "failure_reason": f"Infrastructure failure: {e}",
+        }
 
 # ---------------------------------------------------------------------------
 # POST /sprint/review-result  (Layer 3)
