@@ -425,14 +425,14 @@ def _run_desktop_validation(proposal, project_root) -> dict:
         elif criterion.criterion_type == "record_exists":
             expected_contains = criterion.test_input
         else:
-            expected_contains = criterion.expected_outcome
+            expected_contains_val = criterion.expected_outcome
 
         class Spec:
             command           = " ".join([sys.executable, "-m", "apps.desktop.main"])
             criterion_type    = criterion.criterion_type
             test_message      = criterion.test_input
             expected_outcome  = criterion.expected_outcome
-            expected_contains = expected_contains
+            expected_contains = expected_contains_val
             timeout_seconds   = 30
 
         runner = DesktopValidationRunner(project_root)
