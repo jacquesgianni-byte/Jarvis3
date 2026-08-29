@@ -241,6 +241,19 @@ _declare(GenesisDeliveryRecord(
     commit      = "b43484a",
 ))
 
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-064",
+    display_name = "Chief-Governed Engineering Sprint",
+    sprints      = (
+        "Register mission_planning investigation descriptor",
+    ),
+    components_delivered = (
+        "mission_planning",
+    ),
+    tests_added = 5719,
+    commit      = "0409353",
+))
+
 # Add new records below as each Genesis is completed:
 # _declare(GenesisDeliveryRecord(
 #     genesis_id   = "Genesis-059",

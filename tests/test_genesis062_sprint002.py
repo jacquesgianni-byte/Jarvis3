@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-062 Sprint-002 - Three new investigations tests.
 
 Covers:
@@ -61,11 +61,11 @@ def _make_investigator(tmp_path) -> ReadOnlyInvestigator:
     import json
     ps = tmp_path / "project_state.json"
     ps.write_text(json.dumps({
-        "current_genesis":        "Genesis-061",
-        "current_sprint":         "Sprint-002",
+        "current_genesis":        "Genesis-064",
+        "current_sprint":         "Sprint-001",
         "current_mission":        "Test",
-        "last_completed_genesis": "Genesis-063",
-        "next_milestone":         "Genesis-064: TBD",
+        "last_completed_genesis": "Genesis-064",
+        "next_milestone":         "Genesis-065: TBD",
         "objectives":             [{"text": "Test obj", "done": True}],
         "tests_passed":           5489,
         "tests_skipped":          33,
