@@ -94,7 +94,8 @@ class SprintStateRecord:
     execution_trace: List[dict] = field(default_factory=list)
     validation_result: Optional[dict] = None
     result_summary:    Optional[str]  = None
-    stored_proposal:   Optional[dict] = None
+    stored_proposal:    Optional[dict] = None
+    chief_acknowledged: bool         = False
 
     def to_dict(self) -> dict:
         return {
@@ -106,7 +107,8 @@ class SprintStateRecord:
             "execution_trace":  self.execution_trace,
             "validation_result": self.validation_result,
             "result_summary":    self.result_summary,
-            "stored_proposal":   self.stored_proposal,
+            "stored_proposal":    self.stored_proposal,
+            "chief_acknowledged": self.chief_acknowledged,
         }
 
     @classmethod
@@ -120,7 +122,8 @@ class SprintStateRecord:
             execution_trace  = d.get("execution_trace", []),
             validation_result= d.get("validation_result"),
             result_summary   = d.get("result_summary"),
-            stored_proposal  = d.get("stored_proposal"),
+            stored_proposal   = d.get("stored_proposal"),
+            chief_acknowledged= d.get("chief_acknowledged", False),
         )
 
     @property

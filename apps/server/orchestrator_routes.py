@@ -153,10 +153,37 @@ def orchestrator_status():
         except Exception as sprint_exc:
             logger.warning("[ORCHESTRATOR] Could not load sprint proposals: %s", sprint_exc)
 
+        # Genesis-065 Sprint-001: include unacknowledged terminal sprint records
+        completed_sprints = []
+        try:
+            from core.knowledge.sprint_state import SprintState as _SS
+            _sprint_store2 = current_app.config.get("sprint_state_store")
+            if _sprint_store2 is None:
+                from pathlib import Path as _P2
+                from core.knowledge.sprint_state import SprintStateStore as _SSS2
+                _sprint_store2 = _SSS2(_P2(__file__).resolve().parents[2] / "data")
+            for rec in _sprint_store2.all_records():
+                if rec.is_terminal and not rec.chief_acknowledged:
+                    exec_ok  = all(s.get("success", False) for s in rec.execution_trace) if rec.execution_trace else None
+                    val_ok   = rec.validation_result.get("passed") if rec.validation_result else None
+                    val_detail = rec.validation_result.get("detail", "") if rec.validation_result else ""
+                    completed_sprints.append({
+                        "proposal_id":       rec.proposal_id,
+                        "final_state":       rec.current_state,
+                        "updated_at":        rec.updated_at,
+                        "execution_ok":      exec_ok,
+                        "validation_passed": val_ok,
+                        "validation_detail": val_detail,
+                        "step_count":        len(rec.execution_trace),
+                    })
+        except Exception as _cse:
+            logger.warning("[ORCHESTRATOR] Could not load completed sprints: %s", _cse)
+
         return jsonify({
-            "ok":      True,
-            "sessions": sessions,
-            "count":    len(sessions),
+            "ok":               True,
+            "sessions":         sessions,
+            "count":            len(sessions),
+            "completed_sprints": completed_sprints,
         })
     except Exception as exc:
         logger.exception("[ORCHESTRATOR] /status failed.")

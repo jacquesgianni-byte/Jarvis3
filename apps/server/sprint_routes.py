@@ -477,6 +477,57 @@ def review_result():
 
 
 # ---------------------------------------------------------------------------
+# POST /sprint/acknowledge  (Genesis-065 Sprint-001)
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/acknowledge", methods=["POST"])
+def acknowledge_sprint():
+    """
+    Genesis-065 Sprint-001: Chief acknowledges a terminal sprint result.
+    Sets chief_acknowledged=True on the SprintStateRecord and persists.
+    Idempotent -- acknowledging an already-acknowledged sprint is a no-op.
+    Only valid for terminal states (COMPLETED, FAILED, INTERRUPTED, REJECTED).
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+
+    try:
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        record = sprint_store.load(proposal_id)
+        if record is None:
+            return jsonify({"ok": False, "error": f"No sprint found for {proposal_id!r}"}), 404
+
+        if not record.is_terminal:
+            return jsonify({
+                "ok":    False,
+                "error": f"Sprint {proposal_id!r} is in state {record.current_state!r} -- "
+                         f"only terminal sprints can be acknowledged.",
+            }), 409
+
+        if record.chief_acknowledged:
+            # Already acknowledged -- idempotent success
+            return jsonify({"ok": True, "proposal_id": proposal_id, "already_acknowledged": True}), 200
+
+        record.chief_acknowledged = True
+        sprint_store._persist(record)
+        logger.info("[SPRINT] %s acknowledged by Chief.", proposal_id)
+
+        return jsonify({"ok": True, "proposal_id": proposal_id, "already_acknowledged": False}), 200
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/acknowledge error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # GET /sprint/status/<proposal_id>
 # ---------------------------------------------------------------------------
 
