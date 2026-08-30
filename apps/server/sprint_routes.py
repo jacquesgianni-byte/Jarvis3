@@ -427,14 +427,20 @@ def _run_desktop_validation(proposal, project_root) -> dict:
         else:
             expected_contains = criterion.expected_outcome
 
+        _ec = _ctype  # hoist criterion type before class scope
+        if _ctype == 'proximity_nonzero':
+            _ec = 'score'
+        elif _ctype == 'record_exists':
+            _ec = _tmsg
+        else:
+            _ec = _eout
         class Spec:
-            command           = " ".join([sys.executable, "-m", "apps.desktop.main"])
-            criterion_type    = criterion.criterion_type
-            test_message      = criterion.test_input
-            expected_outcome  = criterion.expected_outcome
-            expected_contains = expected_contains
+            command           = ' '.join([sys.executable, '-m', 'apps.desktop.main'])
+            criterion_type    = _ctype
+            test_message      = _tmsg
+            expected_outcome  = _eout
+            expected_contains = _ec
             timeout_seconds   = 30
-
         runner = DesktopValidationRunner(project_root)
         result = runner.run(Spec())
 
