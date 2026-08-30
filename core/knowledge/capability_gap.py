@@ -298,7 +298,7 @@ class GapObservationStore:
                     rep_question = counts.most_common(1)[0][0]
                     rep_id = obs_list_sorted[-1].observation_id
                     result = analyser.analyse(rep_question, rep_id, inv_registry)
-                    if not result.gap_is_isolated:
+                    if result.closest_score >= 2:  # suppress only on strong match (>= 2 keywords)
                         is_active = False   # cluster is covered by an existing descriptor
                 except Exception:
                     pass   # if proximity check fails, keep cluster active (conservative)
