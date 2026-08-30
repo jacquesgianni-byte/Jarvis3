@@ -1,33 +1,29 @@
 {
-  "current_genesis": "Genesis-064",
-  "current_sprint": "Sprint-003c",
-  "current_mission": "Chief-Governed Engineering Sprint",
-  "last_completed_genesis": "Genesis-063",
-  "next_milestone": "Genesis-064: Phone acceptance test",
+  "current_genesis": "Genesis-067",
+  "current_sprint": "Sprint-001",
+  "current_mission": "First Jarvis Participation Genesis",
+  "last_completed_genesis": "Genesis-066",
+  "next_milestone": "Genesis-067: Prove Jarvis participation loop",
   "objectives": [
     {
-      "text": "BoundSprintProposal + SprintProposalEngine",
-      "done": true
+      "text": "Correct project state and Genesis delivery records",
+      "done": false
     },
     {
-      "text": "ScopeEnforcer + InvestigationRegistryWriter",
-      "done": true
+      "text": "Fix desktop validation port and prove end-to-end validation",
+      "done": false
     },
     {
-      "text": "SprintStateMachine + SprintStateStore",
-      "done": true
+      "text": "Prove Jarvis participation loop with real Genesis objectives",
+      "done": false
     },
     {
-      "text": "SprintProposalStage + SprintApprovalGateStage",
-      "done": true
-    },
-    {
-      "text": "Flask routes + server registration",
-      "done": true
-    },
-    {
-      "text": "Phone acceptance test",
+      "text": "Improve sprint proposal quality and descriptor naming",
       "done": false
     }
-  ]
+  ],
+  "tests_passed": 5719,
+  "tests_skipped": 33,
+  "tests_failed": 0,
+  "tests_commit": "e95fa10"
 }
