@@ -666,15 +666,54 @@ class SprintProposalEngine:
 
     @staticmethod
     def _derive_descriptor_name(question: str) -> str:
-        """Derive a snake_case descriptor name from the recurring question."""
+        """
+        Derive a unique snake_case descriptor name from the recurring question.
+        Uses the most significant non-stop-word from the question.
+        Falls back to a hash-based name to guarantee uniqueness.
+        """
+        import re as _re, hashlib as _hash
         q = question.lower()
+        # Named patterns first
+        if "mission" in q and "plan" in q:
+            return "mission_planning"
         if "mission" in q:
             return "mission_planning"
         if "recommend" in q or "suggest" in q:
             return "recommendation"
         if "next" in q and "work" in q:
             return "work_prioritisation"
-        return "uncategorised_gap"
+        if "quality" in q:
+            return "code_quality"
+        if "bug" in q or "error" in q or "issue" in q:
+            return "defect_tracking"
+        if "performance" in q or "speed" in q or "slow" in q:
+            return "performance"
+        if "test" in q:
+            return "test_coverage"
+        if "document" in q or "docs" in q:
+            return "documentation"
+        if "deploy" in q or "release" in q:
+            return "deployment"
+        if "security" in q or "vulnerab" in q:
+            return "security"
+        # Derive from significant words in the question
+        stop = frozenset({"what", "should", "next", "would", "could", "tell",
+                          "know", "that", "this", "with", "from", "have", "will",
+                          "your", "does", "done", "about", "which", "where",
+                          "when", "help", "like", "make", "need", "work", "just",
+                          "also", "than", "there", "exist", "exists", "many",
+                          "some", "into", "over", "such", "only", "then"})
+        words = [w for w in _re.findall(r"[a-z]{4,}", q) if w not in stop]
+        if words:
+            # Use first two significant words for uniqueness
+            name = "_".join(words[:2])
+            # Ensure valid snake_case
+            name = _re.sub(r"[^a-z0-9_]", "", name)
+            if name and _re.match(r"^[a-z]", name):
+                return name[:40]  # cap length
+        # Last resort: hash-based unique name
+        h = _hash.md5(question.encode()).hexdigest()[:6]
+        return f"gap_{h}"
 
     # Common question words that are too generic to use as capability keywords
     _STOP_WORDS = frozenset({

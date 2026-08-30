@@ -544,6 +544,9 @@ class SprintExecutor:
             question_keywords=kws,
             evidence_sources=tuple(s.strip() for s in params.get("evidence_sources","project_state").split(",")))
         if not r.success:
+            if "already registered" in r.error:
+                return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
+                    success=True, detail=f"Descriptor already registered -- idempotent skip. ({r.error})")
             return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
                 success=False, detail=f"Registry write failed: {r.error}")
         return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
