@@ -254,6 +254,22 @@ _declare(GenesisDeliveryRecord(
     commit      = "0409353",
 ))
 
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-067",
+    display_name = "First Jarvis Participation Genesis",
+    sprints      = (
+        "Genesis-067: sprints completed (see git log)",
+    ),
+    components_delivered = (
+        "code_quality",
+        "uncategorised_gap",
+        "mission_planning",
+        "start_genesis",
+    ),
+    tests_added = 0,
+    commit      = "ff96fbe",
+))
+
 # Add new records below as each Genesis is completed:
 # _declare(GenesisDeliveryRecord(
 #     genesis_id   = "Genesis-059",
