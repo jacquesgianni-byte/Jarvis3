@@ -432,7 +432,7 @@ def _run_desktop_validation(proposal, project_root) -> dict:
             criterion_type    = criterion.criterion_type
             test_message      = criterion.test_input
             expected_outcome  = criterion.expected_outcome
-            expected_contains = expected_contains_val
+            expected_contains = expected_contains
             timeout_seconds   = 30
 
         runner = DesktopValidationRunner(project_root)
