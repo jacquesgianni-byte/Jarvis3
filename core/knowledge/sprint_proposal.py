@@ -104,6 +104,11 @@ class BoundSprintProposal:
     acceptance_criteria:    Tuple      # tuple of AcceptanceCriterion
     not_doing:              Tuple      # explicit statement of what this does NOT do
     evidence_sources:       Tuple      # what sources were consulted
+    # Genesis-066 Sprint-002: Genesis-level awareness
+    genesis_id:             str   = ""    # current Genesis from project_state.json
+    objective_text:         str   = ""    # best-matching objective text
+    objective_score:        int   = 0     # keyword overlap score (0 = no match)
+    objective_confidence:   str   = "NONE"  # HIGH | LOW | NONE
 
     def format_for_approval(self) -> str:
         """
@@ -147,6 +152,22 @@ class BoundSprintProposal:
 
         lines += [
             "",
+            "GENESIS ASSOCIATION",
+            "-" * 40,
+        ]
+        if self.genesis_id:
+            lines.append(f"  Genesis:    {self.genesis_id}")
+            if self.objective_confidence != "NONE" and self.objective_text:
+                lines.append(f"  Objective:  {self.objective_text}")
+                lines.append(f"  Relevance:  score={self.objective_score} confidence={self.objective_confidence}")
+            else:
+                lines.append("  Objective:  Could not establish from evidence (score=0).")
+                lines.append("  Note: Chief should assess Genesis relevance before approving.")
+        else:
+            lines.append("  Genesis identity could not be read from project_state.json.")
+
+        lines += [
+            "",
             "WHAT THIS DOES NOT DO",
             "-" * 40,
         ]
@@ -183,6 +204,10 @@ class BoundSprintProposal:
             "acceptance_criteria":   [c.to_dict() for c in self.acceptance_criteria],
             "not_doing":             list(self.not_doing),
             "evidence_sources":      list(self.evidence_sources),
+            "genesis_id":            self.genesis_id,
+            "objective_text":        self.objective_text,
+            "objective_score":       self.objective_score,
+            "objective_confidence":  self.objective_confidence,
         }
 
 
@@ -462,6 +487,11 @@ class SprintProposalEngine:
             f"Cluster selected from {len(clusters)} active cluster(s) by size."
         )
 
+        genesis_id   = self._read_genesis_id()
+        obj_text, obj_score, obj_conf = self._derive_genesis_association(
+            recurring_question, genesis_id
+        )
+
         return BoundSprintProposal(
             proposal_id            = proposal_id,
             created_at             = now,
@@ -479,6 +509,10 @@ class SprintProposalEngine:
                 "InvestigationRegistry",
                 "CapabilityProximityAnalyser",
             ),
+            genesis_id           = genesis_id,
+            objective_text       = obj_text,
+            objective_score      = obj_score,
+            objective_confidence = obj_conf,
         )
 
     def _try_template_b(self):
@@ -543,6 +577,7 @@ class SprintProposalEngine:
                         "Does not modify any existing delivery records.",
                         "Does not change any investigation or pipeline code.",
                     )
+                    b_genesis_id = self._read_genesis_id()
                     return BoundSprintProposal(
                         proposal_id            = proposal_id,
                         created_at             = now,
@@ -556,8 +591,71 @@ class SprintProposalEngine:
                         acceptance_criteria    = acceptance_criteria,
                         not_doing              = not_doing,
                         evidence_sources       = ("GenesisDeliveryStore", "git log"),
+                        genesis_id             = b_genesis_id,
+                        objective_text         = "",
+                        objective_score        = 0,
+                        objective_confidence   = "NONE",
                     )
         return None
+
+    def _read_genesis_id(self) -> str:
+        """
+        Read current_genesis from project_state.json.
+        Returns empty string if not found -- never raises.
+        """
+        try:
+            import json as _json
+            ps_path = self._project_root / "project_state.json"
+            if not ps_path.exists():
+                # Try one level up
+                ps_path = self._project_root.parent / "project_state.json"
+            if ps_path.exists():
+                data = _json.loads(ps_path.read_text(encoding="utf-8-sig"))
+                return data.get("current_genesis", "")
+        except Exception as e:
+            logger.warning("[SprintProposalEngine] Could not read genesis_id: %s", e)
+        return ""
+
+    def _derive_genesis_association(self, recurring_question: str, genesis_id: str) -> tuple:
+        """
+        Genesis-066 Sprint-002: Derive Genesis objective association.
+
+        Runs ObjectiveProximityAnalyser against the recurring question.
+        Returns (objective_text, objective_score, objective_confidence).
+
+        confidence levels:
+          HIGH  -- score >= 2 (multiple keyword overlaps)
+          LOW   -- score == 1 (single keyword overlap)
+          NONE  -- score == 0 (no keyword overlap)
+
+        Never invents a relationship. Returns NONE confidence when uncertain.
+        """
+        try:
+            import json as _json
+            from core.knowledge.objective_proximity import ObjectiveProximityAnalyser
+            ps_path = self._project_root / "project_state.json"
+            if not ps_path.exists():
+                ps_path = self._project_root.parent / "project_state.json"
+            if not ps_path.exists():
+                return "", 0, "NONE"
+            data = _json.loads(ps_path.read_text(encoding="utf-8-sig"))
+            objectives = data.get("objectives", [])
+            if not objectives:
+                return "", 0, "NONE"
+            analyser = ObjectiveProximityAnalyser(objectives)
+            result   = analyser.analyse(recurring_question, "proposal")
+            if not result.has_overlap:
+                return "", 0, "NONE"
+            best = result.matches[0]
+            confidence = "HIGH" if best.score >= 2 else "LOW"
+            logger.info(
+                "[SprintProposalEngine] Genesis association: genesis=%s objective=%r score=%d confidence=%s",
+                genesis_id, best.objective_text[:50], best.score, confidence,
+            )
+            return best.objective_text, best.score, confidence
+        except Exception as e:
+            logger.warning("[SprintProposalEngine] Could not derive genesis association: %s", e)
+            return "", 0, "NONE"
 
     @staticmethod
     def _most_common_question(observations: list) -> str:

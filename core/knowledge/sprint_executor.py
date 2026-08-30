@@ -461,6 +461,27 @@ class SprintExecutor:
         except Exception:
             pass
 
+        # ── Compute tests_added delta from project_state.json baseline ──────────
+        # tests_added should be delta (tests introduced), not total suite size.
+        # Baseline: tests_passed from project_state.json before this genesis.
+        # If baseline is unavailable, store None (never report a misleading number).
+        try:
+            _ps_path = self._root / "project_state.json"
+            if not _ps_path.exists():
+                _ps_path = self._root.parent / "project_state.json"
+            if _ps_path.exists():
+                _ps = _json.loads(_ps_path.read_text(encoding="utf-8-sig"))
+                _baseline = _ps.get("tests_passed", 0)
+                if _baseline > 0 and tests_added > _baseline:
+                    tests_added = tests_added - _baseline
+                elif _baseline == 0:
+                    pass  # no baseline, keep raw count
+                else:
+                    tests_added = 0  # no new tests detected
+            # else: leave tests_added as raw count
+        except Exception:
+            pass  # if baseline read fails, keep raw count rather than None
+
         # ── Build the _declare() block ────────────────────────────────────────
         if not sprint_summaries:
             sprint_summaries = [f"{genesis_id}: sprints completed (see git log)"]
