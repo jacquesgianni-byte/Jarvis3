@@ -169,6 +169,23 @@ _register(InvestigationDescriptor(
     ),
 ))
 
+_register(InvestigationDescriptor(
+    name         = "code_quality",
+    display_name = "Code Quality",
+    description  = (
+        "Investigation for code quality questions."
+    ),
+    question_keywords = (
+        "code",
+        "quality",
+        "issues",
+        "exist",
+    ),
+    evidence_sources = (
+        "project_state",
+    ),
+))
+
 # Future investigations registered here:
 
 
