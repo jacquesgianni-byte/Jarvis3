@@ -404,9 +404,40 @@ class ClaudeAIWorker(ExternalAIWorker):
 
         logger.info(
             "[ClaudeAIWorker] Implementation plan produced for %s. "
-            "File: %r. Status: AWAITING_CHIEF_APPROVAL.",
-            proposal_id, plan["exact_file"],
+            "File: %r. Status: %s.",
+            proposal_id, plan["exact_file"], plan_status,
         )
+
+        # Governance: only transition state when plan is complete and actionable.
+        # An INCOMPLETE_PLAN must never advance the sprint state.
+        if plan_status == "AWAITING_CHIEF_APPROVAL":
+            try:
+                import requests as _req, os as _os
+                tok = _os.getenv("AGENT_TOKEN_CLAUDE", "")
+                body = {"proposal_id": proposal_id}
+                resp = _req.post(
+                    f"{server_base_url}/sprint/approve-claude-plan-pending",
+                    headers={"X-Agent-Token": tok, "Content-Type": "application/json"},
+                    json=body,
+                    timeout=10,
+                )
+                if resp.ok:
+                    logger.info(
+                        "[ClaudeAIWorker] Sprint %s transitioned to AWAITING_CLAUDE_APPROVAL.",
+                        proposal_id,
+                    )
+                    plan["status"] = "AWAITING_CHIEF_APPROVAL"
+                else:
+                    logger.warning(
+                        "[ClaudeAIWorker] State transition failed for %s: %s %s",
+                        proposal_id, resp.status_code, resp.text[:200],
+                    )
+            except Exception as _e:
+                logger.warning(
+                    "[ClaudeAIWorker] Could not transition sprint state for %s: %s",
+                    proposal_id, _e,
+                )
+
         return plan
 
     def _call_ai(self, prompt: str, context: dict) -> str:

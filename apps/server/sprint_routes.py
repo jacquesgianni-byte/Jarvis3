@@ -774,6 +774,56 @@ def contribute_to_sprint():
 
 
 
+
+# ---------------------------------------------------------------------------
+# POST /sprint/approve-claude-plan-pending  (Claude agent — internal)
+# Genesis-067 Experiment 2
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/approve-claude-plan-pending", methods=["POST"])
+def set_awaiting_claude_approval():
+    """
+    Called by ClaudeAIWorker after producing a complete implementation plan.
+    Transitions APPROVED -> AWAITING_CLAUDE_APPROVAL.
+
+    This is NOT a Chief approval endpoint. It is an internal signal from Claude
+    that the plan is ready for Chief review. Auth: Claude agent token.
+
+    Body: {"proposal_id": str}
+    Response: {"ok": bool, "from": str, "to": str, "error": str}
+    """
+    agent, err = _check_agent_auth(permitted_agents={"claude"})
+    if err:
+        return err
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        result = sprint_store.transition(
+            proposal_id  = proposal_id,
+            to_state     = SprintState.AWAITING_CLAUDE_APPROVAL,
+            reason       = "Claude implementation plan recorded and complete — awaiting Chief approval (L-Claude gate).",
+            chief_action = False,
+        )
+        return jsonify({
+            "ok":    result.success,
+            "from":  result.from_state,
+            "to":    result.to_state,
+            "error": result.error,
+        }), 200 if result.success else 409
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/approve-claude-plan-pending error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 # ---------------------------------------------------------------------------
 # POST /sprint/approve-claude-plan  (L-Claude)
 # Genesis-067 Experiment 2
@@ -931,6 +981,63 @@ def sprint_handoff(proposal_id: str):
         logger.exception("[SPRINT] /sprint/handoff error: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+
+# ---------------------------------------------------------------------------
+# GET /sprint/pending-claude-approval  (Android poll)
+# Genesis-067 Experiment 2
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/pending-claude-approval", methods=["GET"])
+def pending_claude_approval():
+    """
+    Android polls this to find sprints in AWAITING_CLAUDE_APPROVAL state.
+    Returns structured plan details so Chief can read exactly what Claude proposes
+    before approving or rejecting.
+
+    Auth: orchestrator token.
+    Response: {"ok": bool, "pending": [{proposal_id, sprint_name, plan: {...}}]}
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        pending = []
+        for record in sprint_store.all_active():
+            if record.state != SprintState.AWAITING_CLAUDE_APPROVAL:
+                continue
+
+            sp = record.stored_proposal or {}
+
+            # Find Claude's implementation plan contribution
+            plan_contribution = None
+            for contrib in reversed(record.contributions):
+                if contrib.get("agent") == "claude" and contrib.get("role") == "implementation":
+                    plan_contribution = contrib
+                    break
+
+            pending.append({
+                "proposal_id":  record.proposal_id,
+                "sprint_name":  sp.get("proposed_sprint_name", ""),
+                "genesis_id":   sp.get("genesis_id", ""),
+                "updated_at":   record.updated_at,
+                "plan": {
+                    "summary":          plan_contribution.get("summary", "") if plan_contribution else "",
+                    "contribution_id":  plan_contribution.get("contribution_id", "") if plan_contribution else "",
+                    "artifact":         plan_contribution.get("artifact", "") if plan_contribution else "",
+                },
+            })
+
+        return jsonify({"ok": True, "pending": pending}), 200
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/pending-claude-approval error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ---------------------------------------------------------------------------
 # GET /sprint/status/<proposal_id>
