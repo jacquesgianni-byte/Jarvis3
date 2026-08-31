@@ -97,6 +97,7 @@ class SprintStateRecord:
     stored_proposal:    Optional[dict] = None
     chief_acknowledged: bool         = False
     test_result:        Optional[dict] = None   # independent test suite result
+    contributions:      List[dict]    = field(default_factory=list)  # Genesis-067 Sprint-003: agent contribution records
 
     def to_dict(self) -> dict:
         return {
@@ -111,6 +112,7 @@ class SprintStateRecord:
             "stored_proposal":    self.stored_proposal,
             "chief_acknowledged": self.chief_acknowledged,
             "test_result":        self.test_result,
+            "contributions":      self.contributions,
         }
 
     @classmethod
@@ -127,6 +129,7 @@ class SprintStateRecord:
             stored_proposal   = d.get("stored_proposal"),
             chief_acknowledged= d.get("chief_acknowledged", False),
             test_result       = d.get("test_result"),
+            contributions     = d.get("contributions", []),
         )
 
     @property

@@ -334,6 +334,29 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
             ]
             sprint_store._persist(record)
 
+        # Record Jarvis execution contribution
+        if record:
+            _commit_ref = next((r.commit_sha for r in reversed(step_results) if r.commit_sha), '')
+            try:
+                import uuid as _uuid2
+                from datetime import datetime as _dt2, timezone as _tz2
+                record.contributions.append({
+                    'contribution_id': f'CONTRIB-{_uuid2.uuid4().hex[:8].upper()}',
+                    'parent_id':       None,
+                    'proposal_id':     proposal_id,
+                    'agent':           'jarvis',
+                    'role':            'execution',
+                    'timestamp':       _dt2.now(_tz2.utc).isoformat(),
+                    'summary':         f'Jarvis executed {len(step_results)} step(s). '
+                                       f'Success: {success}. Commit: {_commit_ref or "none"}.', 
+                    'decision':        'SUCCESS' if success else 'FAILED',
+                    'evidence_refs':   [proposal_id],
+                    'artifact':        _commit_ref or None,
+                })
+                sprint_store._persist(record)
+            except Exception as _ce:
+                logger.warning('[SPRINT] Could not record Jarvis execution contribution: %s', _ce)
+
         if not success:
             sprint_store.transition(
                 proposal_id=proposal_id,
@@ -465,6 +488,33 @@ def _run_desktop_validation(proposal, project_root) -> dict:
 # POST /sprint/review-result  (Layer 3)
 # ---------------------------------------------------------------------------
 
+def _record_chief_contribution(sprint_store, proposal_id: str, role: str, summary: str) -> None:
+    """Write a chief approval contribution to the sprint record. Silent on failure."""
+    try:
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
+        record = sprint_store.load(proposal_id)
+        if record is None:
+            return
+        contribution = {
+            "contribution_id": f"CONTRIB-{_uuid.uuid4().hex[:8].upper()}",
+            "parent_id":       None,
+            "proposal_id":     proposal_id,
+            "agent":           "chief",
+            "role":            role,
+            "timestamp":       _dt.now(_tz.utc).isoformat(),
+            "summary":         summary,
+            "decision":        None,
+            "evidence_refs":   [],
+            "artifact":        None,
+        }
+        record.contributions.append(contribution)
+        sprint_store._persist(record)
+    except Exception as e:
+        logger.warning("[SPRINT] Could not record chief contribution: %s", e)
+
+
+
 @sprint_bp.route("/sprint/review-result", methods=["POST"])
 def review_result():
     """
@@ -503,6 +553,10 @@ def review_result():
             reason       = reason,
             chief_action = True,
         )
+        if result.success:
+            _outcome = 'accepted' if decision == 'accept' else 'rejected'
+            _record_chief_contribution(sprint_store, proposal_id, 'approval',
+                f'Chief {_outcome} sprint result (Layer 3 -- result review).')
         return jsonify({
             "ok":    result.success,
             "from":  result.from_state,
@@ -563,6 +617,258 @@ def acknowledge_sprint():
 
     except Exception as e:
         logger.exception("[SPRINT] /sprint/acknowledge error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Agent token model -- Genesis-067 Sprint-003
+# ---------------------------------------------------------------------------
+
+# Permitted roles per agent.
+# Enforced at POST /sprint/contribute.
+# GPT has no write access -- its token is for /sprint/handoff (GET) only.
+_AGENT_ROLES = {
+    "claude": {"architecture", "implementation"},
+    "jarvis": {"execution", "validation", "coordination"},
+    # chief contributions are written automatically on approval transitions
+    # gpt has read-only access -- no write roles
+}
+
+def _resolve_agent_token() -> str | None:
+    """
+    Resolve which agent is making the request from the token presented.
+    Returns agent name string or None if token is unknown.
+    Chief token is handled by _check_auth() separately.
+    """
+    provided = request.headers.get("X-Agent-Token", "")
+    if not provided:
+        return None
+    for agent in ("claude", "jarvis", "gpt"):
+        env_var = f"AGENT_TOKEN_{agent.upper()}"
+        token = os.getenv(env_var, "")
+        if token and provided == token:
+            return agent
+    return None
+
+
+def _check_agent_auth(permitted_agents=None) -> tuple[str | None, object | None]:
+    """
+    Check agent token. Returns (agent_name, None) on success or (None, error_response).
+    Also accepts the Chief ORCHESTRATOR_TOKEN (maps to 'chief').
+    """
+    # Check chief token first
+    if _check_auth():
+        return "chief", None
+    agent = _resolve_agent_token()
+    if agent is None:
+        return None, (jsonify({"ok": False, "error": "Unauthorised"}), 401)
+    if permitted_agents and agent not in permitted_agents:
+        return None, (jsonify({"ok": False, "error": f"Agent {agent!r} not permitted for this endpoint."}), 403)
+    return agent, None
+
+
+# ---------------------------------------------------------------------------
+# POST /sprint/contribute  (Genesis-067 Sprint-003)
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/contribute", methods=["POST"])
+def contribute_to_sprint():
+    """
+    Genesis-067 Sprint-003: Record an agent contribution to a sprint.
+
+    Authenticated agents (Claude, Jarvis) append a structured contribution
+    to the SprintStateRecord. Contributions are append-only and role-gated.
+
+    GPT has read-only access and cannot call this endpoint.
+    Chief contributions are recorded automatically on approval transitions.
+
+    Body:
+        proposal_id:    str  (required)
+        role:           str  (required -- must be in agent's permitted roles)
+        summary:        str  (required -- one paragraph)
+        decision:       str  (optional -- specific decision or outcome)
+        evidence_refs:  list (optional -- observation IDs, commit SHAs, etc.)
+        artifact:       str  (optional -- commit SHA or file path)
+        parent_id:      str  (optional -- parent contribution_id)
+    """
+    agent, err = _check_agent_auth(permitted_agents={"claude", "jarvis", "chief"})
+    if err:
+        return err
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    role        = body.get("role", "").strip()
+    summary     = body.get("summary", "").strip()
+
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+    if not role:
+        return jsonify({"ok": False, "error": "role required"}), 400
+    if not summary:
+        return jsonify({"ok": False, "error": "summary required"}), 400
+
+    # Enforce role boundaries
+    permitted_roles = _AGENT_ROLES.get(agent, set())
+    if agent != "chief" and role not in permitted_roles:
+        return jsonify({
+            "ok": False,
+            "error": f"Agent {agent!r} is not permitted to submit role {role!r}. "
+                     f"Permitted: {sorted(permitted_roles)}",
+        }), 403
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
+
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        record = sprint_store.load(proposal_id)
+        if record is None:
+            return jsonify({"ok": False, "error": f"No sprint found for {proposal_id!r}"}), 404
+
+        contribution_id = f"CONTRIB-{_uuid.uuid4().hex[:8].upper()}"
+        contribution = {
+            "contribution_id": contribution_id,
+            "parent_id":       body.get("parent_id") or None,
+            "proposal_id":     proposal_id,
+            "agent":           agent,
+            "role":            role,
+            "timestamp":       _dt.now(_tz.utc).isoformat(),
+            "summary":         summary,
+            "decision":        body.get("decision") or None,
+            "evidence_refs":   body.get("evidence_refs") or [],
+            "artifact":        body.get("artifact") or None,
+        }
+
+        record.contributions.append(contribution)
+        sprint_store._persist(record)
+
+        logger.info(
+            "[SPRINT] Contribution %s from agent=%s role=%s for %s",
+            contribution_id, agent, role, proposal_id,
+        )
+
+        return jsonify({
+            "ok":              True,
+            "contribution_id": contribution_id,
+            "proposal_id":     proposal_id,
+            "agent":           agent,
+            "role":            role,
+        }), 201
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/contribute error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# GET /sprint/handoff/<proposal_id>  (Genesis-067 Sprint-003)
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/handoff/<proposal_id>", methods=["GET"])
+def sprint_handoff(proposal_id: str):
+    """
+    Genesis-067 Sprint-003: Structured Sprint Handoff View for GPT.
+
+    GPT-read-token authenticated. Returns a structured summary of the sprint
+    containing exactly the information GPT needs for architecture review:
+    - Genesis and objective context
+    - Why this sprint exists (evidence)
+    - Approved scope and acceptance criteria
+    - Current state
+    - Previous contributions
+
+    Does NOT expose raw stored_proposal internals or full execution traces.
+    GPT receives only what is necessary for its architecture role.
+    """
+    # Accept GPT read token OR Chief token OR Claude/Jarvis agent tokens
+    agent, err = _check_agent_auth(permitted_agents={"gpt", "claude", "jarvis", "chief"})
+    if err:
+        # Also try GPT read token specifically
+        gpt_token = os.getenv("AGENT_TOKEN_GPT", "")
+        provided  = request.headers.get("X-Agent-Token", "")
+        if not gpt_token or provided != gpt_token:
+            return jsonify({"ok": False, "error": "Unauthorised"}), 401
+        agent = "gpt"
+
+    try:
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        record = sprint_store.load(proposal_id)
+        if record is None:
+            return jsonify({"ok": False, "error": f"No sprint found for {proposal_id!r}"}), 404
+
+        sp = record.stored_proposal or {}
+
+        # Build structured handoff view
+        steps = []
+        for s in sp.get("steps", []):
+            steps.append({
+                "step_number": s.get("step_number"),
+                "description": s.get("description"),
+                "action_type": s.get("action_type"),
+            })
+
+        criteria = []
+        for c in sp.get("acceptance_criteria", []):
+            criteria.append({
+                "description":    c.get("description"),
+                "criterion_type": c.get("criterion_type"),
+                "expected":       c.get("expected_outcome"),
+            })
+
+        not_doing = sp.get("not_doing", [])
+
+        handoff = {
+            "ok":          True,
+            "handoff_for": agent,
+            "sprint": {
+                "proposal_id":   proposal_id,
+                "genesis_id":    sp.get("genesis_id", ""),
+                "current_state": record.current_state,
+                "sprint_name":   sp.get("proposed_sprint_name", ""),
+                "template":      sp.get("template_id", ""),
+            },
+            "genesis_association": {
+                "genesis_id":           sp.get("genesis_id", ""),
+                "objective":            sp.get("objective_text", ""),
+                "objective_score":      sp.get("objective_score", 0),
+                "objective_confidence": sp.get("objective_confidence", "NONE"),
+            },
+            "why_this_sprint_exists": {
+                "rationale":              sp.get("rationale", ""),
+                "evidence_summary":       sp.get("evidence_summary", ""),
+                "gap_observation_count":  sp.get("gap_observation_count", 0),
+                "recurring_question":     sp.get("recurring_question", ""),
+                "evidence_sources":       sp.get("evidence_sources", []),
+            },
+            "approved_scope": {
+                "steps":    steps,
+                "not_doing": not_doing,
+            },
+            "acceptance_criteria": criteria,
+            "contributions": record.contributions,
+            "execution_summary": {
+                "steps_completed": len(record.execution_trace),
+                "execution_ok":    all(s.get("success") for s in record.execution_trace) if record.execution_trace else None,
+                "test_result":     record.test_result,
+                "validation":      {
+                    "passed":         record.validation_result.get("passed") if record.validation_result else None,
+                    "failure_reason": record.validation_result.get("failure_reason", "") if record.validation_result else "",
+                } if record.validation_result else None,
+            },
+        }
+
+        logger.info("[SPRINT] Handoff view served to agent=%s for %s", agent, proposal_id)
+        return jsonify(handoff), 200
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/handoff error: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
