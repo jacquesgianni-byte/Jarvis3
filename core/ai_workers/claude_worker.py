@@ -1,4 +1,4 @@
-﻿"""
+"""
 AI Collaboration Framework -- Claude AI Worker
 Genesis-040 Sprint-001 / Genesis-041 Sprint-005
 
@@ -163,6 +163,81 @@ class ClaudeAIWorker(ExternalAIWorker):
             "write_tests",
             "explain_code",
         ]
+
+    _SPRINT_TOOLS = [
+        {
+            "name": "read_sprint_handoff",
+            "description": "Read the Sprint Handoff record. Returns approved scope, evidence, acceptance criteria, Genesis association, and all agent contributions including GPT architecture review.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "proposal_id": {"type": "string", "description": "Sprint proposal ID e.g. PROP-5C666E"}
+                },
+                "required": ["proposal_id"],
+            },
+        },
+        {
+            "name": "record_sprint_contribution",
+            "description": "Record Claude implementation contribution to the sprint project record. Append-only.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "proposal_id":   {"type": "string"},
+                    "role":          {"type": "string", "enum": ["implementation", "architecture"]},
+                    "summary":       {"type": "string"},
+                    "decision":      {"type": "string"},
+                    "artifact":      {"type": "string"},
+                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["proposal_id", "role", "summary"],
+            },
+        },
+    ]
+
+    def _execute_sprint_tool(self, tool_name, tool_input, server_base_url):
+        import requests as _r, os as _o, json as _j
+        tok = _o.getenv("AGENT_TOKEN_CLAUDE", "")
+        if tool_name == "read_sprint_handoff":
+            pid = tool_input.get("proposal_id", "").strip()
+            try:
+                return _r.get(f"{server_base_url}/sprint/handoff/{pid}", headers={"X-Agent-Token": tok}, timeout=10).text
+            except Exception as e:
+                return f'{{"error":"{e}"}}'
+        elif tool_name == "record_sprint_contribution":
+            pid = tool_input.get("proposal_id", "").strip()
+            try:
+                payload = {"proposal_id": pid, "role": tool_input.get("role","implementation"),
+                           "summary": tool_input.get("summary",""), "decision": tool_input.get("decision"),
+                           "artifact": tool_input.get("artifact"), "evidence_refs": tool_input.get("evidence_refs",[])}
+                return _r.post(f"{server_base_url}/sprint/contribute",
+                    headers={"X-Agent-Token": tok, "Content-Type": "application/json"},
+                    data=_j.dumps(payload), timeout=10).text
+            except Exception as e:
+                return f'{{"error":"{e}"}}'
+        return f'{{"error":"Unknown tool {tool_name}"}}'
+
+    def answer_sprint_question(self, proposal_id, question, server_base_url="http://localhost:5001"):
+        import anthropic as _a, os as _o
+        client = _a.Anthropic(api_key=_o.getenv("ANTHROPIC_API_KEY",""))
+        system = ("You are Claude, an implementation agent in Jarvis OS. "
+                  "Use read_sprint_handoff to read the project record, then answer honestly. "
+                  "Use record_sprint_contribution to record your result. "
+                  "You do NOT approve sprints or expand scope.")
+        messages = [{"role": "user", "content": question}]
+        for _ in range(5):
+            resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=2000,
+                system=system, tools=self._SPRINT_TOOLS, messages=messages)
+            texts, tools = [], []
+            for b in resp.content:
+                if b.type == "text": texts.append(b.text)
+                elif b.type == "tool_use": tools.append(b)
+            if not tools:
+                return "\n".join(texts)
+            messages.append({"role": "assistant", "content": resp.content})
+            results = [{"type":"tool_result","tool_use_id":t.id,
+                        "content":self._execute_sprint_tool(t.name,t.input,server_base_url)} for t in tools]
+            messages.append({"role": "user", "content": results})
+        return "Max iterations reached."
 
     def _call_ai(self, prompt: str, context: dict) -> str:
         if self._ai is None:

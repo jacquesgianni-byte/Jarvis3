@@ -345,6 +345,7 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
                     'parent_id':       None,
                     'proposal_id':     proposal_id,
                     'agent':           'jarvis',
+                    'contributed_by':  'jarvis',
                     'role':            'execution',
                     'timestamp':       _dt2.now(_tz2.utc).isoformat(),
                     'summary':         f'Jarvis executed {len(step_results)} step(s). '
@@ -504,6 +505,7 @@ def _record_chief_contribution(sprint_store, proposal_id: str, role: str, summar
             "parent_id":       None,
             "proposal_id":     proposal_id,
             "agent":           "chief",
+            "contributed_by":  "chief",
             "role":            role,
             "timestamp":       _dt.now(_tz.utc).isoformat(),
             "summary":         summary,
@@ -733,11 +735,14 @@ def contribute_to_sprint():
             return jsonify({"ok": False, "error": f"No sprint found for {proposal_id!r}"}), 404
 
         contribution_id = f"CONTRIB-{_uuid.uuid4().hex[:8].upper()}"
+        # on_behalf_of: whose work this represents (e.g. 'gpt' when Chief submits GPT's review)
+        on_behalf_of = body.get("on_behalf_of") or agent
         contribution = {
             "contribution_id": contribution_id,
             "parent_id":       body.get("parent_id") or None,
             "proposal_id":     proposal_id,
-            "agent":           agent,
+            "agent":           on_behalf_of,   # whose work this represents
+            "contributed_by":  agent,           # who physically submitted it
             "role":            role,
             "timestamp":       _dt.now(_tz.utc).isoformat(),
             "summary":         summary,
@@ -758,7 +763,8 @@ def contribute_to_sprint():
             "ok":              True,
             "contribution_id": contribution_id,
             "proposal_id":     proposal_id,
-            "agent":           agent,
+            "agent":           on_behalf_of,
+            "contributed_by":  agent,
             "role":            role,
         }), 201
 
