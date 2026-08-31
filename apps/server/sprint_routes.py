@@ -450,6 +450,9 @@ def _run_desktop_validation(proposal, project_root) -> dict:
         else:
             expected_contains = criterion.expected_outcome
 
+        _ctype = criterion.criterion_type
+        _tmsg  = criterion.test_input
+        _eout  = criterion.expected_outcome
         _ec = _ctype  # hoist criterion type before class scope
         if _ctype == 'proximity_nonzero':
             _ec = 'score'
