@@ -273,20 +273,22 @@ class ClaudeAIWorker(ExternalAIWorker):
             "derive exactly what file to change and exactly what change to make, "
             "then record your implementation plan as a contribution. "
             "If the approved scope is insufficient to safely implement the change, "
-            "say so explicitly and stop."
+            "say so explicitly and stop. "
+            "IMPORTANT: You MUST end your response with EXACTLY this labelled block "
+            "(all five lines, no markdown, no bold, no backticks around the labels): "
+            "EXACT_FILE: <filename only, e.g. investigation_registry.py>\n"
+            "EXACT_CHANGE: <one sentence describing the precise change>\n"
+            "RATIONALE: <one sentence>\n"
+            "EXPECTED_OUTCOME: <one sentence>\n"
+            "GPT_REF: <contribution ID, e.g. CONTRIB-F89BD982>"
         )
 
         question = (
             f"Read the sprint handoff for {proposal_id}. "
             "Identify GPT's architecture contribution and the approved scope. "
-            "Then produce a structured implementation plan containing: "
-            "(1) exact_file: the single file to modify, "
-            "(2) exact_change: the precise change to make (specific line/block), "
-            "(3) rationale: why this satisfies the approved scope, "
-            "(4) expected_outcome: what will be verifiably true after the change, "
-            "(5) gpt_ref: a reference to GPT's architecture decision. "
-            "If scope is insufficient, state that clearly and stop. "
-            "After producing the plan, record it as a contribution with role=implementation."
+            "Produce your implementation plan. "
+            "Then record it as a contribution with role=implementation. "
+            "Finally, end your response with the five labelled lines exactly as instructed."
         )
 
         messages = [{"role": "user", "content": question}]
@@ -320,22 +322,84 @@ class ClaudeAIWorker(ExternalAIWorker):
             messages.append({"role": "user", "content": results})
             final_text = "\n".join(texts)
 
-        # Parse structured fields from the plan text
+        # Parse structured fields from the plan text.
+        #
+        # Claude is instructed to end its response with a labelled block:
+        #   EXACT_FILE: investigation_registry.py
+        #   EXACT_CHANGE: Add one InvestigationDescriptor entry.
+        #   RATIONALE: Satisfies Step 1 of approved scope.
+        #   EXPECTED_OUTCOME: closest_score > 0 for recurring question.
+        #   GPT_REF: CONTRIB-F89BD982
+        #
+        # Primary extractor targets this enforced format.
+        # Fallback handles numbered-header formats from earlier runs.
         import re as _re
-        def _extract(label, txt):
-            m = _re.search(rf"{label}[:\s]+(.+?)(?=\n[A-Za-z_]+[:\s]|$)", txt, _re.DOTALL | _re.IGNORECASE)
+
+        def _extract_labelled(label, txt):
+            """Extract from enforced LABEL: value format (case-insensitive)."""
+            m = _re.search(
+                rf"^{_re.escape(label)}\s*:\s*(.+?)\s*$",
+                txt, _re.IGNORECASE | _re.MULTILINE,
+            )
             return m.group(1).strip() if m else ""
 
+        def _extract_header_code(label, txt):
+            """Fallback: ### (N) `label` + fenced code block."""
+            m = _re.search(
+                rf"###\s*\(\d+\)\s*`{_re.escape(label)}`\s*\n+```[^\n]*\n([^`]+?)```",
+                txt, _re.IGNORECASE,
+            )
+            return m.group(1).strip() if m else ""
+
+        def _extract_header_prose(label, txt):
+            """Fallback: ### (N) `label` + prose, first substantive line."""
+            m = _re.search(
+                rf"###\s*\(\d+\)\s*`{_re.escape(label)}`\s*\n+(.*?)(?=\n###|\Z)",
+                txt, _re.IGNORECASE | _re.DOTALL,
+            )
+            if m:
+                for line in m.group(1).strip().splitlines():
+                    line = _re.sub(r"[`*`]{1,2}", "", line.strip().lstrip("-*>").strip())
+                    if line and not line.startswith("```"):
+                        return line.strip()
+            return ""
+
+        def _extract_field(label, txt):
+            return (
+                _extract_labelled(label, txt)
+                or _extract_header_code(label, txt)
+                or _extract_header_prose(label, txt)
+            )
+
+        exact_file       = _extract_field("EXACT_FILE", final_text)
+        exact_change     = _extract_field("EXACT_CHANGE", final_text)
+        rationale        = _extract_field("RATIONALE", final_text)
+        expected_outcome = _extract_field("EXPECTED_OUTCOME", final_text)
+        gpt_ref          = _extract_field("GPT_REF", final_text)
+
+        # Governance rule: incomplete plan is never actionable.
+        # Both critical fields must be populated — if either is empty the plan
+        # cannot be presented for approval and must not advance state.
+        if not exact_file or not exact_change:
+            plan_status = "INCOMPLETE_PLAN"
+            logger.warning(
+                "[ClaudeAIWorker] Implementation plan for %s is INCOMPLETE — "
+                "exact_file=%r exact_change=%r. Plan will not be actionable.",
+                proposal_id, exact_file, exact_change,
+            )
+        else:
+            plan_status = "AWAITING_CHIEF_APPROVAL"
+
         plan = {
-            "proposal_id":    proposal_id,
-            "exact_file":     _extract("exact_file", final_text),
-            "exact_change":   _extract("exact_change", final_text),
-            "rationale":      _extract("rationale", final_text),
-            "expected_outcome": _extract("expected_outcome", final_text),
-            "gpt_ref":        _extract("gpt_ref", final_text),
-            "sprint_ref":     proposal_id,
-            "plan_text":      final_text,
-            "status":         "AWAITING_CHIEF_APPROVAL",
+            "proposal_id":      proposal_id,
+            "exact_file":       exact_file,
+            "exact_change":     exact_change,
+            "rationale":        rationale,
+            "expected_outcome": expected_outcome,
+            "gpt_ref":          gpt_ref,
+            "sprint_ref":       proposal_id,
+            "plan_text":        final_text,
+            "status":           plan_status,
         }
 
         logger.info(
