@@ -569,7 +569,21 @@ class SprintExecutor:
         msg = params.get("message", f"Genesis-064: {self._proposal.proposed_sprint_name}")
         try:
             subprocess.run(["git","add","-A"], cwd=str(self._root), check=True, capture_output=True, timeout=30)
-            subprocess.run(["git","commit","-m",msg], cwd=str(self._root), check=True, capture_output=True, timeout=30)
+            commit_result = subprocess.run(["git","commit","-m",msg], cwd=str(self._root),
+                capture_output=True, text=True, timeout=30)
+            if commit_result.returncode != 0:
+                # Treat "nothing to commit" as idempotent success
+                stderr = commit_result.stderr or ""
+                stdout = commit_result.stdout or ""
+                combined = (stdout + stderr).lower()
+                if "nothing to commit" in combined or "nothing added to commit" in combined:
+                    sha = subprocess.run(["git","rev-parse","--short","HEAD"],
+                        cwd=str(self._root), capture_output=True, text=True, timeout=10).stdout.strip()
+                    return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
+                        success=True, detail=f"Nothing to commit -- work already applied (idempotent). HEAD: {sha}",
+                        commit_sha=sha)
+                raise subprocess.CalledProcessError(commit_result.returncode, "git commit",
+                    output=commit_result.stdout, stderr=commit_result.stderr)
             sha = subprocess.run(["git","rev-parse","--short","HEAD"],
                 cwd=str(self._root), capture_output=True, text=True, timeout=10).stdout.strip()
             return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
