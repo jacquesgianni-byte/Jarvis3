@@ -239,6 +239,112 @@ class ClaudeAIWorker(ExternalAIWorker):
             messages.append({"role": "user", "content": results})
         return "Max iterations reached."
 
+
+    def produce_implementation_plan(self, proposal_id, server_base_url="http://localhost:5001"):
+        """
+        Genesis-067 Experiment 2 — Phase 2.
+
+        Reads the sprint record and GPT architecture contribution autonomously,
+        then produces a structured implementation plan.
+
+        Returns a dict with:
+            exact_file       — the single file to be modified
+            exact_change     — precise description of the change
+            rationale        — why this change satisfies the approved scope
+            expected_outcome — what will be true after the change
+            gpt_ref          — reference to GPT's architecture contribution
+            sprint_ref       — the proposal_id this plan is bound to
+            plan_text        — full human-readable plan for phone approval
+
+        Does NOT modify any source file.
+        Does NOT advance sprint state.
+        Records itself as a Claude contribution in the project record.
+        """
+        import anthropic as _a, os as _o
+        client = _a.Anthropic(api_key=_o.getenv("ANTHROPIC_API_KEY", ""))
+
+        system = (
+            "You are Claude, an implementation agent in Jarvis OS. "
+            "Your ONLY job right now is to read the sprint record and produce "
+            "a structured implementation plan. "
+            "You must NOT modify any file. You must NOT expand the approved scope. "
+            "You must NOT approve your own plan. "
+            "Read the sprint handoff, identify GPT's architecture contribution, "
+            "derive exactly what file to change and exactly what change to make, "
+            "then record your implementation plan as a contribution. "
+            "If the approved scope is insufficient to safely implement the change, "
+            "say so explicitly and stop."
+        )
+
+        question = (
+            f"Read the sprint handoff for {proposal_id}. "
+            "Identify GPT's architecture contribution and the approved scope. "
+            "Then produce a structured implementation plan containing: "
+            "(1) exact_file: the single file to modify, "
+            "(2) exact_change: the precise change to make (specific line/block), "
+            "(3) rationale: why this satisfies the approved scope, "
+            "(4) expected_outcome: what will be verifiably true after the change, "
+            "(5) gpt_ref: a reference to GPT's architecture decision. "
+            "If scope is insufficient, state that clearly and stop. "
+            "After producing the plan, record it as a contribution with role=implementation."
+        )
+
+        messages = [{"role": "user", "content": question}]
+        final_text = ""
+
+        for _ in range(8):
+            resp = client.messages.create(
+                model="claude-sonnet-4-6", max_tokens=3000,
+                system=system, tools=self._SPRINT_TOOLS, messages=messages
+            )
+            texts, tools = [], []
+            for b in resp.content:
+                if b.type == "text":
+                    texts.append(b.text)
+                elif b.type == "tool_use":
+                    tools.append(b)
+
+            if not tools:
+                final_text = "\n".join(texts)
+                break
+
+            messages.append({"role": "assistant", "content": resp.content})
+            results = [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": t.id,
+                    "content": self._execute_sprint_tool(t.name, t.input, server_base_url),
+                }
+                for t in tools
+            ]
+            messages.append({"role": "user", "content": results})
+            final_text = "\n".join(texts)
+
+        # Parse structured fields from the plan text
+        import re as _re
+        def _extract(label, txt):
+            m = _re.search(rf"{label}[:\s]+(.+?)(?=\n[A-Za-z_]+[:\s]|$)", txt, _re.DOTALL | _re.IGNORECASE)
+            return m.group(1).strip() if m else ""
+
+        plan = {
+            "proposal_id":    proposal_id,
+            "exact_file":     _extract("exact_file", final_text),
+            "exact_change":   _extract("exact_change", final_text),
+            "rationale":      _extract("rationale", final_text),
+            "expected_outcome": _extract("expected_outcome", final_text),
+            "gpt_ref":        _extract("gpt_ref", final_text),
+            "sprint_ref":     proposal_id,
+            "plan_text":      final_text,
+            "status":         "AWAITING_CHIEF_APPROVAL",
+        }
+
+        logger.info(
+            "[ClaudeAIWorker] Implementation plan produced for %s. "
+            "File: %r. Status: AWAITING_CHIEF_APPROVAL.",
+            proposal_id, plan["exact_file"],
+        )
+        return plan
+
     def _call_ai(self, prompt: str, context: dict) -> str:
         if self._ai is None:
             logger.warning("[CLAUDE_AI_WORKER] No AI client -- returning placeholder.")

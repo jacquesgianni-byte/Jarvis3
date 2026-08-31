@@ -40,6 +40,7 @@ class SprintState(Enum):
     REJECTED                  = "rejected"
     FAILED                    = "failed"
     INTERRUPTED               = "interrupted"
+    AWAITING_CLAUDE_APPROVAL  = "awaiting_claude_approval"
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +49,8 @@ class SprintState(Enum):
 
 _TRANSITIONS: Dict[SprintState, Tuple[SprintState, ...]] = {
     SprintState.PROPOSED:               (SprintState.APPROVED, SprintState.REJECTED),
-    SprintState.APPROVED:               (SprintState.EXECUTING, SprintState.REJECTED),
+    SprintState.APPROVED:               (SprintState.EXECUTING, SprintState.REJECTED, SprintState.AWAITING_CLAUDE_APPROVAL),
+    SprintState.AWAITING_CLAUDE_APPROVAL: (SprintState.EXECUTING, SprintState.REJECTED),
     SprintState.EXECUTING:              (SprintState.VALIDATING, SprintState.FAILED, SprintState.INTERRUPTED),
     SprintState.VALIDATING:             (SprintState.AWAITING_RESULT_REVIEW, SprintState.FAILED, SprintState.INTERRUPTED),
     SprintState.AWAITING_RESULT_REVIEW: (SprintState.COMPLETED, SprintState.REJECTED),
@@ -66,6 +68,7 @@ _TRANSITIONS: Dict[SprintState, Tuple[SprintState, ...]] = {
 _CHIEF_REQUIRED: Tuple[SprintState, ...] = (
     SprintState.PROPOSED,             # Layer 1: Chief approves plan
     SprintState.APPROVED,             # Layer 2: Chief authorises execution
+    SprintState.AWAITING_CLAUDE_APPROVAL, # L-Claude: Chief approves implementation plan
     SprintState.AWAITING_RESULT_REVIEW, # Layer 3: Chief reviews result
 )
 

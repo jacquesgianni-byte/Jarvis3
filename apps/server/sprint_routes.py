@@ -773,6 +773,57 @@ def contribute_to_sprint():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+
+# ---------------------------------------------------------------------------
+# POST /sprint/approve-claude-plan  (L-Claude)
+# Genesis-067 Experiment 2
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/approve-claude-plan", methods=["POST"])
+def approve_claude_plan():
+    """
+    L-Claude: Chief approves Claude's implementation plan.
+
+    This is the gate between Claude's implementation plan and Claude's
+    first write to source files. No approval here = no file modification.
+
+    Transitions AWAITING_CLAUDE_APPROVAL -> EXECUTING via SprintStateMachine.
+    ScopeEnforcer will independently verify Claude's action before any write.
+
+    Body: {"proposal_id": str}
+    Response: {"ok": bool, "from": str, "to": str, "error": str}
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        result = sprint_store.transition(
+            proposal_id  = proposal_id,
+            to_state     = SprintState.EXECUTING,
+            reason       = "Chief approved Claude implementation plan via /sprint/approve-claude-plan (L-Claude gate).",
+            chief_action = True,
+        )
+        return jsonify({
+            "ok":    result.success,
+            "from":  result.from_state,
+            "to":    result.to_state,
+            "error": result.error,
+        }), 200 if result.success else 409
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/approve-claude-plan error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 # ---------------------------------------------------------------------------
 # GET /sprint/handoff/<proposal_id>  (Genesis-067 Sprint-003)
 # ---------------------------------------------------------------------------
