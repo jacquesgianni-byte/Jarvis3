@@ -217,6 +217,20 @@ _register(InvestigationDescriptor(
     ),
 ))
 
+_register(InvestigationDescriptor(
+    name         = "genesis",
+    display_name = "Genesis",
+    description  = (
+        "Investigation for genesis questions."
+    ),
+    question_keywords = (
+        "genesis",
+    ),
+    evidence_sources = (
+        "project_state",
+    ),
+))
+
 # Future investigations registered here:
 
 
