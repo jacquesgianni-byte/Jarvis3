@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-053 Sprint-001 — Orchestrator Flask Routes
 
 Authenticated endpoints for the Development Orchestrator approval workflow.
@@ -133,7 +133,7 @@ def orchestrator_status():
                 _sprint_data  = _Path(__file__).resolve().parents[2] / "data"
                 _sprint_store = SprintStateStore(_sprint_data)
             for record in _sprint_store.all_active():
-                if record.state in (SprintState.PROPOSED, SprintState.APPROVED,
+                if record.state in (SprintState.PROPOSED,
                                     SprintState.AWAITING_RESULT_REVIEW):
                     sessions = sessions + [{
                         "session_id":  record.proposal_id,
