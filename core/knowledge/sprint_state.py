@@ -1,4 +1,4 @@
-"""Jarvis OS - SprintStateStore + SprintStateMachine - Genesis-064 Sprint-003a
+﻿"""Jarvis OS - SprintStateStore + SprintStateMachine - Genesis-064 Sprint-003a
 
 Persistent sprint approval state machine.
 
@@ -67,7 +67,6 @@ _TRANSITIONS: Dict[SprintState, Tuple[SprintState, ...]] = {
 
 _CHIEF_REQUIRED: Tuple[SprintState, ...] = (
     SprintState.PROPOSED,             # Layer 1: Chief approves plan
-    SprintState.APPROVED,             # Layer 2: Chief authorises execution
     SprintState.AWAITING_CLAUDE_APPROVAL, # L-Claude: Chief approves implementation plan
     SprintState.AWAITING_RESULT_REVIEW, # Layer 3: Chief reviews result
 )

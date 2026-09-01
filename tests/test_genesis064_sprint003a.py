@@ -1,4 +1,4 @@
-"""Genesis-064 Sprint-003a - SprintStateStore + SprintStateMachine tests.
+﻿"""Genesis-064 Sprint-003a - SprintStateStore + SprintStateMachine tests.
 
 Covers:
     SprintState enum:
@@ -331,7 +331,7 @@ class TestSprintStateStore:
         store2 = _store(tmp_path)
         record = store2.load("PROP-CRASH-2")
         assert record.current_state == SprintState.APPROVED.value
-        assert record.requires_chief_action is True  # Still needs L2
+        assert record.requires_chief_action is False  # APPROVED is now Claude-handled, not Chief-gated
 
     def test_crash_before_execution(self, tmp_path):
         """Crash immediately before execution triggered -- stays APPROVED."""
