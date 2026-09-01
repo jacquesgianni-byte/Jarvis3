@@ -357,53 +357,6 @@ def _record_failed_claude_contribution(sprint_store, proposal_id: str, reason: s
         )
 
 
-# ---------------------------------------------------------------------------
-# POST /sprint/approve-claude-plan-pending  (Claude agent -> AWAITING_CLAUDE_APPROVAL)
-# Genesis-067 Experiment 2
-# ---------------------------------------------------------------------------
-
-@sprint_bp.route("/sprint/approve-claude-plan-pending", methods=["POST"])
-def approve_claude_plan_pending():
-    claude_token = os.getenv("AGENT_TOKEN_CLAUDE", "")
-    provided     = request.headers.get("X-Agent-Token", "")
-    if not claude_token or provided != claude_token:
-        return jsonify({"ok": False, "error": "Unauthorised"}), 401
-
-    body        = request.get_json(silent=True) or {}
-    proposal_id = body.get("proposal_id", "").strip()
-    if not proposal_id:
-        return jsonify({"ok": False, "error": "proposal_id required"}), 400
-
-    try:
-        from core.knowledge.sprint_state import SprintStateStore, SprintState
-        sprint_store = current_app.config.get("sprint_state_store")
-        if sprint_store is None:
-            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
-
-        result = sprint_store.transition(
-            proposal_id  = proposal_id,
-            to_state     = SprintState.AWAITING_CLAUDE_APPROVAL,
-            reason       = "Claude produced implementation plan - awaiting Chief approval (L-Claude).",
-            chief_action = False,
-        )
-
-        logger.info(
-            "[SPRINT] approve-claude-plan-pending: %s -> %s (ok=%s)",
-            result.from_state, result.to_state, result.success,
-        )
-
-        return jsonify({
-            "ok":    result.success,
-            "from":  result.from_state,
-            "to":    result.to_state,
-            "error": result.error,
-        }), 200 if result.success else 409
-
-    except Exception as e:
-        logger.exception("[SPRINT] /sprint/approve-claude-plan-pending error: %s", e)
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
 def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_store):
     """
     Background thread: execute the approved sprint.
