@@ -967,6 +967,13 @@ def approve_claude_plan():
             reason       = "Chief approved Claude implementation plan via /sprint/approve-claude-plan (L-Claude gate).",
             chief_action = True,
         )
+        if result.success:
+            project_root = current_app.config.get("project_root")
+            gap_store    = current_app.config.get("gap_store")
+            if project_root and gap_store:
+                import threading as _threading
+                _t = _threading.Thread(target=_run_sprint_execution, args=(proposal_id, project_root, sprint_store, gap_store), daemon=True)
+                _t.start()
         return jsonify({
             "ok":    result.success,
             "from":  result.from_state,
