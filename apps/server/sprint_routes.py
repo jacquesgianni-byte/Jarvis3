@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
 
 Endpoints for the three-layer sprint approval workflow.
@@ -168,6 +168,17 @@ def approve_plan():
             reason       = "Chief approved the sprint plan via /sprint/approve-plan (Layer 1).",
             chief_action = True,
         )
+        # Genesis-067 Experiment 2: on successful L1 approval, trigger Claude
+        # implementation planning in a background thread.
+        if result.success:
+            import threading as _threading
+            _t = _threading.Thread(
+                target=_run_claude_planning,
+                args=(proposal_id, sprint_store),
+                daemon=True,
+            )
+            _t.start()
+
         return jsonify({
             "ok":    result.success,
             "from":  result.from_state,
@@ -250,6 +261,146 @@ def approve_execution():
 
     except Exception as e:
         logger.exception("[SPRINT] /sprint/approve-execution error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Genesis-067 Experiment 2 - Claude planning background thread
+# ---------------------------------------------------------------------------
+
+def _run_claude_planning(proposal_id: str, sprint_store):
+    # Background thread: invoke ClaudeAIWorker.produce_implementation_plan().
+    # On success:  Claude calls /sprint/approve-claude-plan-pending itself,
+    #              transitioning APPROVED -> AWAITING_CLAUDE_APPROVAL.
+    # On failure:  record an auditable contribution and transition to FAILED
+    #              so Chief always sees a clear, non-silent state.
+    try:
+        from core.ai_workers.claude_worker import ClaudeAIWorker
+        from core.knowledge.sprint_state import SprintState
+
+        worker = ClaudeAIWorker()
+        logger.info("[SPRINT] Claude planning started for %s", proposal_id)
+
+        plan = worker.produce_implementation_plan(
+            proposal_id     = proposal_id,
+            server_base_url = "http://localhost:5001",
+        )
+
+        if plan.get("status") == "AWAITING_CHIEF_APPROVAL":
+            logger.info(
+                "[SPRINT] Claude planning complete for %s - state now AWAITING_CLAUDE_APPROVAL.",
+                proposal_id,
+            )
+        else:
+            _record_failed_claude_contribution(
+                sprint_store, proposal_id,
+                reason="Claude produced an INCOMPLETE_PLAN - exact_file or exact_change missing.",
+            )
+            sprint_store.transition(
+                proposal_id  = proposal_id,
+                to_state     = SprintState.FAILED,
+                reason       = "Claude implementation plan was incomplete. Chief review required.",
+                chief_action = False,
+            )
+            logger.warning(
+                "[SPRINT] Claude planning INCOMPLETE for %s - sprint marked FAILED.",
+                proposal_id,
+            )
+
+    except Exception as e:
+        logger.exception("[SPRINT] Claude planning error for %s: %s", proposal_id, e)
+        try:
+            from core.knowledge.sprint_state import SprintState
+            _record_failed_claude_contribution(
+                sprint_store, proposal_id,
+                reason=f"Claude planning raised an unhandled exception: {e}",
+            )
+            sprint_store.transition(
+                proposal_id  = proposal_id,
+                to_state     = SprintState.FAILED,
+                reason       = f"Claude planning failed: {e}",
+                chief_action = False,
+            )
+        except Exception as inner:
+            logger.exception(
+                "[SPRINT] Could not record Claude planning failure for %s: %s",
+                proposal_id, inner,
+            )
+
+
+def _record_failed_claude_contribution(sprint_store, proposal_id: str, reason: str) -> None:
+    # Record an auditable Claude failure contribution. Silent on error.
+    try:
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
+        record = sprint_store.load(proposal_id)
+        if record is None:
+            return
+        record.contributions.append({
+            "contribution_id": f"CONTRIB-{_uuid.uuid4().hex[:8].upper()}",
+            "parent_id":       None,
+            "proposal_id":     proposal_id,
+            "agent":           "claude",
+            "contributed_by":  "claude_ai_worker",
+            "role":            "implementation",
+            "timestamp":       _dt.now(_tz.utc).isoformat(),
+            "summary":         reason,
+            "decision":        "FAILED",
+            "evidence_refs":   [proposal_id],
+            "artifact":        None,
+        })
+        sprint_store._persist(record)
+    except Exception as e:
+        logger.warning(
+            "[SPRINT] Could not record failed Claude contribution for %s: %s",
+            proposal_id, e,
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /sprint/approve-claude-plan-pending  (Claude agent -> AWAITING_CLAUDE_APPROVAL)
+# Genesis-067 Experiment 2
+# ---------------------------------------------------------------------------
+
+@sprint_bp.route("/sprint/approve-claude-plan-pending", methods=["POST"])
+def approve_claude_plan_pending():
+    claude_token = os.getenv("AGENT_TOKEN_CLAUDE", "")
+    provided     = request.headers.get("X-Agent-Token", "")
+    if not claude_token or provided != claude_token:
+        return jsonify({"ok": False, "error": "Unauthorised"}), 401
+
+    body        = request.get_json(silent=True) or {}
+    proposal_id = body.get("proposal_id", "").strip()
+    if not proposal_id:
+        return jsonify({"ok": False, "error": "proposal_id required"}), 400
+
+    try:
+        from core.knowledge.sprint_state import SprintStateStore, SprintState
+        sprint_store = current_app.config.get("sprint_state_store")
+        if sprint_store is None:
+            return jsonify({"ok": False, "error": "Sprint state store not available."}), 503
+
+        result = sprint_store.transition(
+            proposal_id  = proposal_id,
+            to_state     = SprintState.AWAITING_CLAUDE_APPROVAL,
+            reason       = "Claude produced implementation plan - awaiting Chief approval (L-Claude).",
+            chief_action = False,
+        )
+
+        logger.info(
+            "[SPRINT] approve-claude-plan-pending: %s -> %s (ok=%s)",
+            result.from_state, result.to_state, result.success,
+        )
+
+        return jsonify({
+            "ok":    result.success,
+            "from":  result.from_state,
+            "to":    result.to_state,
+            "error": result.error,
+        }), 200 if result.success else 409
+
+    except Exception as e:
+        logger.exception("[SPRINT] /sprint/approve-claude-plan-pending error: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
