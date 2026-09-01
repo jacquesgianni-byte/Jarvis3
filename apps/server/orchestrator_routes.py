@@ -237,12 +237,16 @@ def _try_handle_sprint_proposal(session_id, decision, decided_by, reason):
             session_id, SprintState.APPROVED,
             "Chief approved sprint plan via ApprovalCard (Layer 1).", chief_action=True,
         )
+        if result.success:
+            import threading as _t
+            from apps.server.sprint_routes import _run_claude_planning
+            _t.Thread(target=_run_claude_planning, args=(session_id, sprint_store), daemon=True).start()
         return jsonify({
             "ok":        result.success,
-            "message":   f"Sprint plan approved. Tap APPROVE again to authorise execution (Layer 2).",
+            "message":   f"Sprint plan approved. Claude is preparing implementation plan.",
             "session_id": session_id,
             "outcome":   "APPROVED" if result.success else "ERROR",
-            "next_action": "approve_execution",
+            "next_action": "await_claude_plan",
         })
 
     elif record.current_state == SprintState.APPROVED.value:
