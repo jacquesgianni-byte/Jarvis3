@@ -1220,3 +1220,65 @@ def sprint_status(proposal_id: str):
     except Exception as e:
         logger.exception("[SPRINT] /sprint/status error: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Genesis read-only blueprint — Genesis-068 Sprint-003b
+# ---------------------------------------------------------------------------
+
+from flask import Blueprint as _Blueprint
+genesis_bp = _Blueprint("genesis", __name__)
+
+
+@genesis_bp.route("/genesis/<genesis_id>", methods=["GET"])
+def get_genesis(genesis_id: str):
+    """
+    Read-only Genesis record endpoint for cold-entry reconstruction.
+
+    Returns the full Genesis narrative, delivery record, and contribution log
+    for the given genesis_id. No auth required — read-only public record.
+
+    Used by cold-entry participants (GPT, Claude, Jarvis, Chief) to reconstruct
+    a Genesis independently without conversational context.
+    """
+    from core.knowledge.genesis_record import GenesisDeliveryStore
+    from flask import current_app, jsonify
+
+    project_root = current_app.config.get("project_root")
+    if project_root is None:
+        return jsonify({"ok": False, "error": "project_root not configured"}), 500
+
+    store = GenesisDeliveryStore(project_root)
+    record = store.get(genesis_id)
+
+    if record is None:
+        return jsonify({
+            "ok":    False,
+            "error": f"No Genesis record found for {genesis_id!r}",
+        }), 404
+
+    # Genesis contributions
+    contrib_store = current_app.config.get("genesis_contribution_store")
+    contributions = []
+    if contrib_store:
+        try:
+            contributions = [c.to_dict() for c in contrib_store.get_contributions(genesis_id)]
+        except Exception as e:
+            logger.warning("[GENESIS] Could not load contributions for %s: %s", genesis_id, e)
+
+    return jsonify({
+        "ok":        True,
+        "genesis_id": genesis_id,
+        "narrative": {
+            "display_name": record.display_name,
+            "hypothesis":   record.hypothesis,
+            "outcome":      record.outcome,
+        },
+        "delivery": {
+            "sprints":              list(record.sprints),
+            "components_delivered": list(record.components_delivered),
+            "tests_added":          record.tests_added,
+            "commit":               record.commit,
+        },
+        "contributions": contributions,
+    }), 200

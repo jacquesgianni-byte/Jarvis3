@@ -5,6 +5,7 @@ This is the Jarvis API -- transport layer only. No business logic here.
 Genesis-054 Sprint-001: mission_registry added.
 Genesis-055 Sprint-001: mission_pipeline added.
 Genesis-068 Sprint-003: genesis_contribution_store added.
+Genesis-068 Sprint-003b: genesis_bp registered.
 """
 from __future__ import annotations
 import pathlib
@@ -46,5 +47,7 @@ def create_app(
     app.register_blueprint(orchestrator_bp)
     from apps.server.sprint_routes import sprint_bp
     app.register_blueprint(sprint_bp)
+    from apps.server.sprint_routes import genesis_bp
+    app.register_blueprint(genesis_bp)
     logger.info("[SERVER] Flask app created.")
     return app
