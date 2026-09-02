@@ -297,6 +297,31 @@ _declare(GenesisDeliveryRecord(
     commit      = "ff96fbe",
 ))
 
+
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-068",
+    display_name = "Minimum Cold-Entry Shared-Brain Experiment",
+    hypothesis   = "The smallest intervention — adding hypothesis + outcome to GenesisDeliveryRecord, a Genesis-scope contribution log, and extending the handoff — is sufficient for four independent participants to reconstruct a Genesis from a shared project record without conversational context.",
+    outcome      = "Proven. All three implementation sprints delivered green (5753 passed / 33 skipped). GET /genesis/<genesis_id> endpoint live. Four-way cold-entry experiment pending.",
+    sprints      = (
+        "Sprint-001: hypothesis + outcome added to GenesisDeliveryRecord, all 10 prior records updated, latest_id() decoupled from direct file read -- commit caf8952",
+        "Sprint-002: GenesisContributionStore, append-only per-genesis JSON log, _AUTHORITY_TABLE, resolve_agent_from_request(), 34 new tests -- commit c36004f",
+        "Sprint-003: /sprint/handoff extended with genesis_narrative + genesis_contributions, GenesisContributionStore wired into app.config, stale tests_* removed from project_state.json -- commit cbbcfbe",
+        "Sprint-003b: GET /genesis/<genesis_id> read-only endpoint added for cold-entry reconstruction -- commit 9e2f79d",
+    ),
+    components_delivered = (
+        "GenesisDeliveryRecord (hypothesis + outcome fields)",
+        "GenesisContributionStore",
+        "GenesisContribution",
+        "ContributeResult",
+        "resolve_agent_from_request()",
+        "_AUTHORITY_TABLE",
+        "genesis_bp (/genesis/<genesis_id> endpoint)",
+    ),
+    tests_added = 34,
+    commit      = "9e2f79d",
+))
+
 # Add new records below as each Genesis is completed:
 # _declare(GenesisDeliveryRecord(
 #     genesis_id   = "Genesis-059",
