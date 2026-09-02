@@ -1,29 +1,29 @@
 {
-  "current_genesis": "Genesis-067",
-  "current_sprint": "Sprint-001",
-  "current_mission": "First Jarvis Participation Genesis",
+  "current_genesis": "Genesis-068",
+  "current_sprint": "Sprint-003",
+  "current_mission": "Minimum Cold-Entry Shared-Brain Experiment",
   "last_completed_genesis": "Genesis-067",
-  "next_milestone": "Genesis-067: Prove Jarvis participation loop",
+  "next_milestone": "Genesis-068: Prove four-way cold-entry reconstruction",
   "objectives": [
     {
-      "text": "Correct project state and Genesis delivery records",
-      "done": false
+      "text": "Add hypothesis + outcome to GenesisDeliveryRecord",
+      "done": true
     },
     {
-      "text": "Fix desktop validation port and prove end-to-end validation",
-      "done": false
+      "text": "Build GenesisContributionStore with verified agent identity",
+      "done": true
     },
     {
-      "text": "Prove Jarvis participation loop with real Genesis objectives",
-      "done": false
+      "text": "Extend /sprint/handoff with genesis_narrative + genesis_contributions",
+      "done": true
     },
     {
-      "text": "Improve sprint proposal quality and descriptor naming",
+      "text": "Remove stale tests_* from project_state.json",
+      "done": true
+    },
+    {
+      "text": "Run four-way cold-entry experiment: GPT + Claude + Jarvis + Chief",
       "done": false
     }
-  ],
-  "tests_passed": 5719,
-  "tests_skipped": 33,
-  "tests_failed": 0,
-  "tests_commit": "e95fa10"
+  ]
 }

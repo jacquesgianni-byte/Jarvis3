@@ -1045,6 +1045,34 @@ def sprint_handoff(proposal_id: str):
 
         not_doing = sp.get("not_doing", [])
 
+        # Genesis-068 Sprint-003: resolve Genesis narrative + contributions
+        _genesis_id  = sp.get("genesis_id", "")
+        _delivery_store = current_app.config.get("project_root")
+        _genesis_narrative = {}
+        if _genesis_id and _delivery_store:
+            try:
+                from core.knowledge.genesis_record import GenesisDeliveryStore
+                _ds = GenesisDeliveryStore(_delivery_store)
+                _rec = _ds.get(_genesis_id)
+                if _rec:
+                    _genesis_narrative = {
+                        "display_name": _rec.display_name,
+                        "hypothesis":   _rec.hypothesis,
+                        "outcome":      _rec.outcome,
+                    }
+            except Exception as _ge:
+                logger.warning("[SPRINT] Could not load genesis narrative for %s: %s", _genesis_id, _ge)
+
+        _contrib_store = current_app.config.get("genesis_contribution_store")
+        _genesis_contributions = []
+        if _contrib_store and _genesis_id:
+            try:
+                _genesis_contributions = [
+                    c.to_dict() for c in _contrib_store.get_contributions(_genesis_id)
+                ]
+            except Exception as _ce:
+                logger.warning("[SPRINT] Could not load genesis contributions for %s: %s", _genesis_id, _ce)
+
         handoff = {
             "ok":          True,
             "handoff_for": agent,
@@ -1061,6 +1089,8 @@ def sprint_handoff(proposal_id: str):
                 "objective_score":      sp.get("objective_score", 0),
                 "objective_confidence": sp.get("objective_confidence", "NONE"),
             },
+            "genesis_narrative":     _genesis_narrative,
+            "genesis_contributions": _genesis_contributions,
             "why_this_sprint_exists": {
                 "rationale":              sp.get("rationale", ""),
                 "evidence_summary":       sp.get("evidence_summary", ""),

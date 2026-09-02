@@ -1,9 +1,10 @@
-"""
+﻿"""
 Jarvis Flask Application Factory
 Creates and configures the Flask app with one shared Agent instance.
 This is the Jarvis API -- transport layer only. No business logic here.
 Genesis-054 Sprint-001: mission_registry added.
 Genesis-055 Sprint-001: mission_pipeline added.
+Genesis-068 Sprint-003: genesis_contribution_store added.
 """
 from __future__ import annotations
 import pathlib
@@ -36,6 +37,9 @@ def create_app(
     app.config["project_root"]       = _proj_root
     app.config["gap_store"]          = GapObservationStore(_gap_data_dir)
     app.config["sprint_state_store"] = SprintStateStore(_proj_root / "data")
+    # Genesis-068 Sprint-003: Genesis-scope contribution log
+    from core.knowledge.genesis_contributions import GenesisContributionStore
+    app.config["genesis_contribution_store"] = GenesisContributionStore(_proj_root / "data")
     from apps.server.routes import register_routes
     register_routes(app)
     from apps.server.orchestrator_routes import orchestrator_bp
