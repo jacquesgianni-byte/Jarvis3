@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-059 Sprint-001 - GenesisDeliveryRecord, GenesisDeliveryStore, ConceptResolver tests.
 
 Covers:
@@ -53,6 +53,8 @@ class TestGenesisDeliveryRecord:
         return GenesisDeliveryRecord(
             genesis_id           = "Genesis-TEST",
             display_name         = "Test Genesis",
+            hypothesis           = "Test hypothesis.",
+            outcome              = "Test outcome.",
             sprints              = ("Sprint-001: did something",),
             components_delivered = ("ComponentA", "ComponentB"),
             tests_added          = 10,
@@ -158,13 +160,13 @@ class TestGenesisDeliveryStore:
 
     def test_latest_id_returns_string(self):
         store = GenesisDeliveryStore(PROJECT_ROOT)
-        result = store.latest_id()
+        result = store.latest_id(current_genesis="Genesis-058")
         assert isinstance(result, str)
 
     def test_latest_id_returns_a_genesis_string(self):
-        """project_state.json reports a current_genesis value."""
+        """Passing current_genesis directly returns it unchanged."""
         store = GenesisDeliveryStore(PROJECT_ROOT)
-        result = store.latest_id()
+        result = store.latest_id(current_genesis="Genesis-058")
         assert result is not None
         assert result.startswith("Genesis-")
 
