@@ -1,4 +1,4 @@
-﻿"""
+"""
 Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
 
 Endpoints for the three-layer sprint approval workflow.
@@ -244,9 +244,10 @@ def approve_execution():
 
         if project_root and gap_store:
             import threading
+            _contrib_store_1 = current_app.config.get("genesis_contribution_store")
             t = threading.Thread(
                 target=_run_sprint_execution,
-                args=(proposal_id, project_root, sprint_store, gap_store),
+                args=(proposal_id, project_root, sprint_store, gap_store, _contrib_store_1),
                 daemon=True,
             )
             t.start()
@@ -357,7 +358,7 @@ def _record_failed_claude_contribution(sprint_store, proposal_id: str, reason: s
         )
 
 
-def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_store):
+def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_store, contribution_store=None):
     """
     Background thread: execute the approved sprint.
     Uses SprintProposalEngine to re-derive the proposal (it is deterministic),
@@ -461,6 +462,53 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
                 sprint_store._persist(record)
             except Exception as _ce:
                 logger.warning('[SPRINT] Could not record Jarvis execution contribution: %s', _ce)
+
+        # Genesis-070 Sprint-001: write execution outcome to GenesisContributionStore.
+        # Only written on SUCCESS — never on failure (Chief governance rule).
+        # genesis_id resolved from the loaded sprint record.
+        if success and contribution_store is not None and record is not None:
+            try:
+                import json as _json2
+                _state_data2  = _json2.loads(sprint_store._path_for(proposal_id).read_text(encoding="utf-8")) if sprint_store._path_for(proposal_id).exists() else {}
+                _genesis_id2  = _state_data2.get("genesis_id", "") or _state_data2.get("stored_proposal", {}).get("genesis_id", "")
+                if not _genesis_id2:
+                    # Fallback: read from stored_proposal if nested
+                    _sp2 = _state_data2.get("stored_proposal", {})
+                    _genesis_id2 = _sp2.get("genesis_id", "")
+                if _genesis_id2:
+                    _commit_ref2 = next((r.commit_sha for r in reversed(step_results) if r.commit_sha), "")
+                    _step_count  = len(step_results)
+                    _summary2    = (
+                        f"Jarvis executed {_step_count} step(s) for {_genesis_id2}. "
+                        f"All steps succeeded. Tests passed. "
+                        f"Commit: {_commit_ref2 or 'none'}."
+                    )
+                    from core.knowledge.genesis_contributions import GenesisContribution
+                    import uuid as _uuid3, datetime as _dt3
+                    _contrib = GenesisContribution(
+                        contribution_id=str(_uuid3.uuid4()),
+                        genesis_id=_genesis_id2,
+                        agent="jarvis",
+                        role="execution",
+                        summary=_summary2,
+                        artifact=_commit_ref2 or proposal_id,
+                        timestamp=_dt3.datetime.now(_dt3.timezone.utc).isoformat(),
+                    )
+                    contribution_store.append(_genesis_id2, _contrib)
+                    logger.info(
+                        "[SPRINT] Jarvis execution contribution written to GenesisContributionStore "
+                        "for %s (commit: %s)", _genesis_id2, _commit_ref2 or "none"
+                    )
+                else:
+                    logger.warning(
+                        "[SPRINT] Could not resolve genesis_id for execution contribution "
+                        "(proposal_id=%s) — skipping GenesisContributionStore write.", proposal_id
+                    )
+            except Exception as _gce:
+                logger.warning(
+                    "[SPRINT] GenesisContributionStore write failed for proposal %s: %s",
+                    proposal_id, _gce
+                )
 
         if not success:
             sprint_store.transition(
@@ -972,7 +1020,8 @@ def approve_claude_plan():
             gap_store    = current_app.config.get("gap_store")
             if project_root and gap_store:
                 import threading as _threading
-                _t = _threading.Thread(target=_run_sprint_execution, args=(proposal_id, project_root, sprint_store, gap_store), daemon=True)
+                _contrib_store_2 = current_app.config.get("genesis_contribution_store")
+                _t = _threading.Thread(target=_run_sprint_execution, args=(proposal_id, project_root, sprint_store, gap_store, _contrib_store_2), daemon=True)
                 _t.start()
         return jsonify({
             "ok":    result.success,
