@@ -65,6 +65,7 @@ class MissionRequest:
     message:    str
     session_id: str
     context:    MissionContext
+    agent:      str = ""   # Genesis-069 Sprint-003: resolved agent identity
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +195,12 @@ class ContextBuildStage:
                     "[CONTEXT_BUILD] Git authority resolution failed: %s - "
                     "engineering_context retains project_state.json values.", e
                 )
+
+        # Genesis-069 Sprint-003: wire agent identity into engineering_context.
+        # request.agent is resolved upstream in routes.py from the authenticated
+        # token — ContextBuildStage is the single point that populates state.
+        if getattr(request, "agent", ""):
+            engineering_context["agent"] = request.agent
 
         state["engineering_context"] = engineering_context
         duration = (time.perf_counter() - start) * 1000

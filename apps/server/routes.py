@@ -1,4 +1,4 @@
-﻿"""
+"""
 Jarvis API Routes
 
 Thin wrappers around Agent.process(). No business logic lives here.
@@ -28,6 +28,42 @@ from core.mission.interface_context import InterfaceContextResolver  # Genesis-0
 from core.mission.pipeline import MissionRequest                # Genesis-055 Sprint-001
 
 _interface_resolver = InterfaceContextResolver()
+
+
+def _resolve_mission_agent(flask_request) -> str:
+    """
+    Resolve agent identity from request headers for Mission Mode.
+    Genesis-069 Sprint-003: wires authenticated token to engineering_context.
+
+    Checks X-Agent-Token against known agent env vars (same logic as
+    sprint_routes._resolve_agent_token). Also recognises the Chief
+    X-Orchestrator-Token. Returns empty string if no match.
+    """
+    import os
+    # Chief token
+    orchestrator_token = ""
+    try:
+        from flask import current_app
+        orchestrator_token = current_app.config.get("ORCHESTRATOR_TOKEN", "") or ""
+    except RuntimeError:
+        pass
+    if not orchestrator_token:
+        orchestrator_token = os.getenv("ORCHESTRATOR_TOKEN", "")
+    if orchestrator_token:
+        provided_orch = flask_request.headers.get("X-Orchestrator-Token", "")
+        if provided_orch and provided_orch == orchestrator_token:
+            return "chief"
+
+    # Agent tokens: claude, jarvis, gpt
+    provided = flask_request.headers.get("X-Agent-Token", "")
+    if provided:
+        for agent in ("claude", "jarvis", "gpt"):
+            env_var = f"AGENT_TOKEN_{agent.upper()}"
+            token = os.getenv(env_var, "")
+            if token and provided == token:
+                return agent
+
+    return ""
 
 logger = logging.getLogger(__name__)
 
@@ -239,10 +275,12 @@ def register_routes(app) -> None:
             mission_pipeline = current_app.config.get("MISSION_PIPELINE")
             if mission_pipeline is not None:
                 mission_context = _interface_resolver.build_mission_context(request)
+                mission_agent   = _resolve_mission_agent(request)   # Genesis-069 Sprint-003
                 mission_request = MissionRequest(
                     message=user_message,
                     session_id=mission_context.session_id,
                     context=mission_context,
+                    agent=mission_agent,
                 )
                 mission_response = mission_pipeline.process(mission_request)
                 return jsonify(_envelope(

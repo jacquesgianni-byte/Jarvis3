@@ -94,10 +94,19 @@ def main():
     logger.info("[SERVER] EngineeringCoordinator initialised with Claude + ExecutionRunner.")
 
     # Step 3f -- Create MissionPipeline (Genesis-055 Sprint-001).
+    # Genesis-069 Sprint-003 Fix B: construct GenesisContributionStore here so it
+    # can be passed into MissionPipeline AND into create_app for app.config.
     from core.mission.pipeline import MissionPipeline
     from core.engineering.coordinator.session_store import SessionStore
-    mission_session_store = SessionStore()
-    mission_pipeline = MissionPipeline(mission_registry=mission_registry, project_root=project_root, session_store=mission_session_store)
+    from core.knowledge.genesis_contributions import GenesisContributionStore
+    mission_session_store    = SessionStore()
+    genesis_contribution_store = GenesisContributionStore(project_root / "data")
+    mission_pipeline = MissionPipeline(
+        mission_registry=mission_registry,
+        project_root=project_root,
+        session_store=mission_session_store,
+        contribution_store=genesis_contribution_store,   # Genesis-069 Sprint-003 Fix B
+    )
     logger.info("[SERVER] MissionPipeline initialised.")
 
     # Step 4 -- Create Flask app and inject the agent.
@@ -109,6 +118,7 @@ def main():
         orchestrator_coordinator=orchestrator,
         mission_registry=mission_registry,
         mission_pipeline=mission_pipeline,
+        genesis_contribution_store=genesis_contribution_store,  # Genesis-069 Sprint-003 Fix B
     )
 
     # Configuration via environment with sensible defaults.
