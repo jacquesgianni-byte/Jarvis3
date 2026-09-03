@@ -33,6 +33,7 @@ from core.mission.investigation import ReadOnlyInvestigator, ReadOnlyGitReader
 from core.mission.authorised_sources import AuthorisedSourceRegistry
 from core.knowledge.concept_resolver import ConceptResolver
 from core.knowledge.genesis_record import GenesisDeliveryStore
+from core.knowledge.genesis_contributions import GenesisContributionStore
 from core.knowledge.capability_gap import GapObservationStore
 from core.knowledge.gap_observation_engine import GapObservationEngine
 from core.knowledge.proximity import CapabilityProximityAnalyser
@@ -358,6 +359,19 @@ class IntentStage:
     RUN_TEST_KEYWORDS = (
         "run tests", "run the tests", "execute tests", "run pytest",
     )
+    # Genesis-069 Sprint-001: cold-entry query intent.
+    # Must appear BEFORE WRITE_KEYWORDS in the keyword table so that
+    # cold-entry payloads containing "commit" are classified as
+    # cold_entry_query, not write. Priority order in run() enforces this.
+    COLD_ENTRY_KEYWORDS = (
+        "cold entry", "cold-entry", "reconstruct genesis",
+        "genesis record", "genesis state", "genesis overview",
+        "summarise genesis", "summarize genesis",
+        "what is the state of genesis", "genesis-068 state",
+        "genesis-067 state", "genesis-066 state", "genesis-065 state",
+        "genesis-064 state", "genesis-063 state",
+    )
+
     WRITE_KEYWORDS = (
         "modify", "change", "update", "write", "create file",
         "delete", "commit", "push",
@@ -435,9 +449,12 @@ class IntentStage:
                 duration_ms=round(duration, 2),
             )
 
-        # Priority order: write > why_failed > what_needed > investigate > run_tests > historical > current > objectives > unknown
+        # Priority order: cold_entry_query > write > why_failed > what_needed > investigate > run_tests > historical > current > objectives > unknown
         # Whole-word matching prevents 'changes' matching 'change', etc. Genesis-056 Sprint-004 fix.
-        if self._matches_any(msg, self.WRITE_KEYWORDS):
+        if self._matches_any(msg, self.COLD_ENTRY_KEYWORDS):
+            intent    = "cold_entry_query"
+            knowledge = "fact"
+        elif self._matches_any(msg, self.WRITE_KEYWORDS):
             intent    = "write"
             knowledge = "approval_required"
         elif self._matches_any(msg, self.WHY_FAILED_KEYWORDS):
@@ -1244,6 +1261,175 @@ class InvestigationStage:
         )
 
 
+class ColdEntryStage:
+    """
+    Stage 3g: Answer cold-entry genesis queries.
+
+    Genesis-069 Sprint-001.
+
+    Handles intent="cold_entry_query". Reads from GenesisDeliveryStore
+    and GenesisContributionStore. Read-only. No proposal. No approval.
+    Terminal on success or honest no-record response.
+    """
+    NAME = "ColdEntryStage"
+
+    def __init__(self, project_root=None, contribution_store=None) -> None:
+        self._project_root       = project_root
+        self._contribution_store = contribution_store
+
+    def run(self, request, state: dict):
+        import time
+        start  = time.perf_counter()
+        intent = state.get("intent", "unknown")
+
+        if intent != "cold_entry_query":
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=False,
+                outcome="skipped -- intent is not cold_entry_query",
+                duration_ms=round(duration, 2),
+            )
+
+        if self._project_root is None:
+            state["response_message"] = (
+                "Cold-entry is not available in this session -- "
+                "project root not configured."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="project_root unavailable",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        ctx        = state.get("engineering_context", {})
+        genesis_id = ctx.get("current_genesis", "")
+        agent      = ctx.get("agent", "")
+
+        import re as _re
+        msg_match = _re.search(r"Genesis-\d+", request.message, _re.IGNORECASE)
+        if msg_match:
+            genesis_id = msg_match.group(0)
+
+        if not genesis_id:
+            state["response_message"] = (
+                "Cold-entry query received but no genesis_id could be resolved. "
+                "Please specify the genesis (e.g. 'genesis record Genesis-068')."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome="no genesis_id resolved",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        store  = GenesisDeliveryStore(self._project_root)
+        record = store.get(genesis_id)
+
+        if record is None:
+            state["response_message"] = (
+                f"No Genesis delivery record found for {genesis_id!r}. "
+                "The genesis may not yet have a declared delivery record."
+            )
+            duration = (time.perf_counter() - start) * 1000
+            return MissionStageResult(
+                stage=self.NAME, executed=True,
+                outcome=f"no record for {genesis_id}",
+                duration_ms=round(duration, 2),
+                terminal=True,
+            )
+
+        contributions = []
+        if self._contribution_store is not None:
+            try:
+                contributions = self._contribution_store.get_contributions(genesis_id)
+            except Exception as _ce:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "[ColdEntryStage] Could not load contributions for %s: %s",
+                    genesis_id, _ce,
+                )
+
+        state["response_message"] = self._format(genesis_id, record, contributions, agent)
+
+        duration = (time.perf_counter() - start) * 1000
+        return MissionStageResult(
+            stage=self.NAME, executed=True,
+            outcome=f"cold-entry record returned for {genesis_id}",
+            duration_ms=round(duration, 2),
+            terminal=True,
+        )
+
+    @staticmethod
+    def _format(genesis_id, record, contributions, agent: str) -> str:
+        agent_lower = (agent or "").lower()
+
+        if agent_lower == "chief":
+            lines = [
+                f"GENESIS COLD-ENTRY -- {genesis_id} (Chief view)",
+                "-" * 40,
+                "",
+                f"Display name: {record.display_name}",
+                f"Hypothesis:   {record.hypothesis}",
+                f"Outcome:      {record.outcome}",
+                "",
+                f"Contributions on record: {len(contributions)}",
+                "",
+                "Decision/approval surface. Full delivery detail available on request.",
+            ]
+            return "\n".join(lines)
+
+        if agent_lower == "jarvis":
+            lines = [
+                f"GENESIS STATE -- {genesis_id}",
+                "-" * 40,
+                "",
+                f"Status:     {record.outcome or 'see delivery record'}",
+                f"Hypothesis: {record.hypothesis}",
+                f"Commit:     {record.commit}",
+                f"Sprints:    {', '.join(record.sprints) if record.sprints else 'none recorded'}",
+                "",
+                "State descriptor only. No action required.",
+            ]
+            return "\n".join(lines)
+
+        lines = [
+            f"GENESIS COLD-ENTRY -- {genesis_id}",
+            "-" * 40,
+            "",
+            "NARRATIVE",
+            f"  Display name: {record.display_name}",
+            f"  Hypothesis:   {record.hypothesis}",
+            f"  Outcome:      {record.outcome}",
+            "",
+            "DELIVERY",
+            f"  Sprints:    {', '.join(record.sprints) if record.sprints else 'none'}",
+            f"  Components: {', '.join(record.components_delivered) if record.components_delivered else 'none'}",
+            f"  Tests added:{record.tests_added}",
+            f"  Commit:     {record.commit}",
+            "",
+        ]
+
+        if contributions:
+            lines.append(f"CONTRIBUTIONS ({len(contributions)})")
+            for c in contributions:
+                lines.append(
+                    f"  [{c.agent} / {c.role}] {c.summary[:120]}"
+                    + ("..." if len(c.summary) > 120 else "")
+                )
+        else:
+            lines.append("CONTRIBUTIONS: none recorded")
+
+        lines += [
+            "",
+            "Source: GenesisDeliveryStore + GenesisContributionStore.",
+            "Read-only cold-entry reconstruction. No changes made.",
+        ]
+        return "\n".join(lines)
+
+
 class ApprovalGateStage:
     """
     Stage 4: Block write operations without an approval record.
@@ -1450,7 +1636,7 @@ class MissionPipeline:
     On any other failure: return structured error, never CHAT fallback.
     """
 
-    def __init__(self, mission_registry: Optional["MissionRegistry"] = None, project_root=None, session_store=None) -> None:
+    def __init__(self, mission_registry: Optional["MissionRegistry"] = None, project_root=None, session_store=None, contribution_store=None) -> None:
         # Genesis-056 Sprint-002: SessionStore for proposal registration
         mission_session_store = session_store
 
@@ -1492,6 +1678,8 @@ class MissionPipeline:
         )
         self._sprint_approval      = SprintApprovalGateStage(_sprint_state_store)
         self._investigation       = InvestigationStage(_investigator, session_store=mission_session_store)
+        # Genesis-069 Sprint-001: cold-entry stage
+        self._cold_entry           = ColdEntryStage(project_root, contribution_store)
         self._approval_gate       = ApprovalGateStage()
         self._dispatch            = DispatchStage()
         self._response            = ResponseStage()
@@ -1525,6 +1713,12 @@ class MissionPipeline:
 
             # Stage 3c: Knowledge query (Genesis-059 Sprint-002)
             result = self._knowledge_query.run(request, state)
+            trace.append(result)
+            if result.terminal:
+                return self._response.run(request, state, trace)
+
+            # Stage 3g: Cold-entry query (Genesis-069 Sprint-001)
+            result = self._cold_entry.run(request, state)
             trace.append(result)
             if result.terminal:
                 return self._response.run(request, state, trace)
