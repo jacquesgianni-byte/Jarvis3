@@ -302,7 +302,7 @@ _declare(GenesisDeliveryRecord(
     genesis_id   = "Genesis-068",
     display_name = "Minimum Cold-Entry Shared-Brain Experiment",
     hypothesis   = "The smallest intervention — adding hypothesis + outcome to GenesisDeliveryRecord, a Genesis-scope contribution log, and extending the handoff — is sufficient for four independent participants to reconstruct a Genesis from a shared project record without conversational context.",
-    outcome      = "Proven. All three implementation sprints delivered green (5753 passed / 33 skipped). GET /genesis/<genesis_id> endpoint live. Four-way cold-entry experiment pending.",
+    outcome      = "Partially proven. Implementation green (5753 passed / 33 skipped). Claude 6A + GPT 6A: full reconstruction from shared record. Jarvis: misrouted ? JSON parsed as engineering request, not cold-entry query. Chief: B ? directional role by design. Finding: minimum intervention is sufficient for AI language-model participants; Jarvis semantic routing and Chief raw read surface are the two remaining gaps for a future Genesis.",
     sprints      = (
         "Sprint-001: hypothesis + outcome added to GenesisDeliveryRecord, all 10 prior records updated, latest_id() decoupled from direct file read -- commit caf8952",
         "Sprint-002: GenesisContributionStore, append-only per-genesis JSON log, _AUTHORITY_TABLE, resolve_agent_from_request(), 34 new tests -- commit c36004f",
