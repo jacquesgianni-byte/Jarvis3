@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
 
 Endpoints for the three-layer sprint approval workflow.
@@ -1331,3 +1331,80 @@ def get_genesis(genesis_id: str):
         },
         "contributions": contributions,
     }), 200
+
+# ---------------------------------------------------------------------------
+# POST /genesis/contribute  (Genesis-071 Sprint-001)
+# ---------------------------------------------------------------------------
+
+@genesis_bp.route("/genesis/contribute", methods=["POST"])
+def genesis_contribute():
+    """
+    Genesis-071 Sprint-001: Record an agent contribution at Genesis scope.
+
+    Identity is resolved server-side from X-Agent-Token (or X-Orchestrator-Token
+    for Chief). No agent field is accepted in the request body.
+
+    Authority is enforced exclusively by GenesisContributionStore._AUTHORITY_TABLE.
+    This route does not duplicate or shadow that table.
+
+    Body:
+        genesis_id:  str  (required)
+        role:        str  (required -- must be in _AUTHORITY_TABLE for resolved agent)
+        summary:     str  (required)
+        artifact:    str  (optional -- commit SHA, URL, or description; defaults to "")
+
+    Responses:
+        201  {ok, contribution_id, genesis_id, agent, role}
+        400  missing required field
+        401  unknown or missing token
+        403  agent not permitted for requested role (_AUTHORITY_TABLE enforces)
+        500  persist failure
+    """
+    from core.knowledge.genesis_contributions import resolve_agent_from_request
+
+    agent = resolve_agent_from_request(request)
+    if agent is None:
+        return jsonify({"ok": False, "error": "Unauthorised"}), 401
+
+    body       = request.get_json(silent=True) or {}
+    genesis_id = body.get("genesis_id", "").strip()
+    role       = body.get("role", "").strip()
+    summary    = body.get("summary", "").strip()
+    artifact   = body.get("artifact", "").strip()
+
+    if not genesis_id:
+        return jsonify({"ok": False, "error": "genesis_id required"}), 400
+    if not role:
+        return jsonify({"ok": False, "error": "role required"}), 400
+    if not summary:
+        return jsonify({"ok": False, "error": "summary required"}), 400
+
+    contrib_store = current_app.config.get("genesis_contribution_store")
+    if contrib_store is None:
+        return jsonify({"ok": False, "error": "genesis_contribution_store not available"}), 503
+
+    result = contrib_store.contribute(
+        genesis_id = genesis_id,
+        agent      = agent,
+        role       = role,
+        summary    = summary,
+        artifact   = artifact,
+    )
+
+    if not result.success:
+        if "not permitted" in result.error or "Unknown agent" in result.error or "may not claim" in result.error:
+            return jsonify({"ok": False, "error": result.error}), 403
+        return jsonify({"ok": False, "error": result.error}), 500
+
+    logger.info(
+        "[GENESIS] %s contributed %r to %s (id=%s)",
+        agent, role, genesis_id, result.contribution_id[:8],
+    )
+
+    return jsonify({
+        "ok":              True,
+        "contribution_id": result.contribution_id,
+        "genesis_id":      genesis_id,
+        "agent":           agent,
+        "role":            role,
+    }), 201
