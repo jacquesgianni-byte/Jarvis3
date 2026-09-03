@@ -1,4 +1,4 @@
-﻿"""
+"""
 Jarvis OS - GenesisDeliveryRecord + GenesisDeliveryStore - Genesis-059 Sprint-001
 
 Structured, authoritative record of what each Genesis delivered.
@@ -328,6 +328,46 @@ _declare(GenesisDeliveryRecord(
 #     display_name = "...",
 #     ...
 # ))
+
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-069",
+    display_name = "Governed Cold-Entry Layer",
+    hypothesis   = "A governed role-aware cold-entry layer can provide each participant with the form of shared project state appropriate to its role, while preventing cold-entry information from being misinterpreted as an executable engineering instruction.",
+    outcome      = "Proven. ColdEntryStage classifies cold_entry_query intent before WRITE_KEYWORDS; cold-entry JSON containing 'commit' no longer triggers write intent. Role-specific presentation live: Claude/GPT receive full narrative + contributions, Jarvis receives state-descriptor, Chief receives decision-surface. Agent identity wired from X-Agent-Token through ContextBuildStage into engineering_context. GenesisContributionStore surfaced through MissionPipeline.",
+    sprints      = (
+        "Sprint-001: COLD_ENTRY_KEYWORDS + cold_entry_query intent + ColdEntryStage + MissionPipeline wiring -- 87 tests -- commit f6e73e5",
+        "Sprint-002: Live validation -- cold-entry works, write misrouting fixed, write commands unaffected. Two wiring defects identified.",
+        "Sprint-003: Fix A (agent identity wiring via MissionRequest.agent + ContextBuildStage) + Fix B (GenesisContributionStore passed into MissionPipeline) -- 24 tests -- commit 51fea22",
+    ),
+    components_delivered = (
+        "ColdEntryStage (core/mission/pipeline.py)",
+        "COLD_ENTRY_KEYWORDS + cold_entry_query intent in IntentStage",
+        "MissionRequest.agent field",
+        "_resolve_mission_agent() in routes.py",
+        "ContextBuildStage agent wiring into engineering_context",
+        "GenesisContributionStore passed into MissionPipeline via server_main.py + app.py",
+    ),
+    tests_added = 111,
+    commit      = "51fea22",
+))
+
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-070",
+    display_name = "Governed Shared Continuity",
+    hypothesis   = "A governed shared-continuity layer can allow GPT, Claude, Jarvis and Chief to continue an ongoing Genesis from shared project state without manual conversational context transfer, while preserving role boundaries and human authority.",
+    outcome      = "In progress. Sprint-001 complete: Jarvis execution wired into GenesisContributionStore on success only. Sprint-002 validation experiment pending Chief review.",
+    sprints      = (
+        "Sprint-001: _run_sprint_execution writes agent=jarvis/role=execution contribution after successful execution+validation -- 18 tests -- commit 777a87b",
+        "Sprint-002: Controlled continuity validation experiment (in progress).",
+    ),
+    components_delivered = (
+        "GenesisContributionStore.contribute() called from _run_sprint_execution on success",
+        "contribution_store passed via both call sites in sprint_routes.py",
+        "genesis_id resolved from persisted sprint state file",
+    ),
+    tests_added = 18,
+    commit      = "777a87b",
+))
 
 
 class GenesisDeliveryStore:
