@@ -48,6 +48,10 @@ def create_app(
         if genesis_contribution_store is not None
         else GenesisContributionStore(_proj_root / "data")
     )
+    # Genesis-073 Sprint-001: Foundation A situational memory store
+    from core.knowledge.situational_memory import SituationalMemoryStore
+    app.config["situational_memory_store"] = SituationalMemoryStore(_proj_root / "data")
+
     from apps.server.routes import register_routes
     register_routes(app)
     from apps.server.orchestrator_routes import orchestrator_bp

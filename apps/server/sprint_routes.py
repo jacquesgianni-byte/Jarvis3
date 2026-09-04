@@ -1373,7 +1373,141 @@ def get_genesis(genesis_id: str):
 # POST /genesis/contribute  (Genesis-071 Sprint-001)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Memory endpoints -- Genesis-073 Sprint-001 (Foundation A)
+# ---------------------------------------------------------------------------
+
+@genesis_bp.route("/memory/situational", methods=["POST"])
+def memory_store():
+    """
+    Store a single MemoryEntry.
+
+    Body:
+        category: str  (required -- decision|question|constraint|intention|unresolved)
+        content:  str  (required)
+
+    Responses:
+        201  {ok, id, category, content, timestamp}
+        400  missing or invalid field
+        503  store not available
+        500  persist failure
+    """
+    from core.knowledge.situational_memory import MemoryEntry, SituationalMemoryStore
+    if not _check_auth():
+        return _auth_error()
+
+    body     = request.get_json(silent=True) or {}
+    category = body.get("category", "").strip()
+    content  = body.get("content", "").strip()
+
+    if not category:
+        return jsonify({"ok": False, "error": "category required"}), 400
+    if not content:
+        return jsonify({"ok": False, "error": "content required"}), 400
+
+    mem_store = current_app.config.get("situational_memory_store")
+    if mem_store is None:
+        return jsonify({"ok": False, "error": "situational_memory_store not available"}), 503
+
+    try:
+        entry = MemoryEntry.create(category=category, content=content)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    try:
+        mem_store.store(entry)
+    except Exception as e:
+        logger.exception("[MEMORY] store failed: %s", e)
+        return jsonify({"ok": False, "error": "persist failure"}), 500
+
+    return jsonify({
+        "ok":        True,
+        "id":        entry.id,
+        "category":  entry.category,
+        "content":   entry.content,
+        "timestamp": entry.timestamp,
+    }), 201
+
+
+@genesis_bp.route("/memory/situational", methods=["GET"])
+def memory_query():
+    """
+    Retrieve active MemoryEntry records, optionally filtered by category.
+
+    Query params:
+        category: str  (optional)
+
+    Responses:
+        200  {ok, entries: [...], count: int}
+        400  unknown category
+        503  store not available
+    """
+    from core.knowledge.situational_memory import VALID_CATEGORIES
+    if not _check_auth():
+        return _auth_error()
+
+    category = request.args.get("category", "").strip() or None
+    if category and category not in VALID_CATEGORIES:
+        return jsonify({
+            "ok":    False,
+            "error": f"Unknown category {category!r}. Valid: {sorted(VALID_CATEGORIES)}",
+        }), 400
+
+    mem_store = current_app.config.get("situational_memory_store")
+    if mem_store is None:
+        return jsonify({"ok": False, "error": "situational_memory_store not available"}), 503
+
+    entries = mem_store.get_all(category=category, active_only=True)
+    return jsonify({
+        "ok":      True,
+        "entries": [e.to_dict() for e in entries],
+        "count":   len(entries),
+    }), 200
+
+
+@genesis_bp.route("/memory/situational/<entry_id>", methods=["PATCH"])
+def memory_correct(entry_id: str):
+    """
+    Correct (overwrite) category and/or content of an existing MemoryEntry.
+    active flag is preserved.
+
+    Body:
+        category: str  (optional)
+        content:  str  (optional)
+
+    Responses:
+        200  {ok, entry: {...}}
+        400  nothing to update / invalid category
+        404  entry not found
+        503  store not available
+    """
+    if not _check_auth():
+        return _auth_error()
+
+    body     = request.get_json(silent=True) or {}
+    category = body.get("category", "").strip() or None
+    content  = body.get("content", "").strip() or None
+
+    if category is None and content is None:
+        return jsonify({"ok": False, "error": "Provide category and/or content to correct"}), 400
+
+    mem_store = current_app.config.get("situational_memory_store")
+    if mem_store is None:
+        return jsonify({"ok": False, "error": "situational_memory_store not available"}), 503
+
+    try:
+        updated = mem_store.correct(entry_id, category=category, content=content)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    if updated is None:
+        return jsonify({"ok": False, "error": f"No entry found for id {entry_id!r}"}), 404
+
+    return jsonify({"ok": True, "entry": updated.to_dict()}), 200
+
+
 @genesis_bp.route("/genesis/contribute", methods=["POST"])
+
 def genesis_contribute():
     """
     Genesis-071 Sprint-001: Record an agent contribution at Genesis scope.
