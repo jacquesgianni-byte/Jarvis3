@@ -1,0 +1,20 @@
+[
+  {
+    "contribution_id": "dc3b29e1-f1b0-41ec-baf1-ce133d88067b",
+    "genesis_id": "Genesis-071-regression",
+    "agent": "claude",
+    "role": "implementation",
+    "summary": "Regression test.",
+    "artifact": "",
+    "timestamp": "2026-09-03T08:31:15.920476+00:00"
+  },
+  {
+    "contribution_id": "8b69a931-3a2e-417c-b499-b0ee746b36b9",
+    "genesis_id": "Genesis-071-regression",
+    "agent": "claude",
+    "role": "implementation",
+    "summary": "Regression test.",
+    "artifact": "",
+    "timestamp": "2026-09-03T08:32:03.673876+00:00"
+  }
+]

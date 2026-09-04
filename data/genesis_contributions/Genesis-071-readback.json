@@ -1,0 +1,20 @@
+[
+  {
+    "contribution_id": "b6d20147-be82-4dfa-9c0a-1aaa6671fee8",
+    "genesis_id": "Genesis-071-readback",
+    "agent": "claude",
+    "role": "implementation",
+    "summary": "Unique readback test contribution.",
+    "artifact": "readback-artifact-ref",
+    "timestamp": "2026-09-03T08:31:15.838524+00:00"
+  },
+  {
+    "contribution_id": "42ac4de2-c989-4d98-a464-69a615f8df4d",
+    "genesis_id": "Genesis-071-readback",
+    "agent": "claude",
+    "role": "implementation",
+    "summary": "Unique readback test contribution.",
+    "artifact": "readback-artifact-ref",
+    "timestamp": "2026-09-03T08:32:03.624196+00:00"
+  }
+]

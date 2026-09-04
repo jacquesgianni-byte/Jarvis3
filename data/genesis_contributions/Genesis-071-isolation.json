@@ -1,0 +1,20 @@
+[
+  {
+    "contribution_id": "c69301f1-1507-475b-9031-b244f893cf8e",
+    "genesis_id": "Genesis-071-isolation",
+    "agent": "gpt",
+    "role": "architecture",
+    "summary": "Isolation test.",
+    "artifact": "",
+    "timestamp": "2026-09-03T08:31:15.908892+00:00"
+  },
+  {
+    "contribution_id": "41376585-b29f-4d70-8be2-739954729f74",
+    "genesis_id": "Genesis-071-isolation",
+    "agent": "gpt",
+    "role": "architecture",
+    "summary": "Isolation test.",
+    "artifact": "",
+    "timestamp": "2026-09-03T08:32:03.663929+00:00"
+  }
+]

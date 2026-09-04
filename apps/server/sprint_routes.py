@@ -1,4 +1,4 @@
-﻿"""
+"""
 Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
 
 Endpoints for the three-layer sprint approval workflow.
@@ -478,9 +478,25 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
                 if _genesis_id2:
                     _commit_ref2 = next((r.commit_sha for r in reversed(step_results) if r.commit_sha), "")
                     _step_count  = len(step_results)
+                    # Genesis-072 Sprint-001: parse suite counts from run_tests step
+                    import re as _re_072
+                    _passed2 = _skipped2 = _failed2 = None
+                    for _sr in step_results:
+                        if _sr.action_type == "run_tests" and _sr.success:
+                            _mp = _re_072.search(r"(\d+) passed", _sr.detail or "")
+                            if _mp: _passed2 = int(_mp.group(1))
+                            _ms = _re_072.search(r"(\d+) skipped", _sr.detail or "")
+                            if _ms: _skipped2 = int(_ms.group(1))
+                            _mf = _re_072.search(r"(\d+) failed", _sr.detail or "")
+                            if _mf: _failed2 = int(_mf.group(1))
+                            break
+                    _suite_str2 = (
+                        f"tests_passed={_passed2} tests_skipped={_skipped2} tests_failed={_failed2 or 0}"
+                        if _passed2 is not None else "suite_result=unavailable"
+                    )
                     _summary2    = (
                         f"Jarvis executed {_step_count} step(s) for {_genesis_id2}. "
-                        f"All steps succeeded. Tests passed. "
+                        f"All steps succeeded. {_suite_str2}. "
                         f"Commit: {_commit_ref2 or 'none'}."
                     )
                     from core.knowledge.genesis_contributions import GenesisContribution
@@ -1315,6 +1331,26 @@ def get_genesis(genesis_id: str):
         except Exception as e:
             logger.warning("[GENESIS] Could not load contributions for %s: %s", genesis_id, e)
 
+    # Genesis-072 Sprint-001: project last_successful_execution from contributions
+    import re as _re_lse
+    _last_exec = None
+    for _c in reversed(contributions):
+        if _c.get("agent") == "jarvis" and _c.get("role") == "execution":
+            _s = _c.get("summary", "")
+            _lse = {
+                "agent":     "jarvis",
+                "timestamp": _c.get("timestamp", ""),
+                "commit":    _c.get("artifact", ""),
+            }
+            _mp = _re_lse.search(r"tests_passed=(\d+)", _s)
+            if _mp: _lse["tests_passed"]  = int(_mp.group(1))
+            _ms = _re_lse.search(r"tests_skipped=(\d+)", _s)
+            if _ms: _lse["tests_skipped"] = int(_ms.group(1))
+            _mf = _re_lse.search(r"tests_failed=(\d+)", _s)
+            if _mf: _lse["tests_failed"]  = int(_mf.group(1))
+            _last_exec = _lse
+            break
+
     return jsonify({
         "ok":        True,
         "genesis_id": genesis_id,
@@ -1329,6 +1365,7 @@ def get_genesis(genesis_id: str):
             "tests_added":          record.tests_added,
             "commit":               record.commit,
         },
+        "last_successful_execution": _last_exec,
         "contributions": contributions,
     }), 200
 
