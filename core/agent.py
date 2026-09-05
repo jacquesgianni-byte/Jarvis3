@@ -626,6 +626,9 @@ from core.engineering.evidence.manager import EvidenceManager  # Genesis-034 S2 
 
 
 from core.goal_intelligence.engine import GoalIntelligenceEngine   # Genesis-033 S2
+from core.knowledge.situational_memory import (   # Genesis-073 Sprint-002
+    MemoryExtractionPipeline, SituationalMemoryStore,
+)
 
 
 
@@ -5703,17 +5706,31 @@ class Agent:
 
             )
 
+        # Genesis-073 Sprint-002: spawn situational extraction after explicit store.
+        # detection.key and detection.value are authoritative here — direct propagation,
+        # no log reconstruction needed.
+        _explicit_stored_fact = f"{detection.key}={detection.value}"
+        _raw_msg = self.context.last_user_message or ""
+        _resp_msg = getattr(_mem_response, "message", "") or ""
+        if _raw_msg:
+            self._spawn_situational_extraction(
+                turn_text=f"User: {_raw_msg}\nJarvis: {_resp_msg}",
+                explicit_stored=_explicit_stored_fact,
+            )
 
+        # Genesis-073 Sprint-002: spawn situational extraction after explicit store.
+        # detection.key and detection.value are authoritative here -- direct propagation,
+        # no log reconstruction needed.
+        _explicit_stored_fact = f"{detection.key}={detection.value}"
+        _raw_msg = self.context.last_user_message or ""
+        _resp_msg = getattr(_mem_response, "message", "") or ""
+        if _raw_msg:
+            self._spawn_situational_extraction(
+                turn_text=f"User: {_raw_msg}\nJarvis: {_resp_msg}",
+                explicit_stored=_explicit_stored_fact,
+            )
 
-
-
-
-
-
-
-
-
-        # Genesis-043 Fix 1: Register named entity so pronouns resolve next turn.
+        # Genesis-043 Fix 1: Register named entity so pronouns resolve next turn. so pronouns resolve next turn.
 
 
 
@@ -11050,6 +11067,77 @@ class Agent:
 
 
 
+
+    # ------------------------------------------------------------------
+    # Genesis-073 Sprint-002: Situational memory extraction
+    # ------------------------------------------------------------------
+
+    def _spawn_situational_extraction(
+        self,
+        turn_text: str,
+        explicit_stored: str | None = None,
+    ) -> None:
+        """
+        Spawn a daemon thread to run situational memory extraction.
+
+        Fire-and-forget: never blocks the conversation, never raises.
+        The thread holds no reference the main thread waits on.
+
+        Args:
+            turn_text:       "User: <input>\nJarvis: <response>"
+            explicit_stored: "key=value" string if explicit memory was stored
+                             this turn (from detection.key + detection.value).
+                             Passed to the extraction prompt as an exclusion note.
+        """
+        import threading as _threading
+
+        def _run() -> None:
+            try:
+                # Resolve store from Flask app config (server path)
+                # or fall back to a fresh instance (desktop path)
+                mem_store = None
+                try:
+                    from flask import current_app
+                    mem_store = current_app.config.get("situational_memory_store")
+                except Exception:
+                    pass
+
+                if mem_store is None:
+                    # Desktop path: construct store directly
+                    import pathlib as _pathlib
+                    _root = _pathlib.Path(__file__).resolve().parents[1]
+                    mem_store = SituationalMemoryStore(_root / "data")
+
+                pipeline = MemoryExtractionPipeline(ai_client=self.ai)
+
+                prompt_text = turn_text
+                if explicit_stored:
+                    prompt_text = (
+                        f"Note: the fact '{explicit_stored}' has already been "
+                        f"explicitly stored. Do not extract it again.\n\n{turn_text}"
+                    )
+
+                # Minimum length filter — not worth an API call
+                if len(prompt_text.strip()) < 20:
+                    return
+
+                entries = pipeline.extract(prompt_text)
+                for entry in entries:
+                    mem_store.store(entry)
+
+                if entries:
+                    self.logger.info(
+                        "[MEMORY] Situational extraction: %d entr%s stored.",
+                        len(entries),
+                        "y" if len(entries) == 1 else "ies",
+                    )
+
+            except Exception as exc:  # noqa: BLE001
+                self.logger.warning(
+                    "[MEMORY] Situational extraction failed silently: %s", exc
+                )
+
+        _threading.Thread(target=_run, daemon=True).start()
 
     def _extract_genesis_number(self, request: str) -> str:
 

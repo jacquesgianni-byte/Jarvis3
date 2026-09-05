@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -132,6 +133,7 @@ class SituationalMemoryStore:
         self._dir = data_root / "situational_memory"
         self._dir.mkdir(parents=True, exist_ok=True)
         self._path = self._dir / "entries.json"
+        self._lock = threading.Lock()   # Genesis-073 Sprint-002: concurrent-write protection
         logger.info("[MEMORY] SituationalMemoryStore at %s", self._path)
 
     # ------------------------------------------------------------------
@@ -164,9 +166,10 @@ class SituationalMemoryStore:
 
     def store(self, entry: MemoryEntry) -> MemoryEntry:
         """Append a new entry. Returns the stored entry."""
-        entries = self._load()
-        entries.append(entry)
-        self._save(entries)
+        with self._lock:
+            entries = self._load()
+            entries.append(entry)
+            self._save(entries)
         logger.info("[MEMORY] Stored entry id=%s category=%s", entry.id[:8], entry.category)
         return entry
 
@@ -199,30 +202,32 @@ class SituationalMemoryStore:
         Returns the updated entry, or None if not found.
         Correction semantics: active flag is preserved.
         """
-        entries = self._load()
-        for i, e in enumerate(entries):
-            if e.id == entry_id:
-                if category is not None:
-                    if category not in VALID_CATEGORIES:
-                        raise ValueError(f"Unknown category {category!r}")
-                    e.category = category
-                if content is not None:
-                    e.content = content.strip()
-                entries[i] = e
-                self._save(entries)
-                logger.info("[MEMORY] Corrected entry id=%s", entry_id[:8])
-                return e
+        with self._lock:
+            entries = self._load()
+            for i, e in enumerate(entries):
+                if e.id == entry_id:
+                    if category is not None:
+                        if category not in VALID_CATEGORIES:
+                            raise ValueError(f"Unknown category {category!r}")
+                        e.category = category
+                    if content is not None:
+                        e.content = content.strip()
+                    entries[i] = e
+                    self._save(entries)
+                    logger.info("[MEMORY] Corrected entry id=%s", entry_id[:8])
+                    return e
         return None
 
     def deactivate(self, entry_id: str) -> bool:
         """Set active=False for an entry. Returns True if found."""
-        entries = self._load()
-        for i, e in enumerate(entries):
-            if e.id == entry_id:
-                e.active = False
-                entries[i] = e
-                self._save(entries)
-                return True
+        with self._lock:
+            entries = self._load()
+            for i, e in enumerate(entries):
+                if e.id == entry_id:
+                    e.active = False
+                    entries[i] = e
+                    self._save(entries)
+                    return True
         return False
 
 
