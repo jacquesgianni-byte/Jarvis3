@@ -1,28 +1,28 @@
 {
-  "current_genesis": "Genesis-068",
-  "current_sprint": "Sprint-003",
-  "current_mission": "Minimum Cold-Entry Shared-Brain Experiment",
-  "last_completed_genesis": "Genesis-067",
-  "next_milestone": "Genesis-068: Prove four-way cold-entry reconstruction",
+  "current_genesis": "Genesis-073",
+  "current_sprint": "Sprint-001",
+  "current_mission": "Foundation A Memory Transplant \u2014 SituationalMemoryStore",
+  "last_completed_genesis": "Genesis-072",
+  "next_milestone": "Genesis-073: Sprint-002 validation \u2014 confirm extraction quality and wiring strategy before Foundation B",
   "objectives": [
     {
-      "text": "Add hypothesis + outcome to GenesisDeliveryRecord",
+      "text": "Build SituationalMemoryStore (entries.json, MemoryEntry, 6 categories)",
       "done": true
     },
     {
-      "text": "Build GenesisContributionStore with verified agent identity",
+      "text": "Build MemoryExtractionPipeline (AnthropicProvider, JSON parse, privacy guardrail)",
       "done": true
     },
     {
-      "text": "Extend /sprint/handoff with genesis_narrative + genesis_contributions",
+      "text": "Expose three governed endpoints: POST/GET/PATCH /memory/situational",
       "done": true
     },
     {
-      "text": "Remove stale tests_* from project_state.json",
+      "text": "Taxonomy correction: add fact category, update extraction prompt",
       "done": true
     },
     {
-      "text": "Run four-way cold-entry experiment: GPT + Claude + Jarvis + Chief",
+      "text": "Sprint-002: validate extraction quality and decide wiring strategy",
       "done": false
     }
   ]

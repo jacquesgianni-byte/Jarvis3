@@ -18,8 +18,14 @@ _TOKENS = {
 
 @pytest.fixture(scope="module")
 def app():
+    import os
     from unittest.mock import MagicMock
     from apps.server.app import create_app
+    # Force-set tokens in case an earlier test module cleared or overwrote them
+    os.environ["AGENT_TOKEN_GPT"]    = "JarvisGPT-Read-2024#"
+    os.environ["AGENT_TOKEN_CLAUDE"] = "JarvisClaude-RW-2024#"
+    os.environ["AGENT_TOKEN_JARVIS"] = "JarvisInternal-2024#"
+    os.environ["ORCHESTRATOR_TOKEN"] = "Lucasleo2104#"
     application = create_app(agent=MagicMock())
     application.config["TESTING"] = True
     return application

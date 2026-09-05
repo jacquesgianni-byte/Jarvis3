@@ -322,6 +322,59 @@ _declare(GenesisDeliveryRecord(
     commit      = "9e2f79d",
 ))
 
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-071",
+    display_name = "Governed Genesis Contribution Interface",
+    hypothesis   = "The contribution authority model can have one authoritative source of truth, consistently enforced at the HTTP boundary and store boundary, while preserving existing role boundaries and Chief governance.",
+    outcome      = "Proven. POST /genesis/contribute added to genesis_bp; _AUTHORITY_TABLE is the sole authority gate; _AGENT_ROLES untouched. GPT now has a governed Genesis-scope contribution pathway.",
+    sprints      = (
+        "Sprint-001: POST /genesis/contribute on genesis_bp, _AUTHORITY_TABLE sole gate, 23 tests -- commit 288876f",
+    ),
+    components_delivered = (
+        "POST /genesis/contribute endpoint",
+        "genesis_bp authority gate via _AUTHORITY_TABLE",
+    ),
+    tests_added = 23,
+    commit      = "288876f",
+))
+
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-072",
+    display_name = "Governed Record Content Sufficiency",
+    hypothesis   = "The existing governed Genesis record as returned by GET /genesis/<id> is content-sufficient for an uninformed participant to reconstruct the active Genesis, its sprint history, and its contribution chain, without conversational briefing, private memory, or session-injected context.",
+    outcome      = "Partially proven. GET /genesis/<id> now exposes execution evidence (commit, test counts) and last_successful_execution block. Cold reconstruction experiment pending.",
+    sprints      = (
+        "Sprint-001: suite counts embedded in GenesisContribution summary; last_successful_execution projected from jarvis/execution contributions -- 18 tests -- commit cb9d456",
+    ),
+    components_delivered = (
+        "last_successful_execution block in GET /genesis/<id> response",
+        "suite counts (tests_passed, tests_skipped, tests_failed) in contribution summary",
+    ),
+    tests_added = 18,
+    commit      = "cb9d456",
+))
+
+_declare(GenesisDeliveryRecord(
+    genesis_id   = "Genesis-073",
+    display_name = "Foundation A Memory Transplant",
+    hypothesis   = "A Jarvis-owned SituationalMemoryStore with a governed extraction pipeline is the minimum Foundation A required to make the Genesis-080 chain-event possible.",
+    outcome      = "Sprint-001 complete. SituationalMemoryStore, MemoryExtractionPipeline, three governed endpoints delivered. Taxonomy correction: fact added as sixth category after adversarial test. Extraction pipeline technically proven; wiring strategy pending Sprint-002.",
+    sprints      = (
+        "Sprint-001: SituationalMemoryStore (entries.json), MemoryExtractionPipeline, POST/GET/PATCH /memory/situational, 30 tests -- commit 6b236fa",
+        "Taxonomy correction: fact category added, extraction prompt updated (fact vs constraint, privacy guardrail, splitting instruction), 6 additional tests -- project_state.json updated",
+    ),
+    components_delivered = (
+        "SituationalMemoryStore (core/knowledge/situational_memory.py)",
+        "MemoryEntry (6 categories: fact/decision/question/constraint/intention/unresolved)",
+        "MemoryExtractionPipeline (AnthropicProvider, JSON parse, privacy guardrail)",
+        "POST /memory/situational",
+        "GET /memory/situational",
+        "PATCH /memory/situational/<id>",
+    ),
+    tests_added = 36,
+    commit      = "6b236fa",
+))
+
 # Add new records below as each Genesis is completed:
 # _declare(GenesisDeliveryRecord(
 #     genesis_id   = "Genesis-059",

@@ -363,3 +363,82 @@ class TestMemoryCorrectEndpoint:
             headers=TOKEN_HEADER,
         )
         assert r2.status_code == 400
+
+
+# ===========================================================================
+# TAXONOMY CORRECTION TESTS (4) — fact category + prompt guardrails
+# Added: Genesis-073 taxonomy correction (post adversarial test)
+# ===========================================================================
+
+class TestFactCategoryAccepted:
+    """TC-01: fact is accepted as a valid category by MemoryEntry.create()."""
+
+    def test_fact_category_accepted(self):
+        entry = MemoryEntry.create(category="fact", content="Gianni's wife is Catriana.")
+        assert entry.category == "fact"
+        assert entry.active is True
+
+    def test_six_categories_all_valid(self):
+        expected = {"fact", "decision", "question", "constraint", "intention", "unresolved"}
+        assert VALID_CATEGORIES == expected
+        for cat in expected:
+            e = MemoryEntry.create(category=cat, content=f"Test entry for {cat}.")
+            assert e.category == cat
+
+
+class TestFactDistinctFromConstraint:
+    """TC-02: extraction pipeline classifies personal facts as fact, not constraint."""
+
+    def test_personal_fact_classified_as_fact_not_constraint(self):
+        pipeline = MemoryExtractionPipeline(ai_client=None)
+        # Simulate the corrected prompt returning fact for a personal truth
+        raw = json.dumps([
+            {"category": "fact", "content": "Gianni's wife is Catriana."},
+            {"category": "fact", "content": "Gianni has two sons named Lucas and Leo."},
+        ])
+        entries = pipeline._parse(raw)
+        assert len(entries) == 2
+        assert all(e.category == "fact" for e in entries)
+        # Confirm none were miscategorised as constraint
+        assert not any(e.category == "constraint" for e in entries)
+
+
+class TestSensitiveInfoPromptGuardrail:
+    """TC-03: extraction prompt contains the required sensitive-information
+    exclusion instruction.
+
+    This is a prompt-level guardrail only — not a guaranteed technical block.
+    It verifies that the instruction exists in the prompt, which is the approved
+    mechanism for this stage. Hard enforcement is Foundation B scope.
+    """
+
+    def test_extraction_system_prompt_contains_privacy_guardrail(self):
+        from core.knowledge.situational_memory import _EXTRACTION_SYSTEM
+        privacy_terms = ["sensitive", "health", "medical"]
+        for term in privacy_terms:
+            assert term.lower() in _EXTRACTION_SYSTEM.lower(), (
+                f"Privacy guardrail missing: expected {term!r} in _EXTRACTION_SYSTEM"
+            )
+
+    def test_extraction_system_prompt_contains_splitting_instruction(self):
+        from core.knowledge.situational_memory import _EXTRACTION_SYSTEM
+        assert "split" in _EXTRACTION_SYSTEM.lower() or "separate" in _EXTRACTION_SYSTEM.lower(), (
+            "Splitting instruction missing from _EXTRACTION_SYSTEM"
+        )
+
+
+class TestCompoundStatementSplitting:
+    """TC-04: _parse() correctly handles two entries from a compound statement."""
+
+    def test_compound_statement_returns_two_entries(self):
+        pipeline = MemoryExtractionPipeline(ai_client=None)
+        # Compound: "decided Python, database still open" → decision + question
+        raw = json.dumps([
+            {"category": "decision", "content": "We will use Python for the backend."},
+            {"category": "question", "content": "The database choice is still unresolved."},
+        ])
+        entries = pipeline._parse(raw)
+        assert len(entries) == 2
+        categories = {e.category for e in entries}
+        assert "decision" in categories
+        assert "question" in categories

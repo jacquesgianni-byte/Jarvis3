@@ -41,22 +41,37 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-VALID_CATEGORIES = frozenset({"decision", "question", "constraint", "intention", "unresolved"})
+VALID_CATEGORIES = frozenset({"fact", "decision", "question", "constraint", "intention", "unresolved"})
 
 _EXTRACTION_SYSTEM = (
     "You are a memory extraction pipeline for a personal AI operating system. "
     "Your only job is to identify durable situational facts from conversation text "
     "and return them as a JSON array. "
     "Extract only facts that are likely to matter in a future session. "
-    "Do not extract small talk, greetings, or transient details. "
+    "Do not extract small talk, greetings, transient details, or general knowledge. "
+    "IMPORTANT — category definitions:\n"
+    "  fact       = a stable truth about the person or their world that provides "
+    "contextual grounding (name, family, relationships, preferences, location, "
+    "background). NOT a rule — something true about the world.\n"
+    "  decision   = something the person has decided or committed to.\n"
+    "  constraint = a rule, limit, or boundary that must be respected. "
+    "NOT a biographical fact — a constraint governs behaviour.\n"
+    "  intention  = something the person intends or plans to do.\n"
+    "  question   = something raised but not yet resolved.\n"
+    "  unresolved = something important that does not fit the above categories.\n"
+    "IMPORTANT — splitting: if a statement contains more than one distinct memory, "
+    "return each as a separate JSON object. Do not merge two memories into one entry.\n"
+    "IMPORTANT — privacy: do NOT extract sensitive health, medical, financial, or "
+    "deeply personal information (e.g. diagnoses, mental health, income, trauma) "
+    "unless the user has explicitly asked for it to be remembered.\n"
     "Reply with ONLY a JSON array -- no preamble, no explanation, no markdown fences."
 )
 
 _EXTRACTION_PROMPT_TEMPLATE = (
     "Extract durable situational memory entries from the following conversation text.\n\n"
     "For each entry produce a JSON object with these exact fields:\n"
-    '  \"category\": one of [\"decision\", \"question\", \"constraint\", \"intention\", \"unresolved\"]\n'
-    '  \"content\":  a concise, self-contained statement (one or two sentences max)\n\n'
+    '  \"category\": one of [\"fact\", \"decision\", \"question\", \"constraint\", \"intention\", \"unresolved\"]\n'
+    '  \"content\":  a concise, self-contained statement (one or two sentences max)\n\n"'
     "Return a JSON array. If nothing durable is found, return an empty array [].\n\n"
     "Conversation text:\n{text}"
 )

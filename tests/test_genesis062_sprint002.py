@@ -61,13 +61,13 @@ def _make_investigator(tmp_path) -> ReadOnlyInvestigator:
     import json
     ps = tmp_path / "project_state.json"
     ps.write_text(json.dumps({
-        "current_genesis":        "Genesis-068",
+        "current_genesis":        "Genesis-073",
         "current_sprint":         "Sprint-001",
         "current_mission":        "Test",
-        "last_completed_genesis": "Genesis-068",
-        "next_milestone":         "Genesis-069: TBD",
+        "last_completed_genesis": "Genesis-073",
+        "next_milestone":         "Genesis-074: TBD",
         "objectives":             [{"text": "Test obj", "done": True}],
-        "tests_passed":           5489,
+        "tests_passed":           4345,
         "tests_skipped":          33,
         "tests_failed":           0,
         "tests_commit":           "95b2be8",
