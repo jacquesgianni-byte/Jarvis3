@@ -5231,6 +5231,23 @@ class Agent:
 
 
 
+        # Genesis-073 Sprint-002: situational extraction on every turn.
+        # Runs BEFORE `if not facts: return` so non-explicit turns are captured.
+        # Skip if _handle_memory_detection() already spawned extraction this turn.
+        try:
+            _req_str = getattr(self.context, "last_user_message", "") or ""
+            _resp_str = response_message or ""
+            _already_done = getattr(self.context, "_situational_extraction_done", False)
+            if not _already_done and _req_str and len(_req_str.strip()) >= 20:
+                self._spawn_situational_extraction(
+                    turn_text=f"User: {_req_str}\nJarvis: {_resp_str}",
+                    explicit_stored=None,
+                )
+            if hasattr(self.context, "_situational_extraction_done"):
+                self.context._situational_extraction_done = False
+        except Exception:
+            pass
+
         if not facts:
 
 
@@ -5709,6 +5726,7 @@ class Agent:
         # Genesis-073 Sprint-002: spawn situational extraction after explicit store.
         # detection.key and detection.value are authoritative here — direct propagation,
         # no log reconstruction needed.
+        # Set flag so _post_turn() skips extraction for this turn (already handled).
         _explicit_stored_fact = f"{detection.key}={detection.value}"
         _raw_msg = self.context.last_user_message or ""
         _resp_msg = getattr(_mem_response, "message", "") or ""
@@ -5717,18 +5735,7 @@ class Agent:
                 turn_text=f"User: {_raw_msg}\nJarvis: {_resp_msg}",
                 explicit_stored=_explicit_stored_fact,
             )
-
-        # Genesis-073 Sprint-002: spawn situational extraction after explicit store.
-        # detection.key and detection.value are authoritative here -- direct propagation,
-        # no log reconstruction needed.
-        _explicit_stored_fact = f"{detection.key}={detection.value}"
-        _raw_msg = self.context.last_user_message or ""
-        _resp_msg = getattr(_mem_response, "message", "") or ""
-        if _raw_msg:
-            self._spawn_situational_extraction(
-                turn_text=f"User: {_raw_msg}\nJarvis: {_resp_msg}",
-                explicit_stored=_explicit_stored_fact,
-            )
+            self.context._situational_extraction_done = True
 
         # Genesis-043 Fix 1: Register named entity so pronouns resolve next turn. so pronouns resolve next turn.
 
@@ -11108,7 +11115,15 @@ class Agent:
                     _root = _pathlib.Path(__file__).resolve().parents[1]
                     mem_store = SituationalMemoryStore(_root / "data")
 
-                pipeline = MemoryExtractionPipeline(ai_client=self.ai)
+                # Use a dedicated AnthropicProvider for extraction, not self.ai.
+                # self.ai is the conversation AI — extraction is a separate concern.
+                # This keeps test mocks clean and telemetry unambiguous.
+                try:
+                    from core.ai.providers.anthropic_provider import AnthropicProvider as _AP
+                    _extraction_client = _AP()
+                except Exception:
+                    _extraction_client = self.ai
+                pipeline = MemoryExtractionPipeline(ai_client=_extraction_client)
 
                 prompt_text = turn_text
                 if explicit_stored:

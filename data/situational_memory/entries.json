@@ -4,13 +4,97 @@
     "category": "decision",
     "content": "Genesis-073 Sprint-001 store plumbing test entry — CORRECTED.",
     "timestamp": "2026-09-04T23:07:40.668801+00:00",
-    "active": true
+    "active": false
   },
   {
     "id": "7eea1f63-8354-4176-b04e-6f6438b21794",
     "category": "constraint",
     "content": "Test constraint entry for filter verification.",
     "timestamp": "2026-09-04T23:07:46.855598+00:00",
+    "active": false
+  },
+  {
+    "id": "fb6162b1-6708-4119-ae77-2987a791f9ae",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-07T00:20:06.603405+00:00",
+    "active": true
+  },
+  {
+    "id": "ea7636ae-5d01-4263-a856-5f942475dc81",
+    "category": "fact",
+    "content": "The user has two children named Lucas and Leo.",
+    "timestamp": "2026-09-07T00:20:06.739919+00:00",
+    "active": true
+  },
+  {
+    "id": "f4a56e5f-2d6e-4de5-8d2e-c0e4cd463deb",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-07T00:20:06.856785+00:00",
+    "active": true
+  },
+  {
+    "id": "55a1eabf-9b84-4558-bdfa-37fe41c2022b",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-07T00:20:06.867754+00:00",
+    "active": true
+  },
+  {
+    "id": "c954e3fa-8c06-42f5-9457-51e852bfa1a6",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-07T00:20:06.927860+00:00",
+    "active": true
+  },
+  {
+    "id": "6300491d-85f0-4b11-84c7-9b56c5d16800",
+    "category": "fact",
+    "content": "The user has two children named Lucas and Leo.",
+    "timestamp": "2026-09-07T00:20:06.953618+00:00",
+    "active": true
+  },
+  {
+    "id": "46ee10ac-de92-4f96-be53-572736a3f2c8",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-07T00:20:06.961945+00:00",
+    "active": true
+  },
+  {
+    "id": "52d724ab-b9be-4167-9972-83ad65477432",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-07T00:20:06.989345+00:00",
+    "active": true
+  },
+  {
+    "id": "da66a494-bb72-45b7-896b-8f094e0958f3",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-07T00:20:07.087972+00:00",
+    "active": true
+  },
+  {
+    "id": "a05cc3b8-6803-4bfd-9e45-2aa4412cda30",
+    "category": "fact",
+    "content": "The user's workplace is Academy of Healthcare.",
+    "timestamp": "2026-09-07T00:20:30.695472+00:00",
+    "active": true
+  },
+  {
+    "id": "cc8b297a-c992-4933-8451-b4a2cad1950d",
+    "category": "fact",
+    "content": "Sarah is the user's manager.",
+    "timestamp": "2026-09-07T00:20:30.851421+00:00",
+    "active": true
+  },
+  {
+    "id": "b2d60a06-bf89-4949-a6ed-901ad5547faa",
+    "category": "fact",
+    "content": "The user has two dogs named Rex and Tom.",
+    "timestamp": "2026-09-07T00:20:31.461250+00:00",
     "active": true
   }
 ]
