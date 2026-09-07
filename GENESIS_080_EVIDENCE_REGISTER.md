@@ -173,3 +173,84 @@ The acceptance period (4-week clock) does not start until:
 ---
 
 *This register is the authority. Not chat history. Not memory files. The repo.*
+
+---
+
+## Session 2 Observation Log -- 2026-09-07
+
+**Commit at session start:** `cf80df5`
+**Session duration:** ~8 minutes, 34 turns
+**Extraction status:** FIRING -- `[MEMORY] Situational extraction` confirmed in log
+
+### Quantitative results
+
+| Metric | Value |
+|---|---|
+| Turns in session | ~34 |
+| New entries stored | 14 (active) |
+| True positives | 5 |
+| False positives | 9 |
+| False negatives | occupation (partial miss -- captured late) |
+| **Precision** | **36%** (target: >=70%) |
+| Recall | Not yet formally measurable |
+| Sensitive info violations | 0 |
+| Latency impact | None observed -- background extraction transparent |
+
+### True positives
+- The user has two children named Lucas and Leo. [OK]
+- The user's name is Gianni. [OK]
+- The user has two dogs named Rex and Tom. [OK]
+- The user is a painter who paints houses. [OK]
+- The user is a painter by trade. [OK -- slight duplicate of above]
+
+### False positives -- two distinct failure modes
+
+**A. Hallucination (most serious):**
+- The user's lucky number is 7. -- never stated. Appeared twice.
+- The user's workplace is Academy of Healthcare. -- never stated.
+- Sarah is the user's manager. -- never stated.
+- The user's name is Ludovic. -- wrong name; Gianni was stated, not Ludovic.
+
+**B. Duplication:**
+- The user's favourite colour is blue. -- stored three times.
+- The user has two children named Lucas and Leo. -- stored twice.
+
+### Failure mode classification
+
+**Extraction integrity failures (Foundation A concern):**
+- Hallucination: extraction pipeline generating plausible but unsupported facts
+- Wrong attribution: name extracted incorrectly from earlier session context
+- Duplicate accumulation: no contradiction or deduplication mechanism
+
+**Memory utilisation failures (Foundation B concern -- separate):**
+- Jarvis could not recall occupation from situational store mid-session
+- Colour preference confused across corrections
+
+### Evidence standard established
+
+> A situational memory entry must be traceable to something actually expressed
+> by the user or explicitly authorised for memory.
+> **Plausibility is not evidence.**
+
+### Foundation B gate -- current status
+
+| Criterion | Status |
+|---|---|
+| Precision >=70% | FAIL -- 36% observed |
+| Zero hallucinated entries | FAIL -- 4 hallucinated entries confirmed |
+| Zero sensitive info violations | PASS |
+| At least one cross-session recall improvement | NOT YET |
+
+**Foundation B: BLOCKED**
+
+Hallucination is a disqualifying failure mode independent of the precision
+percentage. A memory system that invents facts is unsafe for downstream
+reliance regardless of how many correct facts it also captures.
+
+### What this session proved
+
+The extraction pipeline fires correctly and captures some genuine facts.
+The trust problem is not mechanical -- it is semantic. The pipeline cannot
+yet distinguish between facts the user stated and facts the LLM considers
+plausible. That distinction is the prerequisite for Foundation A being
+declared trustworthy.
