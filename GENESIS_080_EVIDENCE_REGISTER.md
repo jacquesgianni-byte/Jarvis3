@@ -254,3 +254,57 @@ The trust problem is not mechanical -- it is semantic. The pipeline cannot
 yet distinguish between facts the user stated and facts the LLM considers
 plausible. That distinction is the prerequisite for Foundation A being
 declared trustworthy.
+
+---
+
+## Session 3 Observation Log -- 2026-09-07
+
+**Commit at session start:** `47ce8e8` (provenance fix live)
+**Adversarial test result:** PASS (confirmed before session)
+
+### Observation Session 3 -- Provenance Fix Validation
+
+The revised extraction input successfully prevented Jarvis-generated response content from becoming situational memory in the observed session. The session produced one unique user-originated fact (Melbourne location) with two duplicate entries and no observed hallucinated facts. The provenance failure identified in Session 2 was not reproduced. Duplicate accumulation remains an unresolved quality issue and retrieval of situational memory remains unimplemented.
+
+### Quantitative results
+
+| Metric | Value |
+|---|---|
+| New active entries | 3 |
+| Unique true positives | 1 (Melbourne location) |
+| Hallucinated entries | 0 |
+| Duplicates | 2 |
+| Precision (unique/total) | 1/3 -- but 0 hallucinations |
+| Provenance failure reproduced | NO |
+
+### Layer analysis
+
+| Layer | Status |
+|---|---|
+| Layer 1 -- Provenance (no hallucination) | GREEN -- provenance fix validated |
+| Layer 2 -- Storage (persist user-stated facts) | GREEN |
+| Layer 3 -- Retrieval / understanding | RED -- unimplemented |
+
+### Evidence standard reaffirmed
+
+The provenance boundary is working in the observed Session-3 sample. This does not yet establish reliability across varied conversations -- that requires continued observation.
+
+### Duplication classification
+
+Duplication is classified as a KNOWN QUALITY DEFECT -- not currently a Foundation-A safety blocker, but not harmless. Duplicate entries expressing the same fact differently will affect downstream reasoning quality. Deduplication remains Foundation B scope.
+
+### Genesis-080 boundary observation
+
+Session 3 demonstrated the textbook boundary between Remember and Understand: the system stored the occupation fact (painter) in Session 2, yet Jarvis could not answer 'what is my job?' from the situational store in Session 3. Remember is partially implemented. Understand is not yet begun.
+
+### Foundation B gate -- updated status
+
+| Criterion | Status |
+|---|---|
+| Precision >=70% | NOT YET -- duplication inflates denominator |
+| Zero hallucinated entries (Session 3) | PASS |
+| Zero sensitive info violations | PASS |
+| Provenance fix validated | PASS |
+| At least one cross-session recall improvement | NOT YET |
+
+**Foundation B: BLOCKED** -- provenance fix validated but retrieval unimplemented and precision target not yet demonstrated across sufficient sessions.
