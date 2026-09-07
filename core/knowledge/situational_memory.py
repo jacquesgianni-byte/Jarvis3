@@ -44,6 +44,94 @@ logger = logging.getLogger(__name__)
 
 VALID_CATEGORIES = frozenset({"fact", "decision", "question", "constraint", "intention", "unresolved"})
 
+# ---------------------------------------------------------------------------
+# Layer 3 Retrieval -- vocabulary bridge
+# Genesis-073 Sprint-003
+# ---------------------------------------------------------------------------
+
+# Words stripped before overlap scoring
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "can", "what", "who", "where", "when", "why",
+    "how", "which", "that", "this", "these", "those", "and", "or", "but",
+    "in", "on", "at", "to", "for", "of", "with", "by", "from", "about",
+    "my", "me", "i", "you", "your", "we", "our", "us", "it", "its",
+    "tell", "give", "know", "think", "say", "said", "get", "let", "just",
+    "still", "now", "also", "not", "no", "yes", "please", "any", "some",
+})
+
+# Maps query intent signals to situational memory categories
+# Generic -- does not encode personal facts or user-specific answers
+QUERY_CATEGORY_MAP = {
+    "fact": frozenset({
+        "who", "what", "where", "name", "age", "old", "live", "job",
+        "work", "trade", "profession", "career", "occupation", "family",
+        "colour", "color", "favorite", "favourite", "preference", "like",
+        "children", "kids", "sons", "daughters", "wife", "husband", "partner",
+        "dog", "dogs", "pet", "pets", "home", "city", "located", "from",
+    }),
+    "decision": frozenset({
+        "decide", "decided", "decision", "agree", "agreed", "plan", "planned",
+        "chose", "choose", "chose", "choice", "commit", "committed",
+    }),
+    "constraint": frozenset({
+        "constraint", "rule", "must", "must not", "cannot", "allowed",
+        "forbidden", "boundary", "limit", "restrict", "restriction",
+    }),
+    "intention": frozenset({
+        "planning", "plan", "intend", "want", "goal", "aim", "trying",
+        "going to", "will", "hope", "aspire", "future",
+    }),
+    "question": frozenset({
+        "question", "ask", "asked", "unsure", "wondering", "unclear",
+        "query", "queried",
+    }),
+    "unresolved": frozenset({
+        "unresolved", "open", "pending", "unclear", "undecided", "still",
+        "not yet", "outstanding",
+    }),
+}
+
+# Expands query words to semantically related content words
+# Generic vocabulary bridge -- not person-specific
+CATEGORY_EXPANSIONS = {
+    "fact": {
+        "job":        {"work", "trade", "profession", "career", "occupation", "living"},
+        "work":       {"job", "trade", "profession", "career", "occupation", "living"},
+        "trade":      {"job", "work", "profession", "career", "occupation"},
+        "profession": {"job", "work", "trade", "career", "occupation"},
+        "career":     {"job", "work", "trade", "profession", "occupation"},
+        "colour":     {"color", "favourite", "favorite", "prefer", "preferred", "like"},
+        "color":      {"colour", "favourite", "favorite", "prefer", "preferred", "like"},
+        "home":       {"live", "location", "located", "based", "city", "address", "from"},
+        "live":       {"home", "location", "located", "based", "city", "address"},
+        "family":     {"kids", "children", "sons", "daughters", "wife", "husband", "partner"},
+        "kids":       {"children", "sons", "daughters", "family"},
+        "children":   {"kids", "sons", "daughters", "family"},
+        "wife":       {"partner", "spouse", "husband", "married"},
+        "husband":    {"partner", "spouse", "wife", "married"},
+        "dogs":       {"pets", "dog", "animals"},
+        "dog":        {"pets", "dogs", "animals"},
+        "pets":       {"dogs", "cats", "animals", "dog", "cat"},
+    },
+    "intention": {
+        "planning": {"intend", "intends", "plan", "want", "goal", "aim"},
+        "plan":     {"planning", "intend", "intends", "want", "goal"},
+        "goal":     {"planning", "plan", "intend", "want", "aim", "objective"},
+        "want":     {"planning", "plan", "intend", "goal", "aim"},
+    },
+    "constraint": {
+        "memory":      {"information", "data", "store", "storing", "personal", "remember"},
+        "remember":    {"store", "storing", "memory", "information", "data"},
+        "information": {"memory", "data", "store", "personal"},
+    },
+    "decision": {
+        "decided": {"decision", "agreed", "agreed", "chose", "choice", "committed"},
+        "plan":    {"decided", "agreed", "chose", "choice", "committed"},
+    },
+}
+
 _EXTRACTION_SYSTEM = (
     "You are a memory extraction pipeline for a personal AI operating system. "
     "Your only job is to identify durable situational facts from conversation text "
@@ -226,6 +314,82 @@ class SituationalMemoryStore:
                     logger.info("[MEMORY] Corrected entry id=%s", entry_id[:8])
                     return e
         return None
+
+    def query(
+        self,
+        request: str,
+        max_results: int = 3,
+    ) -> "list[MemoryEntry]":
+        """
+        Layer 3 Retrieval -- Genesis-073 Sprint-003.
+
+        Given a natural language request, select relevant active memories:
+          1. Map query words to a memory category (QUERY_CATEGORY_MAP).
+          2. Retrieve candidates from that category.
+          3. Expand query terms (CATEGORY_EXPANSIONS) to bridge vocabulary gaps.
+          4. Score candidates by word overlap with expanded query.
+          5. Return top max_results with score > 0.
+
+        Returns [] if no relevant memories found (no hallucination).
+        Never raises -- returns [] on any error.
+
+        Limitation: the expansion map is a deliberately bounded vocabulary
+        bridge, not general semantic intelligence. Novel vocabulary not in the
+        map will fall through to zero score and return nothing.
+        """
+        try:
+            if not request or not request.strip():
+                return []
+
+            words = frozenset(re.sub(r'[^\w\s]', ' ', request.lower()).split()) - _STOPWORDS
+
+            # Step 1: determine most likely category from query words
+            category_scores: dict[str, int] = {}
+            for cat, signals in QUERY_CATEGORY_MAP.items():
+                score = len(words & signals)
+                if score > 0:
+                    category_scores[cat] = score
+
+            if not category_scores:
+                # No category signal -- search all active entries
+                candidates = self.get_all(active_only=True)
+                matched_category = None
+            else:
+                matched_category = max(category_scores, key=lambda c: category_scores[c])
+                candidates = self.get_all(category=matched_category, active_only=True)
+
+            if not candidates:
+                return []
+
+            # Step 2: expand query terms
+            expansions = CATEGORY_EXPANSIONS.get(matched_category, {}) if matched_category else {}
+            expanded_words = set(words)
+            for word in list(words):
+                if word in expansions:
+                    expanded_words.update(expansions[word])
+
+            # Step 3: score candidates by word overlap
+            scored: list[tuple[int, MemoryEntry]] = []
+            for entry in candidates:
+                content_words = frozenset(__import__('re').sub(r'[^\w\s]', ' ', entry.content.lower()).split()) - _STOPWORDS
+                score = len(expanded_words & content_words)
+                if score > 0:
+                    scored.append((score, entry))
+
+            if not scored:
+                return []
+
+            scored.sort(key=lambda t: t[0], reverse=True)
+            results = [entry for _, entry in scored[:max_results]]
+            logger.info(
+                "[MEMORY] Layer3 query: category=%s candidates=%d matched=%d",
+                matched_category, len(candidates), len(results),
+            )
+            return results
+
+        except Exception as exc:
+            logger.warning("[MEMORY] Layer3 query failed silently: %s", exc)
+            return []
 
     def deactivate(self, entry_id: str) -> bool:
         """Set active=False for an entry. Returns True if found."""

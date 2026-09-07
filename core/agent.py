@@ -11049,6 +11049,51 @@ class Agent:
 
 
 
+        # Layer 3 Retrieval -- Genesis-073 Sprint-003
+        # Last chance before final fallback: check SituationalMemoryStore.
+        # Only fires when ALL existing retrieval has missed.
+        # Jarvis selects <=3 candidates; LLM receives bounded, selected context.
+        try:
+            _mem_store = getattr(self, "_situational_store_cache", None)
+            if _mem_store is None:
+                try:
+                    from flask import current_app
+                    _mem_store = current_app.config.get("situational_memory_store")
+                except Exception:
+                    pass
+            if _mem_store is None:
+                import pathlib as _pl
+                from core.knowledge.situational_memory import SituationalMemoryStore as _SMS
+                _root = _pl.Path(__file__).resolve().parents[1]
+                _mem_store = _SMS(_root / "data")
+                self._situational_store_cache = _mem_store
+
+            _sit_results = _mem_store.query(request)
+            if _sit_results:
+                _sit_context = "\n".join(
+                    f"- {e.content}" for e in _sit_results
+                )
+                _sit_prompt = (
+                    f"Answer the user's question using only the following "
+                    f"known facts. If the facts do not answer the question, "
+                    f"say you don't know.\n\n"
+                    f"Known facts:\n{_sit_context}\n\n"
+                    f"User question: {request}"
+                )
+                with telemetry.stage("ai_manager"):
+                    _sit_response = self.ai.ask(_sit_prompt)
+                if _sit_response.success:
+                    self.context.last_skill = "situational_memory_retrieval"
+                    self.logger.info(
+                        "[MEMORY] Layer3 retrieval answered with %d candidate(s)",
+                        len(_sit_results),
+                    )
+                    return _sit_response
+        except Exception as _sit_exc:
+            self.logger.warning(
+                "[MEMORY] Layer3 retrieval failed silently: %s", _sit_exc
+            )
+
         return Response(
 
 
