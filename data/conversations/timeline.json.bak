@@ -838,5 +838,29 @@
     "raw": "I finished the shed last Sunday.",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "d624d62e-79f3-4ba6-b909-549c1178e623",
+    "session_id": "cecfa3e0-5130-4ddf-b77f-4d13720976d0",
+    "event_type": "General",
+    "value": "I finished the shed last Sunday",
+    "turn": 3,
+    "timestamp": "2026-08-19T03:10:12Z",
+    "source": "auto",
+    "raw": "I finished the shed last Sunday.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "e1cdf08a-c097-4a96-9742-c09b57fc7e08",
+    "session_id": "50280832-37c1-4ee9-a3bb-5528f1d8cce1",
+    "event_type": "Person",
+    "value": "job",
+    "turn": 9,
+    "timestamp": "2026-09-07T00:31:39Z",
+    "source": "auto",
+    "raw": "painting is my job",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]

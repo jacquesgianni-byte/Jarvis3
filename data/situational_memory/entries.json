@@ -96,5 +96,75 @@
     "content": "The user has two dogs named Rex and Tom.",
     "timestamp": "2026-09-07T00:20:31.461250+00:00",
     "active": true
+  },
+  {
+    "id": "e2287d1f-6141-4663-aa16-1f15deb1612e",
+    "category": "fact",
+    "content": "The user is a painter who paints houses (house painter / painting contractor).",
+    "timestamp": "2026-09-07T00:36:31.707811+00:00",
+    "active": true
+  },
+  {
+    "id": "104d6947-364c-4290-9fe3-32f1c0325687",
+    "category": "fact",
+    "content": "The user is a painter by trade.",
+    "timestamp": "2026-09-07T00:36:46.931768+00:00",
+    "active": true
+  },
+  {
+    "id": "10dc01f0-b7d2-4bdd-99be-59efbcf451d0",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-07T03:41:21.806213+00:00",
+    "active": true
+  },
+  {
+    "id": "aba36648-6107-4fdf-b083-ea59323b8e55",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-07T03:41:21.849490+00:00",
+    "active": true
+  },
+  {
+    "id": "1bf6efa2-cacd-4448-b5c2-45302f870e8e",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-07T03:41:21.879738+00:00",
+    "active": true
+  },
+  {
+    "id": "9745c7e0-e14f-4738-a3a0-0744406aad66",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-07T03:41:22.198621+00:00",
+    "active": true
+  },
+  {
+    "id": "b7a2e170-20ea-4dfa-a63f-e9179fd6c30e",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-07T03:41:22.220587+00:00",
+    "active": true
+  },
+  {
+    "id": "a5e4aebc-d6ff-4960-8abe-f865d0a13b8b",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-07T03:41:22.260236+00:00",
+    "active": true
+  },
+  {
+    "id": "5a72689a-d35c-4506-86b9-c1730038da6e",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-07T03:41:22.404163+00:00",
+    "active": true
+  },
+  {
+    "id": "321d2295-8979-4796-b537-61c3c46d4fed",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-07T03:41:23.028731+00:00",
+    "active": true
   }
 ]

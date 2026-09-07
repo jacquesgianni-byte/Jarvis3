@@ -442,3 +442,57 @@ class TestCompoundStatementSplitting:
         categories = {e.category for e in entries}
         assert "decision" in categories
         assert "question" in categories
+
+
+class TestProvenanceInstruction:
+    """PV-01/02/03: Provenance boundary -- only user-originated content is extracted."""
+
+    def test_prompt_contains_provenance_rule(self):
+        from core.knowledge.situational_memory import _EXTRACTION_SYSTEM
+        assert "User said:" in _EXTRACTION_SYSTEM, (
+            "Provenance rule missing: prompt must reference 'User said:' section"
+        )
+        assert "authoritative source" in _EXTRACTION_SYSTEM, (
+            "Provenance rule missing: prompt must state what is authoritative"
+        )
+        assert "Context only" in _EXTRACTION_SYSTEM, (
+            "Provenance rule missing: prompt must label Jarvis response as context only"
+        )
+
+    def test_provenance_labels_in_extraction_input(self):
+        """PV-02: Input format correctly labels user utterance vs Jarvis response."""
+        user_utterance = "what do you know about me?"
+        jarvis_response = "Your lucky number is 7 and you work at Academy of Healthcare."
+        turn_text = (
+            f"User said: {user_utterance}\n\n"
+            f"Context only (do not extract facts from this -- "
+            f"Jarvis response is never an authoritative source "
+            f"of user memory): {jarvis_response}"
+        )
+        assert "User said:" in turn_text
+        assert "Context only" in turn_text
+        assert user_utterance in turn_text
+        assert jarvis_response in turn_text
+
+    def test_positive_control_user_stated_fact_extractable(self):
+        """PV-03: Facts the user actually states ARE extracted (positive control)."""
+        import json
+        from unittest.mock import MagicMock
+        ai = MagicMock()
+        ai.ask.return_value = MagicMock(
+            success=True,
+            message=json.dumps([
+                {"category": "fact", "content": "The user's favourite colour is blue."}
+            ]),
+        )
+        pipeline = MemoryExtractionPipeline(ai_client=ai)
+        turn_text = (
+            "User said: my favourite colour is blue\n\n"
+            "Context only (do not extract facts from this -- "
+            "Jarvis response is never an authoritative source "
+            "of user memory): Got it, I will remember that."
+        )
+        entries = pipeline.extract(turn_text)
+        assert len(entries) == 1
+        assert entries[0].category == "fact"
+        assert "blue" in entries[0].content.lower()

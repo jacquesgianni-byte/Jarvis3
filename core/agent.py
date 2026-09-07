@@ -5240,7 +5240,12 @@ class Agent:
             _already_done = getattr(self.context, "_situational_extraction_done", False)
             if not _already_done and _req_str and len(_req_str.strip()) >= 20:
                 self._spawn_situational_extraction(
-                    turn_text=f"User: {_req_str}\nJarvis: {_resp_str}",
+                    turn_text=(
+                        f"User said: {_req_str}\n\n"
+                        f"Context only (do not extract facts from this -- "
+                        f"Jarvis response is never an authoritative source "
+                        f"of user memory): {_resp_str}"
+                    ),
                     explicit_stored=None,
                 )
             if hasattr(self.context, "_situational_extraction_done"):
@@ -5732,7 +5737,12 @@ class Agent:
         _resp_msg = getattr(_mem_response, "message", "") or ""
         if _raw_msg:
             self._spawn_situational_extraction(
-                turn_text=f"User: {_raw_msg}\nJarvis: {_resp_msg}",
+                turn_text=(
+                    f"User said: {_raw_msg}\n\n"
+                    f"Context only (do not extract facts from this -- "
+                    f"Jarvis response is never an authoritative source "
+                    f"of user memory): {_resp_msg}"
+                ),
                 explicit_stored=_explicit_stored_fact,
             )
             self.context._situational_extraction_done = True
