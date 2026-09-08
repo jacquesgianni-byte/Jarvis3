@@ -1,4 +1,4 @@
-"""
+﻿"""
 Memory Detector
 
 Detects personal facts in user messages using deterministic pattern matching.
@@ -66,6 +66,27 @@ _PET_CONTEXT_RE = re.compile(
 # TODO (Genesis-026): Consider a tokenizer for hyphenated/apostrophe names.
 _NAME_LIST_RE = re.compile(
     r"^[A-Za-z]+(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+)[A-Za-z]+)*\.?$",
+    re.IGNORECASE,
+)
+
+# Repair 2 (Genesis-073 Repair): tag-question tail detector.
+# re.match() matches from the start but does not consume the full string.
+# "I have two dogs, don't I?" matches the pets prefix "I have two dogs";
+# the unconsumed tail ", don't I?" reveals a tag question, not a declaration.
+# This regex matches the interrogative tail structures that signal a question.
+_TAG_QUESTION_TAIL_RE = re.compile(
+    r",?\s*(?:"
+    r"don\'t\s+i"
+    r"|didn\'t\s+i"
+    r"|haven\'t\s+i"
+    r"|hasn\'t\s+i"
+    r"|isn\'t\s+it"
+    r"|aren\'t\s+(?:i|they|we)"
+    r"|wasn\'t\s+i"
+    r"|weren\'t\s+(?:i|they|we)"
+    r"|right"
+    r"|correct"
+    r")\s*\??\s*$",
     re.IGNORECASE,
 )
 
@@ -317,6 +338,18 @@ class MemoryDetector:
         for pattern, key, value_group, confidence in _FIXED_KEY_PATTERNS:
             match = pattern.match(message)
             if match:
+                # Repair 2: reject if the unconsumed tail is an interrogative tag.
+                # re.match() does not require consuming the full string, so
+                # "I have two dogs, don't I?" matches "I have two dogs" at start.
+                # The tail ", don't I?" reveals a confirmation question, not a fact.
+                tail = message[match.end():]
+                if tail.strip() and _TAG_QUESTION_TAIL_RE.search(tail):
+                    logger.debug(
+                        "[REPAIR2] Fixed pattern rejected: interrogative tail %r (key=%r)",
+                        tail.strip(), key,
+                    )
+                    continue
+
                 # Special case: pets pattern uses groups 1+2 to build value
                 if key == "pets" and value_group == 0:
                     value = f"{match.group(1)} {match.group(2)}".strip()

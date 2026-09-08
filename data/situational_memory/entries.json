@@ -243,5 +243,285 @@
     "content": "The user's name is Gianni.",
     "timestamp": "2026-09-07T10:36:35.078612+00:00",
     "active": true
+  },
+  {
+    "id": "558a2654-4811-4404-80a3-b787b5c9d284",
+    "category": "fact",
+    "content": "The user is a painter by trade and paints houses professionally.",
+    "timestamp": "2026-09-07T10:44:34.979834+00:00",
+    "active": true
+  },
+  {
+    "id": "85473dca-83c9-45fc-9915-1b6ad0999b51",
+    "category": "fact",
+    "content": "The user is a painter by trade and paints houses professionally.",
+    "timestamp": "2026-09-07T10:44:35.036675+00:00",
+    "active": true
+  },
+  {
+    "id": "b36bcdec-e6f2-49d8-bd60-3c080a51af42",
+    "category": "fact",
+    "content": "The user is working on a project called Jarvis with the goal of making it genuinely useful for people.",
+    "timestamp": "2026-09-07T10:46:17.542046+00:00",
+    "active": true
+  },
+  {
+    "id": "f8b50669-b4d5-4372-b67a-f172d030db47",
+    "category": "fact",
+    "content": "The user is working on a project called Jarvis with the goal of making it genuinely useful for people.",
+    "timestamp": "2026-09-07T10:46:21.746631+00:00",
+    "active": true
+  },
+  {
+    "id": "615e2aae-2a68-4ed1-8a6c-40c0df52cd05",
+    "category": "constraint",
+    "content": "Jarvis must not pretend to know something when it doesn't — honesty about uncertainty is important to the user.",
+    "timestamp": "2026-09-07T10:46:47.414146+00:00",
+    "active": true
+  },
+  {
+    "id": "68a53b41-4c2d-407a-89b4-92a79739213f",
+    "category": "fact",
+    "content": "The user likes full cream milk.",
+    "timestamp": "2026-09-07T10:48:33.904752+00:00",
+    "active": true
+  },
+  {
+    "id": "a1f562f7-0769-4b70-b04c-7e45367f85ad",
+    "category": "fact",
+    "content": "User likes coffee.",
+    "timestamp": "2026-09-07T10:49:01.082344+00:00",
+    "active": true
+  },
+  {
+    "id": "7f290592-ec44-48f4-8528-8298adf0b6b0",
+    "category": "fact",
+    "content": "User prefers full cream milk.",
+    "timestamp": "2026-09-07T10:49:01.082455+00:00",
+    "active": true
+  },
+  {
+    "id": "619d3707-62e5-4d56-898b-aca2c2b5fe5e",
+    "category": "fact",
+    "content": "The user is working on a project called Jarvis, which is an AI currently under development.",
+    "timestamp": "2026-09-07T10:52:11.133200+00:00",
+    "active": true
+  },
+  {
+    "id": "5fb19c54-ba60-4717-9112-78000690eacb",
+    "category": "intention",
+    "content": "The user is thinking about taking a trip away next year but has not yet decided on a destination.",
+    "timestamp": "2026-09-08T06:07:48.822630+00:00",
+    "active": true
+  },
+  {
+    "id": "c5ec016d-ccbf-48ca-bf1c-ec39389f6842",
+    "category": "intention",
+    "content": "The user is thinking about taking a trip away next year but has not yet decided on a destination.",
+    "timestamp": "2026-09-08T06:07:49.340146+00:00",
+    "active": true
+  },
+  {
+    "id": "6306d789-c980-43fc-be91-caef1882bd16",
+    "category": "fact",
+    "content": "The user's wife is supportive of him continuing with his project.",
+    "timestamp": "2026-09-08T06:16:18.701395+00:00",
+    "active": true
+  },
+  {
+    "id": "73f7b777-04b2-4230-990f-1bf9b33f88e1",
+    "category": "fact",
+    "content": "The user has two dogs.",
+    "timestamp": "2026-09-08T06:26:14.796240+00:00",
+    "active": true
+  },
+  {
+    "id": "5b89fe0e-7671-4d21-af57-cf06d6ba7c8e",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-08T10:57:51.828190+00:00",
+    "active": true
+  },
+  {
+    "id": "583a57db-444e-4213-93a1-dcf5bc759c1c",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T10:57:53.842755+00:00",
+    "active": true
+  },
+  {
+    "id": "65d47c29-6382-4eac-9720-5db3b6c9d6c1",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T10:57:54.025250+00:00",
+    "active": true
+  },
+  {
+    "id": "a376c94c-bd56-4bbe-92a4-271a0cfc157d",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-08T10:57:54.076695+00:00",
+    "active": true
+  },
+  {
+    "id": "fb83dd1d-7214-49ce-8067-06d75d54e078",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T10:57:54.456377+00:00",
+    "active": true
+  },
+  {
+    "id": "f4635858-bb23-45fa-857a-e5496aaa30de",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-08T10:57:54.930886+00:00",
+    "active": true
+  },
+  {
+    "id": "de99c4c6-6e64-42aa-9db6-54d0b1e312df",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-08T11:12:23.528415+00:00",
+    "active": true
+  },
+  {
+    "id": "1ac194b5-e234-452f-97ea-3e296c735be9",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-08T11:12:25.956256+00:00",
+    "active": true
+  },
+  {
+    "id": "9c05296d-efde-40c8-913a-392b197c503b",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:12:27.990281+00:00",
+    "active": true
+  },
+  {
+    "id": "a408c50e-7ac1-4b3c-b117-958f975c13fc",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:12:28.274051+00:00",
+    "active": true
+  },
+  {
+    "id": "5ee2767b-5dac-420d-929a-8c4b06d5dad0",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-08T11:12:28.284248+00:00",
+    "active": true
+  },
+  {
+    "id": "9540e2d8-12c1-41e1-8504-d2a79ada15c8",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:12:28.502426+00:00",
+    "active": true
+  },
+  {
+    "id": "40bfb83a-fd77-4ad0-9196-5cd28cfb72de",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-08T11:14:45.464149+00:00",
+    "active": true
+  },
+  {
+    "id": "c669de58-1e60-4120-bc74-db63418bd87e",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-08T11:14:50.371549+00:00",
+    "active": true
+  },
+  {
+    "id": "5e7c1cd9-06b3-4995-a253-8e670d81758e",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:14:53.436398+00:00",
+    "active": true
+  },
+  {
+    "id": "df227c0c-02d6-4d10-bf6b-e6376b2f6305",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:14:53.449171+00:00",
+    "active": true
+  },
+  {
+    "id": "64e12aa0-f47a-4f92-ae9a-ba6ee47c799d",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-08T11:14:53.654182+00:00",
+    "active": true
+  },
+  {
+    "id": "e837657f-0a17-435d-bb6e-a978f6519400",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-08T11:14:53.969897+00:00",
+    "active": true
+  },
+  {
+    "id": "6e50a35b-a822-4e30-b3ab-47fe521a6ef3",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:14:56.530882+00:00",
+    "active": true
+  },
+  {
+    "id": "36934b2f-b447-4659-a5fe-d6e5be36ed4c",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-08T11:19:30.027491+00:00",
+    "active": true
+  },
+  {
+    "id": "e395692b-c2e6-4142-9458-4cb72423ec5a",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-08T11:19:33.533667+00:00",
+    "active": true
+  },
+  {
+    "id": "ab844db3-72bf-4b0a-8322-afb5184b2ec6",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:19:34.648812+00:00",
+    "active": true
+  },
+  {
+    "id": "b0b0a9bb-5601-4834-8fca-a5cccd63c707",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-08T11:19:34.691651+00:00",
+    "active": true
+  },
+  {
+    "id": "49b8e49a-ebbd-465a-a2c2-5bb7e9a52524",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:19:34.744667+00:00",
+    "active": true
+  },
+  {
+    "id": "295ee5a1-5790-4212-882d-f8609bf705bd",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-08T11:19:34.962726+00:00",
+    "active": true
+  },
+  {
+    "id": "7c163ccd-4235-4144-b534-a399a85db894",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-08T11:19:35.477530+00:00",
+    "active": true
+  },
+  {
+    "id": "a83ee415-e7d8-40d3-ab4f-54946b6ce74b",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-08T11:19:35.578230+00:00",
+    "active": true
   }
 ]

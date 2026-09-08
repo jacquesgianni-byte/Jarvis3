@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Entity Group Registry (Genesis-025 Sprint-001)
 
 Defines the data model and schema registry for generic slot completion.
@@ -87,8 +87,12 @@ _QUANTITY_PATTERN = re.compile(
 
 # Words that signal possession ("I have", "I own", "I've got", etc.)
 # CV-007: added optional "also" to match "I also have X" / "I also own X"
+# Repair 4 (Genesis-073 Repair): negative lookahead (?!\s+been\b) prevents
+# "I have been [verb]-ing" (past progressive auxiliary) from matching as
+# possession. "I have been talking about the project" would otherwise fire
+# detect_declaration() when "project" appears in _KIND_PATTERNS.
 _POSSESSION_SIGNAL = re.compile(
-    r"\bi\s+(?:also\s+)?(?:have|own|possess|keep)\b|\bi(?:'ve| have)\s+(?:also\s+)?got\b",
+    r"\bi\s+(?:also\s+)?(?:have(?!\s+been\b)|own|possess|keep)\b|\bi(?:'ve| have)\s+(?:also\s+)?got\b",
     re.IGNORECASE,
 )
 

@@ -7028,19 +7028,29 @@ class Agent:
 
 
 
-                if slot_name and slot_value:
-
-
-
-
-
+                # Repair 1 (Genesis-073 Repair): Guard false-positive SLOT_FILLED.
+                # ConversationRouter occasionally classifies ordinary conversational
+                # statements as slot fills, returning "Got it. I've noted '...'" before
+                # the message reaches intent routing or the AI fallback.
+                # Accept SLOT_FILLED only when slot_name is a declared schema slot.
+                # Undeclared names mean the router misfired: fall through to Step 7.
+                _DECLARED_SLOT_NAMES = frozenset({
+                    "pet names", "people names", "vehicle names",
+                    "instrument names", "server names", "project names",
+                    "names", "breeds", "colours", "ages", "roles",
+                    "makes", "plates", "types", "statuses", "locations",
+                    "ips", "owners",
+                })
+                if slot_name not in _DECLARED_SLOT_NAMES:
+                    self.logger.info(
+                        "[REPAIR1] SLOT_FILLED suppressed: slot_name=%r not a declared slot "
+                        "-- falling through to intent routing.",
+                        slot_name,
+                    )
+                    # Do NOT store, do NOT return. Fall through to Step 7 (intent/AI).
+                elif slot_name and slot_value:
                     self.skills.get("memory").remember(slot_name, slot_value)
-
-
-
-
-
-                return Response(success=True, message=f"Got it. I've noted {slot_value!r}.")
+                    return Response(success=True, message=f"Got it. I've noted {slot_value!r}.")
 
 
 
@@ -8583,61 +8593,37 @@ class Agent:
 
 
 
+                                # Repair 3 (Genesis-073 Repair): route unanswered memory questions to AI.
+                # MemorySkill.execute() handles both recall (good) and store (bad for questions).
+                # We call it as before, but when it returns memory_miss=True for a question,
+                # we fall through to the AI fallback instead of returning an empty/storage response.
                 response = self._execute_skill("memory", request)
 
-
-
-
-
-
-
-
-
-
-
                 if response.data and response.data.get("memory_miss"):
-
-
-
-
-
-                    reasoned = self.skills.get("reasoning").infer_attribute(
-
-
-
-
-
-                        response.data.get("attribute", "")
-
-
-
-
-
+                    _req_stripped = request.strip()
+                    _WH_PREFIXES = (
+                        "what ", "who ", "when ", "where ", "how ", "which ",
+                        "do ", "did ", "don't ", "didn't ", "haven't ", "hasn't ",
+                        "so how", "so what", "so who",
                     )
+                    _is_question = (
+                        _req_stripped.endswith("?")
+                        or _req_stripped.lower().startswith(_WH_PREFIXES)
+                    )
+                    if _is_question:
+                        self.logger.info(
+                            "[REPAIR3] Memory miss on question -- routing to AI fallback."
+                        )
+                        # Fall through to AI fallback below; do not return here.
+                    else:
+                        reasoned = self.skills.get("reasoning").infer_attribute(
+                            response.data.get("attribute", "")
+                        )
+                        if reasoned is not None:
+                            return reasoned
 
-
-
-
-
-                    if reasoned is not None:
-
-
-
-
-
-                        return reasoned
-
-
-
-
-
-
-
-
-
-
-
-                return response
+                else:
+                    return response
 
 
 
