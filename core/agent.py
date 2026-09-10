@@ -4256,7 +4256,7 @@ class Agent:
 
 
 
-                self.session.active_topic = None
+                self.session._active_topic = None
 
 
 

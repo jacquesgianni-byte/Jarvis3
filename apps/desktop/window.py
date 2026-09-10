@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis OS Main Window (Genesis-030 Sprint-002)
 
 Genesis-030 Sprint-001: Responsive Conversation Framework
