@@ -1186,5 +1186,101 @@
     "raw": "I've been thinking about getting away next year, but I haven't decided where I want to go yet.",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "82599b12-50ca-4768-8294-2b49552b23fa",
+    "session_id": "93eafb01-5924-4214-95e3-8380295650f9",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 0,
+    "timestamp": "2026-09-10T08:54:37Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "3c11e509-5142-4000-9da2-58afb1a5a1df",
+    "session_id": "93eafb01-5924-4214-95e3-8380295650f9",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 1,
+    "timestamp": "2026-09-10T08:54:37Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "52d85776-9a04-4809-9a33-56e0921ce3e0",
+    "session_id": "7a7326d0-21b0-42c3-883e-cfdecee2ffae",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 0,
+    "timestamp": "2026-09-10T08:56:02Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "892e2568-96d6-4350-9682-5e9ab3e9c91f",
+    "session_id": "7a7326d0-21b0-42c3-883e-cfdecee2ffae",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 1,
+    "timestamp": "2026-09-10T08:56:03Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "052f92d5-edf7-4f69-a59a-6c02b9a47817",
+    "session_id": "72197674-ea6f-4eb6-af8d-51f6def44d8c",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 0,
+    "timestamp": "2026-09-10T08:58:31Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "b3c71dc0-70cf-461c-b964-8e708aa7bae2",
+    "session_id": "72197674-ea6f-4eb6-af8d-51f6def44d8c",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 1,
+    "timestamp": "2026-09-10T08:58:31Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "3eafa50c-0f53-4bf1-8627-95065846d191",
+    "session_id": "d179fdc6-d860-4bcb-92f6-755e93362298",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 0,
+    "timestamp": "2026-09-10T09:22:49Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "59a0122e-5ade-4313-821d-27f6080b3d82",
+    "session_id": "d179fdc6-d860-4bcb-92f6-755e93362298",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 1,
+    "timestamp": "2026-09-10T09:22:49Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]

@@ -7320,7 +7320,26 @@ class Agent:
         # Response is a brief acknowledgement; EVENT memory still stores in _post_turn.
         if conv_decision.decision_type == DecisionType.ANSWER_DIRECTLY:
             _understood = conv_decision.payload.get("understood_types", [])
-            if _understood:
+            # Repair 4 (Genesis-073): Guard ANSWER_DIRECTLY against questions.
+            # If the request ends with '?' or starts with a WH-word/auxiliary,
+            # UnderstandingStage may have extracted a surface EVENT from a question
+            # clause. In that case fall through to intent routing so the AI
+            # can answer rather than echoing the question back as an ack.
+            _req_stripped_ad = request.strip()
+            _WH_PREFIXES_AD = (
+                "what ", "who ", "when ", "where ", "why ", "how ",
+                "which ", "whose ", "whom ",
+                "do ", "does ", "did ", "don't ", "doesn't ", "didn't ",
+                "is ", "are ", "was ", "were ", "will ", "would ",
+                "can ", "could ", "should ", "shall ", "may ", "might ",
+                "have ", "has ", "had ",
+            )
+            _is_question_ad = (
+                _req_stripped_ad.endswith("?")
+                or _req_stripped_ad.lower().startswith(_WH_PREFIXES_AD)
+                or "?" in _req_stripped_ad
+            )
+            if _understood and not _is_question_ad:
                 self.logger.info(
                     "[AGENT] ANSWER_DIRECTLY: understood %s",
                     ", ".join(_understood),
@@ -7333,6 +7352,11 @@ class Agent:
                 self._post_turn(request, _ack.message)
                 self._check_intel_cycle()
                 return _ack
+            elif _is_question_ad and _understood:
+                self.logger.info(
+                    "[REPAIR4] ANSWER_DIRECTLY suppressed: request contains question "
+                    "-- falling through to intent routing."
+                )
 
 
 

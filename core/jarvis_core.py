@@ -74,7 +74,15 @@ class JarvisCore:
         telemetry.bind(token)
 
         with telemetry.stage("agent_total"):
-            response = self.agent.process(request, token=token)
+            try:
+                response = self.agent.process(request, token=token)
+            except Exception as _diag_exc:
+                import traceback as _tb
+                _diag_path = r"C:\Users\ljmas\Desktop\jarvis_diag.log"
+                with open(_diag_path, "a", encoding="utf-8") as _f:
+                    _f.write(f"\n=== CRASH for request={request!r} ===\n")
+                    _f.write(_tb.format_exc())
+                raise
 
         if not self.interrupts.complete(token):
             return None
