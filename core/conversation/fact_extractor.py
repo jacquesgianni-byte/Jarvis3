@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Conversation Memory â€” Fact Extractor (Genesis-020 Sprint-001)
 
 Deterministic pattern-based extraction of facts from natural language.
@@ -136,7 +136,7 @@ def _is_preference_subject(name: str) -> bool:
 _TASK_PATTERNS = [
     re.compile(r"\bwe(?:'re| are) (?:starting|beginning|kicking off|about to start)\s+(.+)", re.IGNORECASE),
     re.compile(r"\bi(?:'m| am) (?:starting|beginning|kicking off|about to start)\s+(.+)", re.IGNORECASE),
-    re.compile(r"\bnext(?:\s+up)?\s+(?:is\s+)?(.+)", re.IGNORECASE),
+    re.compile(r"\bnext(?:\s+up)?\s+is\s+(.+)", re.IGNORECASE),  # Fix: require explicit "is" -- bare "next year/time" is not a task declaration
     re.compile(r"\bstarting\s+(genesis[- ]?[\d\.]+)", re.IGNORECASE),
 ]
 

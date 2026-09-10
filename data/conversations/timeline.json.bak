@@ -1150,5 +1150,29 @@
     "raw": "“I've been watching a bit of TV lately. Have you seen anything good?”",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "0c2dcfe7-9f13-4416-bafa-b7aea5534718",
+    "session_id": "25ae40ae-aef9-4e0b-9e72-9645f4fa5c1c",
+    "event_type": "General",
+    "value": "“I've been watching a bit of TV lately. Have you seen anything good?”",
+    "turn": 24,
+    "timestamp": "2026-09-08T06:29:53Z",
+    "source": "auto",
+    "raw": "“I've been watching a bit of TV lately. Have you seen anything good?”",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "dace2021-7bbb-469f-ae06-57e503ec3552",
+    "session_id": "53ce611b-2842-49d5-878f-5d2e4dcbb917",
+    "event_type": "Task",
+    "value": "year, but I haven't decided where I want to go yet",
+    "turn": 1,
+    "timestamp": "2026-09-08T11:26:44Z",
+    "source": "auto",
+    "raw": "I've been thinking about getting away next year, but I haven't decided where I want to go yet.",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]

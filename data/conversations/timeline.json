@@ -1162,5 +1162,29 @@
     "raw": "“I've been watching a bit of TV lately. Have you seen anything good?”",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "dace2021-7bbb-469f-ae06-57e503ec3552",
+    "session_id": "53ce611b-2842-49d5-878f-5d2e4dcbb917",
+    "event_type": "Task",
+    "value": "year, but I haven't decided where I want to go yet",
+    "turn": 1,
+    "timestamp": "2026-09-08T11:26:44Z",
+    "source": "auto",
+    "raw": "I've been thinking about getting away next year, but I haven't decided where I want to go yet.",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "3fc186cf-f71f-4a7f-85c1-fbe0bec3f75d",
+    "session_id": "53ce611b-2842-49d5-878f-5d2e4dcbb917",
+    "event_type": "Task",
+    "value": "year, but I haven't decided where I want to go yet",
+    "turn": 2,
+    "timestamp": "2026-09-08T11:26:44Z",
+    "source": "auto",
+    "raw": "I've been thinking about getting away next year, but I haven't decided where I want to go yet.",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]

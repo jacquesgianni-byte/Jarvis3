@@ -523,5 +523,96 @@
     "content": "The user's lucky number is 7.",
     "timestamp": "2026-09-08T11:19:35.578230+00:00",
     "active": true
+  },
+  {
+    "id": "e1a194f4-d382-4eb0-8f40-1d9d04f38ca0",
+    "category": "intention",
+    "content": "The user is thinking about taking a trip away next year but has not yet decided on a destination.",
+    "timestamp": "2026-09-08T11:26:46.895769+00:00",
+    "active": true
+  },
+  {
+    "id": "83eacaff-72d7-49b9-b0ed-a00820ec0a18",
+    "category": "intention",
+    "content": "The user is thinking about taking a trip away next year but has not yet decided on a destination.",
+    "timestamp": "2026-09-08T11:26:47.598227+00:00",
+    "active": true
+  },
+  {
+    "id": "1ed15e38-d932-4bd6-894c-2578b09a0ba9",
+    "category": "unresolved",
+    "content": "The user is uncertain whether they are doing the right thing with a current project but does not want to give up on it.",
+    "timestamp": "2026-09-08T11:27:30.506173+00:00",
+    "active": true
+  },
+  {
+    "id": "bc4dfe7b-d68b-408d-80b0-8906d3a947e6",
+    "category": "fact",
+    "content": "The user's wife is supportive of him continuing his project.",
+    "timestamp": "2026-09-08T11:29:01.660255+00:00",
+    "active": true
+  },
+  {
+    "id": "f10be731-4bd6-4e65-a5d4-b4c934bd6baa",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-10T06:52:31.041520+00:00",
+    "active": true
+  },
+  {
+    "id": "b08cb46d-ed92-4380-871e-aa6b301acab6",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-10T06:52:31.090406+00:00",
+    "active": true
+  },
+  {
+    "id": "7c5494dc-3b8c-45b8-96e7-3ec0ffb97b61",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-10T06:52:31.954464+00:00",
+    "active": true
+  },
+  {
+    "id": "d47bc79b-dcab-4a7c-af91-431a433a4d9d",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-10T06:52:32.265288+00:00",
+    "active": true
+  },
+  {
+    "id": "e8dfd0da-1e0e-463a-b5f8-ed6c193f00a2",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-10T06:52:32.402207+00:00",
+    "active": true
+  },
+  {
+    "id": "6d44b3a5-8324-4ea3-8e36-453559b96d2b",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-10T06:52:32.775942+00:00",
+    "active": true
+  },
+  {
+    "id": "682564ca-aba2-4ccc-bac3-b51b36272702",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-10T06:52:32.912612+00:00",
+    "active": true
+  },
+  {
+    "id": "508d0452-1078-44f9-bfde-4587a0fd56b9",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-10T06:52:32.978911+00:00",
+    "active": true
+  },
+  {
+    "id": "81f31be7-6cbc-47b9-9c5d-b186b9b77ca3",
+    "category": "intention",
+    "content": "The user is thinking about taking a trip away next year but has not yet decided on a destination.",
+    "timestamp": "2026-09-10T06:54:53.289867+00:00",
+    "active": true
   }
 ]

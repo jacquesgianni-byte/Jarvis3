@@ -1321,5 +1321,104 @@
     "summary": "Body agent ignored.",
     "artifact": "",
     "timestamp": "2026-09-08T11:21:15.045500+00:00"
+  },
+  {
+    "contribution_id": "a3ba6eb0-eff6-4c0f-a69c-452b48a2c268",
+    "genesis_id": "Genesis-071",
+    "agent": "claude",
+    "role": "implementation",
+    "summary": "Claude implementation.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.073242+00:00"
+  },
+  {
+    "contribution_id": "e53bf47c-f7c1-47cb-ae16-9255290dfea2",
+    "genesis_id": "Genesis-071",
+    "agent": "claude",
+    "role": "critique",
+    "summary": "Claude critique.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.079989+00:00"
+  },
+  {
+    "contribution_id": "9ea80dea-c1b7-463e-b592-076ae32c6c3e",
+    "genesis_id": "Genesis-071",
+    "agent": "gpt",
+    "role": "architecture",
+    "summary": "GPT architecture.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.085333+00:00"
+  },
+  {
+    "contribution_id": "2cad3d4e-c61d-46e3-86cd-d99adb34285f",
+    "genesis_id": "Genesis-071",
+    "agent": "gpt",
+    "role": "critique",
+    "summary": "GPT critique.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.089770+00:00"
+  },
+  {
+    "contribution_id": "56491ee1-6360-4320-b8b9-71236852cbb3",
+    "genesis_id": "Genesis-071",
+    "agent": "jarvis",
+    "role": "execution",
+    "summary": "Jarvis execution.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.096266+00:00"
+  },
+  {
+    "contribution_id": "ffddd28f-7279-40c5-9940-05f72ba58733",
+    "genesis_id": "Genesis-071",
+    "agent": "jarvis",
+    "role": "observation",
+    "summary": "Jarvis observation.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.102859+00:00"
+  },
+  {
+    "contribution_id": "9c7c3bf0-bf49-432d-bfb1-6bc2e980d681",
+    "genesis_id": "Genesis-071",
+    "agent": "chief",
+    "role": "decision",
+    "summary": "Chief decision.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.108159+00:00"
+  },
+  {
+    "contribution_id": "31ad9757-3c17-4a99-bcad-a63a004549b8",
+    "genesis_id": "Genesis-071",
+    "agent": "chief",
+    "role": "observation",
+    "summary": "Chief observation.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.115577+00:00"
+  },
+  {
+    "contribution_id": "1a8ec3a3-7855-4378-9f5c-a3627a9c02cf",
+    "genesis_id": "Genesis-071",
+    "agent": "gpt",
+    "role": "architecture",
+    "summary": "GPT architecture via correct Genesis interface.",
+    "artifact": "Genesis-071-architecture-review",
+    "timestamp": "2026-09-10T06:53:15.143220+00:00"
+  },
+  {
+    "contribution_id": "2d32888d-f199-4f18-a56e-4744f7c7d3b4",
+    "genesis_id": "Genesis-071",
+    "agent": "gpt",
+    "role": "critique",
+    "summary": "No artifact.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.159516+00:00"
+  },
+  {
+    "contribution_id": "026e0fb8-a0e1-45fc-b51a-7fb7be38cc13",
+    "genesis_id": "Genesis-071",
+    "agent": "claude",
+    "role": "implementation",
+    "summary": "Body agent ignored.",
+    "artifact": "",
+    "timestamp": "2026-09-10T06:53:15.211758+00:00"
   }
 ]
