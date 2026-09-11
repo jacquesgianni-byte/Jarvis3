@@ -34,7 +34,7 @@ class FollowUpResult:
 # Patterns that signal a follow-up request
 _ANOTHER_RE = re.compile(
     r"\b(another one|one more|tell me another|give me another|"
-    r"another joke|more jokes?|keep going|next one)\b",
+    r"another joke|more jokes?|next one)\b",
     re.IGNORECASE,
 )
 _REPHRASE_RE = re.compile(

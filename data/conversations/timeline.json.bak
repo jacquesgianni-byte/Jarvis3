@@ -1270,5 +1270,17 @@
     "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "59a0122e-5ade-4313-821d-27f6080b3d82",
+    "session_id": "d179fdc6-d860-4bcb-92f6-755e93362298",
+    "event_type": "General",
+    "value": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "turn": 1,
+    "timestamp": "2026-09-10T09:22:49Z",
+    "source": "auto",
+    "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]
