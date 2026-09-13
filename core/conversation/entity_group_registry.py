@@ -271,7 +271,12 @@ class EntityGroupRegistry:
             return None
         
         # Exclude questions
-        if text.strip().endswith("?"):
+        # Strip surrounding quotation marks (straight " or curly “”) before
+        # checking for '?' so messages like '"I have two dogs, don\'t I?"'
+        # are correctly identified as questions even when the UI wraps them
+        # in quotes.
+        _text_unquoted = text.strip().strip('"\u201c\u201d\u2018\u2019')
+        if _text_unquoted.endswith("?"):
             return None
 
         # Must contain a known entity kind
