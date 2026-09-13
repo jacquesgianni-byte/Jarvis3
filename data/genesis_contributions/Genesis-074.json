@@ -1,0 +1,11 @@
+[
+  {
+    "contribution_id": "da4a698d-b026-40a2-964a-3ae1610da85d",
+    "genesis_id": "Genesis-074",
+    "agent": "chief",
+    "role": "decision",
+    "summary": "Planned as Foundation B: relevance detection against situational memory. No independent implementation, commit, or signed-off delivery is evidenced. The work was absorbed into the Genesis-080 acceptance-driven path.",
+    "artifact": "reconciliation record — no independent commit",
+    "timestamp": "2026-09-08T00:00:00.000000+00:00"
+  }
+]

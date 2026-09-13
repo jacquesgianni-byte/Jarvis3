@@ -1,29 +1,8 @@
 {
-  "current_genesis": "Genesis-073",
-  "current_sprint": "Sprint-001",
-  "current_mission": "Foundation A Memory Transplant \u2014 SituationalMemoryStore",
-  "last_completed_genesis": "Genesis-072",
-  "next_milestone": "Genesis-073: Sprint-002 validation \u2014 confirm extraction quality and wiring strategy before Foundation B",
-  "objectives": [
-    {
-      "text": "Build SituationalMemoryStore (entries.json, MemoryEntry, 6 categories)",
-      "done": true
-    },
-    {
-      "text": "Build MemoryExtractionPipeline (AnthropicProvider, JSON parse, privacy guardrail)",
-      "done": true
-    },
-    {
-      "text": "Expose three governed endpoints: POST/GET/PATCH /memory/situational",
-      "done": true
-    },
-    {
-      "text": "Taxonomy correction: add fact category, update extraction prompt",
-      "done": true
-    },
-    {
-      "text": "Sprint-002: validate extraction quality and decide wiring strategy",
-      "done": false
-    }
-  ]
+  "current_genesis": "Genesis-081",
+  "current_sprint": null,
+  "current_mission": null,
+  "last_completed_genesis": "Genesis-080",
+  "next_milestone": "Genesis-081: TBD \u2014 pending post-reconciliation planning",
+  "objectives": []
 }
