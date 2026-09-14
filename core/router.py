@@ -1,4 +1,4 @@
-"""
+﻿"""
 Jarvis Intent Router
 
 Responsible for detecting the user's intent.
@@ -186,9 +186,32 @@ class IntentRouter:
         if any(pattern.search(request) for pattern in self._REASONING_PATTERNS):
             return Intent.REASONING
 
-        # Greeting
+        # Greeting — Genesis-081 Sprint-003 fix.
+        # A greeting word (hey, hi, etc.) anywhere in the message is not
+        # sufficient to classify as GREETING. "Hey Jarvis, what should I
+        # focus on?" contains \bhey\b but the intent is a task request, not a
+        # greeting. Only return GREETING when the message is purely a greeting
+        # (the greeting opener is all that remains after stripping the optional
+        # address, optional filler word, and punctuation). If substantive
+        # content follows, fall through so a downstream intent or AI handles it.
         if any(_has_word(request, word) for word in self._GREETINGS):
-            return Intent.GREETING
+            # Strip: greeting word + optional address (comma or space before
+            # name) + optional filler (there/again/back/everyone/all/folks)
+            # + trailing punctuation/whitespace.
+            _greeting_opener = re.compile(
+                r"^(?:"
+                + "|".join(re.escape(w) for w in self._GREETINGS)
+                + r")"
+                r"(?:[,\s]+jarvis)?"                              # optional address
+                r"(?:\s+(?:there|again|back|everyone|all|folks))?"  # optional filler
+                r"[,!.\s]*",                                      # trailing punctuation
+                re.IGNORECASE,
+            )
+            _remainder = _greeting_opener.sub("", request).strip()
+            # If nothing substantive remains, it is a genuine greeting.
+            if not _remainder or set(_remainder) <= set("!.,?"):
+                return Intent.GREETING
+            # Substantive content follows — fall through to normal routing.
 
         # Identity — questions about Jarvis itself.
         if any(_has_word(request, phrase) for phrase in self._IDENTITY):

@@ -90,6 +90,18 @@ _PET_NAME_QUERY = re.compile(
     r"\bwhat\s+(?:are\s+)?(?:their|(?:my\s+)?(?:dogs?|cats?|pets?|animals?)(?:'s|s')?)\s+names?\b",
     re.IGNORECASE,
 )
+# General activity today queries — "What did we do today?", "What happened today?"
+# Covers do/discuss/talk about/work on/accomplish/happened with "did we/i" or "have we/i".
+# Used to qualify _TEMPORAL_TODAY in can_answer() alongside existing recall patterns.
+_GENERAL_TODAY_QUERY = re.compile(
+    r"\b(?:"
+    r"what\s+(?:did\s+(?:we|i)|have\s+(?:we|i))\s+"
+    r"(?:do|done|discuss|discussed|talk\s+about|talked\s+about|"
+    r"work\s+on|worked\s+on|accomplish|accomplished|happen|happened)"
+    r"|what\s+happened"
+    r")\b",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Relationship answer templates
@@ -142,7 +154,15 @@ class ConversationRecall:
             _PROJECT_QUERIES.search(query),
             _MILESTONE_QUERIES.search(query),
             _TEMPORAL_YESTERDAY.search(query),
-            _TEMPORAL_TODAY.search(query) and not _CURRENT_INFO_RE.search(query),
+            _TEMPORAL_TODAY.search(query)
+            and not _CURRENT_INFO_RE.search(query)
+            and any([
+                _TASK_QUERY.search(query),
+                _ACHIEVEMENT_QUERY.search(query),
+                _MILESTONE_QUERIES.search(query),
+                _PROJECT_QUERIES.search(query),
+                _GENERAL_TODAY_QUERY.search(query),
+            ]),
             _TEMPORAL_LAST_SESSION.search(query),
             _PERSON_QUERY.search(query),
             _TASK_QUERY.search(query),

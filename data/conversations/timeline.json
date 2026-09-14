@@ -1294,5 +1294,29 @@
     "raw": "\"I'm getting hungry. What would you suggest I have for dinner tonight?\"",
     "interface_source": "unknown",
     "schema_version": 2
+  },
+  {
+    "event_id": "6c15c56d-a07c-45b7-90ca-dc8c83b08cab",
+    "session_id": "7c328043-8b91-47ab-800a-3edb6e146dc0",
+    "event_type": "General",
+    "value": "“Hey Jarvis, I’m home. I’ve got a few things to get done today. What do you think I should focus on first?”",
+    "turn": 1,
+    "timestamp": "2026-09-13T23:30:40Z",
+    "source": "auto",
+    "raw": "“Hey Jarvis, I’m home. I’ve got a few things to get done today. What do you think I should focus on first?”",
+    "interface_source": "unknown",
+    "schema_version": 2
+  },
+  {
+    "event_id": "54073d97-d401-460d-93d4-b8cc30067989",
+    "session_id": "7c328043-8b91-47ab-800a-3edb6e146dc0",
+    "event_type": "General",
+    "value": ", I’m home. I’ve got a few things to get done today. What do you think I should focus on first?”",
+    "turn": 2,
+    "timestamp": "2026-09-13T23:30:51Z",
+    "source": "auto",
+    "raw": ", I’m home. I’ve got a few things to get done today. What do you think I should focus on first?”",
+    "interface_source": "unknown",
+    "schema_version": 2
   }
 ]
