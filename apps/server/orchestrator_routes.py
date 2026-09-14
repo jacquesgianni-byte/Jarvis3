@@ -134,6 +134,7 @@ def orchestrator_status():
                 _sprint_store = SprintStateStore(_sprint_data)
             for record in _sprint_store.all_active():
                 if record.state in (SprintState.PROPOSED,
+                                    SprintState.APPROVED,
                                     SprintState.AWAITING_RESULT_REVIEW):
                     sessions = sessions + [{
                         "session_id":  record.proposal_id,

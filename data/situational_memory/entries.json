@@ -131,5 +131,82 @@
     "content": "The user's name is Gianni.",
     "timestamp": "2026-09-14T07:58:37.355492+00:00",
     "active": true
+  },
+  {
+    "id": "a4ebe8f0-026f-41a7-9e83-e4fa9e1a262a",
+    "category": "fact",
+    "content": "Jarvis is currently a project in active development, referred to as the JARVIS PROJECT.",
+    "timestamp": "2026-09-14T08:13:41.311631+00:00",
+    "active": true
+  },
+  {
+    "id": "5f47883c-15c1-4e74-9f19-abf10a6caf73",
+    "category": "fact",
+    "content": "ChatGPT and Claude are both being used to help create and develop Jarvis.",
+    "timestamp": "2026-09-14T08:13:41.311657+00:00",
+    "active": true
+  },
+  {
+    "id": "c6c4c06d-940d-4bf4-a464-260d066be044",
+    "category": "fact",
+    "content": "The user considers ChatGPT and Claude to be highly capable and among the most intelligent AI systems available.",
+    "timestamp": "2026-09-14T08:13:41.311669+00:00",
+    "active": true
+  },
+  {
+    "id": "81b9ed4c-05fe-4292-bea7-7849afcdc829",
+    "category": "fact",
+    "content": "The user's children are named Lucas and Leo.",
+    "timestamp": "2026-09-14T10:32:04.200221+00:00",
+    "active": true
+  },
+  {
+    "id": "b9fa19df-b154-413f-962c-c860fe8c75ea",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-14T10:32:05.222643+00:00",
+    "active": true
+  },
+  {
+    "id": "cf0aa73a-b231-4dae-a1cd-6d0906350f8d",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-14T10:32:05.386639+00:00",
+    "active": true
+  },
+  {
+    "id": "6a06b06f-804e-4f95-b1b2-8278d081334c",
+    "category": "fact",
+    "content": "The user's favourite colour is blue.",
+    "timestamp": "2026-09-14T10:32:05.435734+00:00",
+    "active": true
+  },
+  {
+    "id": "f205f36f-bb78-4c8f-b96b-35fecd98c5b0",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-14T10:32:05.950288+00:00",
+    "active": true
+  },
+  {
+    "id": "add714f8-3297-469e-ab30-e6913e567ed2",
+    "category": "fact",
+    "content": "The user's name is Ludovic.",
+    "timestamp": "2026-09-14T10:32:08.893240+00:00",
+    "active": true
+  },
+  {
+    "id": "3e9b184e-1618-4379-b961-bf66e2600b9c",
+    "category": "fact",
+    "content": "The user's lucky number is 7.",
+    "timestamp": "2026-09-14T10:32:09.204048+00:00",
+    "active": true
+  },
+  {
+    "id": "7036476c-dc4d-4e77-bb09-6ff1f7ee531c",
+    "category": "fact",
+    "content": "The user's name is Gianni.",
+    "timestamp": "2026-09-14T10:32:13.028162+00:00",
+    "active": true
   }
 ]
