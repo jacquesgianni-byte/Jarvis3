@@ -1,4 +1,4 @@
-"""
+﻿"""
 Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
 
 Endpoints for the three-layer sprint approval workflow.
@@ -510,7 +510,13 @@ def _run_sprint_execution(proposal_id: str, project_root, sprint_store, gap_stor
                         artifact=_commit_ref2 or proposal_id,
                         timestamp=_dt3.datetime.now(_dt3.timezone.utc).isoformat(),
                     )
-                    contribution_store.append(_genesis_id2, _contrib)
+                    contribution_store.contribute(
+                        genesis_id = _genesis_id2,
+                        agent      = _contrib.agent,
+                        role       = _contrib.role,
+                        summary    = _contrib.summary,
+                        artifact   = _contrib.artifact,
+                    )
                     logger.info(
                         "[SPRINT] Jarvis execution contribution written to GenesisContributionStore "
                         "for %s (commit: %s)", _genesis_id2, _commit_ref2 or "none"
