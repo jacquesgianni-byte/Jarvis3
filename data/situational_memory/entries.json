@@ -1,268 +1,44 @@
 [
   {
-    "id": "69aa46d2-36aa-44bb-b1d6-5e24302366e5",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:20:50.686724+00:00",
-    "active": true
-  },
-  {
-    "id": "65d2cf47-c42b-46ff-9015-c120ba4bb339",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T07:20:50.824619+00:00",
-    "active": true
-  },
-  {
-    "id": "5b489263-1104-414f-865f-9a15d34b8e53",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T07:20:50.948771+00:00",
-    "active": true
-  },
-  {
-    "id": "31eb5c5d-9862-4912-90bd-ee545dc3a7e2",
+    "id": "a29bdf6d-1b5b-4caa-934a-be5c94dd86c9",
     "category": "fact",
     "content": "The user's children are named Lucas and Leo.",
-    "timestamp": "2026-09-14T07:53:06.592560+00:00",
+    "timestamp": "2026-09-15T01:59:28.842112+00:00",
     "active": true
   },
   {
-    "id": "ca3f32dc-5e32-43c2-bbc1-b9de6422c9c8",
-    "category": "fact",
-    "content": "The user's name is Gianni.",
-    "timestamp": "2026-09-14T07:53:07.308196+00:00",
-    "active": true
-  },
-  {
-    "id": "8fe1050c-ea83-46e9-885b-dab175b00366",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:53:07.675020+00:00",
-    "active": true
-  },
-  {
-    "id": "8ca217ec-fd1f-483a-a319-694efeedcb11",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:53:08.067323+00:00",
-    "active": true
-  },
-  {
-    "id": "297f98b8-2fba-4738-b156-3505a0406d2e",
+    "id": "07110081-de89-4728-98f7-2b11cc2c9160",
     "category": "fact",
     "content": "The user's name is Ludovic.",
-    "timestamp": "2026-09-14T07:53:08.148046+00:00",
+    "timestamp": "2026-09-15T01:59:28.916076+00:00",
     "active": true
   },
   {
-    "id": "db5d0f93-b325-4d98-b540-4995b7740f13",
+    "id": "3ce32636-0a39-4f53-8f16-5ab8de171425",
     "category": "fact",
     "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T07:53:08.329463+00:00",
+    "timestamp": "2026-09-15T01:59:28.941561+00:00",
     "active": true
   },
   {
-    "id": "e55c2a0d-4c8f-40f5-b764-60203a54d95c",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T07:53:08.374280+00:00",
-    "active": true
-  },
-  {
-    "id": "b3f51dc9-613f-4bb6-bbe2-897ba68eae96",
-    "category": "fact",
-    "content": "User's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:53:08.873187+00:00",
-    "active": true
-  },
-  {
-    "id": "61ec9eb6-dea2-4cf2-948c-3c51868eba43",
-    "category": "fact",
-    "content": "The user has two children named Lucas and Leo.",
-    "timestamp": "2026-09-14T07:58:35.506227+00:00",
-    "active": true
-  },
-  {
-    "id": "c2aed1ac-2a0c-41b8-9027-164e21559bb2",
-    "category": "fact",
-    "content": "The user's name is Ludovic.",
-    "timestamp": "2026-09-14T07:58:36.309203+00:00",
-    "active": true
-  },
-  {
-    "id": "8376b9aa-3b82-487e-ab80-b7f099feb706",
+    "id": "4b3460af-94af-4e86-91c4-c8390b60d7e3",
     "category": "fact",
     "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:58:36.406138+00:00",
+    "timestamp": "2026-09-15T01:59:29.067040+00:00",
     "active": true
   },
   {
-    "id": "cac6589d-17f1-4f7e-ad72-bbbf97e73449",
+    "id": "03868345-9123-47e6-a595-202ba86e26ed",
     "category": "fact",
     "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:58:36.499876+00:00",
+    "timestamp": "2026-09-15T01:59:29.140831+00:00",
     "active": true
   },
   {
-    "id": "f56c2ac9-e4f1-4f90-aefe-eb892ce090b8",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T07:58:36.504810+00:00",
-    "active": true
-  },
-  {
-    "id": "dd533bb5-219f-4216-855b-e74c0571dd2b",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T07:58:36.964368+00:00",
-    "active": true
-  },
-  {
-    "id": "cb643f7a-894c-4c4c-ab18-3d2ea8fa7417",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T07:58:36.973344+00:00",
-    "active": true
-  },
-  {
-    "id": "e8da5c93-0874-42d8-b1f9-90b81c397e44",
+    "id": "2be5ffe5-18d0-4b9e-83af-1b175026d3da",
     "category": "fact",
     "content": "The user's name is Gianni.",
-    "timestamp": "2026-09-14T07:58:37.355492+00:00",
-    "active": true
-  },
-  {
-    "id": "a4ebe8f0-026f-41a7-9e83-e4fa9e1a262a",
-    "category": "fact",
-    "content": "Jarvis is currently a project in active development, referred to as the JARVIS PROJECT.",
-    "timestamp": "2026-09-14T08:13:41.311631+00:00",
-    "active": true
-  },
-  {
-    "id": "5f47883c-15c1-4e74-9f19-abf10a6caf73",
-    "category": "fact",
-    "content": "ChatGPT and Claude are both being used to help create and develop Jarvis.",
-    "timestamp": "2026-09-14T08:13:41.311657+00:00",
-    "active": true
-  },
-  {
-    "id": "c6c4c06d-940d-4bf4-a464-260d066be044",
-    "category": "fact",
-    "content": "The user considers ChatGPT and Claude to be highly capable and among the most intelligent AI systems available.",
-    "timestamp": "2026-09-14T08:13:41.311669+00:00",
-    "active": true
-  },
-  {
-    "id": "81b9ed4c-05fe-4292-bea7-7849afcdc829",
-    "category": "fact",
-    "content": "The user's children are named Lucas and Leo.",
-    "timestamp": "2026-09-14T10:32:04.200221+00:00",
-    "active": true
-  },
-  {
-    "id": "b9fa19df-b154-413f-962c-c860fe8c75ea",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T10:32:05.222643+00:00",
-    "active": true
-  },
-  {
-    "id": "cf0aa73a-b231-4dae-a1cd-6d0906350f8d",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T10:32:05.386639+00:00",
-    "active": true
-  },
-  {
-    "id": "6a06b06f-804e-4f95-b1b2-8278d081334c",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T10:32:05.435734+00:00",
-    "active": true
-  },
-  {
-    "id": "f205f36f-bb78-4c8f-b96b-35fecd98c5b0",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T10:32:05.950288+00:00",
-    "active": true
-  },
-  {
-    "id": "add714f8-3297-469e-ab30-e6913e567ed2",
-    "category": "fact",
-    "content": "The user's name is Ludovic.",
-    "timestamp": "2026-09-14T10:32:08.893240+00:00",
-    "active": true
-  },
-  {
-    "id": "3e9b184e-1618-4379-b961-bf66e2600b9c",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T10:32:09.204048+00:00",
-    "active": true
-  },
-  {
-    "id": "7036476c-dc4d-4e77-bb09-6ff1f7ee531c",
-    "category": "fact",
-    "content": "The user's name is Gianni.",
-    "timestamp": "2026-09-14T10:32:13.028162+00:00",
-    "active": true
-  },
-  {
-    "id": "154c4772-f66d-4a80-bed5-99dc57d51907",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T11:48:59.338298+00:00",
-    "active": true
-  },
-  {
-    "id": "9c5c9032-be1c-4aff-8312-044883519f75",
-    "category": "fact",
-    "content": "The user's name is Ludovic.",
-    "timestamp": "2026-09-14T11:48:59.354032+00:00",
-    "active": true
-  },
-  {
-    "id": "26e8f6db-f021-4772-8b2f-9983a140810a",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T11:48:59.372057+00:00",
-    "active": true
-  },
-  {
-    "id": "2ff339d4-54cb-4968-a818-d87885de882f",
-    "category": "fact",
-    "content": "The user has two children named Lucas and Leo.",
-    "timestamp": "2026-09-14T11:48:59.524553+00:00",
-    "active": true
-  },
-  {
-    "id": "7d433bb8-e539-4f55-86d5-9ae8bdfb1646",
-    "category": "fact",
-    "content": "The user's name is Gianni.",
-    "timestamp": "2026-09-14T11:48:59.533269+00:00",
-    "active": true
-  },
-  {
-    "id": "a390cd75-1151-41cf-adf2-ead469f003e3",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T11:48:59.627004+00:00",
-    "active": true
-  },
-  {
-    "id": "963bfa54-dfd9-4208-a653-15104ebf9174",
-    "category": "fact",
-    "content": "The user's favourite colour is blue.",
-    "timestamp": "2026-09-14T11:48:59.662940+00:00",
-    "active": true
-  },
-  {
-    "id": "3f8e2227-3217-47c7-a1d3-6a93deff02ac",
-    "category": "fact",
-    "content": "The user's lucky number is 7.",
-    "timestamp": "2026-09-14T11:48:59.759486+00:00",
+    "timestamp": "2026-09-15T01:59:30.044151+00:00",
     "active": true
   }
 ]
