@@ -365,20 +365,51 @@ class SprintExecutor:
 
     def execute(self):
         results = []
-        # Pre-execution: assert clean working tree (fail closed)
+        # Pre-execution: assert SOURCE-clean working tree (fail closed).
+        # Sprint B: runtime-data files (RUNTIME_DATA_PATHS) are excluded from
+        # this assertion — they are legitimate live state and must not block
+        # engineering commits. Runtime files still cannot enter the commit
+        # because staging is scoped to affected_files only (see _do_commit).
+        # RUNTIME_DATA_PATHS is imported from source_clean — single source
+        # of truth, never duplicated here.
         try:
-            import subprocess as _sp
-            status = _sp.run(
+            from core.shift.source_clean import RUNTIME_DATA_PATHS as _RUNTIME_PATHS
+            status = subprocess.run(
                 ['git', 'status', '--porcelain'],
                 cwd=str(self._root), capture_output=True, text=True, timeout=15
             )
             if status.stdout.strip():
-                return False, [ExecutionStepResult(
-                    step_number=0, action_type='pre_execution_check',
-                    success=False,
-                    detail=f'WORKING_TREE_DIRTY: execution aborted. '
-                           f'Unclean files:\n{status.stdout.strip()}'
-                )]
+                source_dirty = []
+                for _line in status.stdout.splitlines():
+                    if not _line.strip():
+                        continue
+                    # Extract path robustly: split on whitespace, take remainder.
+                    # Handles all porcelain v1 formats: ' M path', '?? path',
+                    # 'A  path', 'MM path', 'R  old -> new' (rename: take new).
+                    _parts = _line.split(None, 1)
+                    if len(_parts) < 2:
+                        continue
+                    _path = _parts[1].strip()
+                    # Handle renames: 'old -> new' -> take new path
+                    if ' -> ' in _path:
+                        _path = _path.split(' -> ')[-1].strip()
+                    # Path traversal guard
+                    if '..' in _path:
+                        source_dirty.append(_path)
+                        continue
+                    # Allow known runtime paths; reject everything else
+                    if not any(_path.startswith(_p) for _p in _RUNTIME_PATHS):
+                        source_dirty.append(_path)
+                if source_dirty:
+                    return False, [ExecutionStepResult(
+                        step_number=0, action_type='pre_execution_check',
+                        success=False,
+                        detail=(
+                            'SOURCE_DIRTY: execution aborted. '
+                            'Source files outside runtime paths:\n'
+                            + '\n'.join(source_dirty)
+                        )
+                    )]
         except Exception as e:
             return False, [ExecutionStepResult(
                 step_number=0, action_type='pre_execution_check',
