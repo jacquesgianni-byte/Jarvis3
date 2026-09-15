@@ -1,11 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import hashlib, logging, re, subprocess, sys, time
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 _DESKTOP_CMD  = [sys.executable, "-m", "apps.desktop.main"]
-_DESKTOP_HTTP = "http://localhost:5002"
 
 @dataclass(frozen=True)
 class ScopeViolation:
@@ -149,26 +148,64 @@ class DesktopValidationResult:
         }
 class DesktopValidationRunner:
     """
-    Genesis-065 Sprint-002: Redesigned desktop validation runner.
+    Genesis-081 Sprint-003: Stage 1 + 2 desktop validation.
 
-    Replaces flat 3-second sleep with bounded readiness probe.
-    Captures full process lifecycle: started / ready / HTTP / criterion / exit.
-    Distinguishes infrastructure / communication / behaviour failures.
+    Replaces the nonexistent HTTP readiness probe with real process and
+    Qt window readiness checks.
 
-    Readiness probe: polls _DESKTOP_HTTP/health every 500ms up to READY_TIMEOUT_S.
-    Hard timeout: HARD_TIMEOUT_S covers the entire validation run.
+    Stage 1 -- Process readiness:
+        Launch apps.desktop.main. Poll proc.poll() every PROBE_INTERVAL_S.
+        If the process exits before PROCESS_SURVIVE_S, report infrastructure
+        failure with the early exit code.
+
+    Stage 2 -- Qt window readiness:
+        Use win32gui (pywin32) to enumerate visible windows by PID.
+        A window owned by the subprocess PID proves the Qt event loop ran
+        and MainWindow.show() was called. Title is not checked -- PID match
+        is sufficient and title-change-proof.
+
+    Fallback: if win32gui is unavailable, a fixed sleep of WINDOW_WAIT_S is
+        used as a proxy for Qt initialisation completing (less precise but
+        still eliminates the guaranteed 20-second HTTP timeout).
+
+    Stage 3 (functional) is deferred -- separate design decision required.
+    No HTTP server is added to the desktop application.
     """
 
-    PROBE_INTERVAL_S = 0.5
-    READY_TIMEOUT_S  = 20.0
-    HARD_TIMEOUT_S   = 60.0
+    PROBE_INTERVAL_S  = 0.5   # poll interval for process survival
+    PROCESS_SURVIVE_S = 5.0   # minimum time process must stay alive
+    WINDOW_WAIT_S     = 12.0  # max wait for Qt window to appear
+    WINDOW_POLL_S     = 0.5   # poll interval for window check
+    HARD_TIMEOUT_S    = 30.0  # absolute ceiling for the whole run
 
     def __init__(self, project_root: Path) -> None:
         self._root = project_root
 
-    def run(self, spec) -> DesktopValidationResult:
-        import httpx as _httpx
+    # ── win32 window detection (pywin32) ─────────────────────────────────────
+    @staticmethod
+    def _find_window_for_pid(pid: int) -> str:
+        """Return the title of the first visible window owned by pid, or ''."""
+        try:
+            import win32gui as _wg, win32process as _wp
+            found = []
 
+            def _cb(hwnd, _):
+                if _wg.IsWindowVisible(hwnd) and _wg.GetWindowText(hwnd):
+                    try:
+                        _, wpid = _wp.GetWindowThreadProcessId(hwnd)
+                        if wpid == pid:
+                            found.append(_wg.GetWindowText(hwnd))
+                    except Exception:
+                        pass
+
+            _wg.EnumWindows(_cb, None)
+            return found[0] if found else ""
+        except ImportError:
+            return ""          # win32gui unavailable -- caller handles fallback
+        except Exception:
+            return ""
+
+    def run(self, spec) -> DesktopValidationResult:
         declared = getattr(spec, "command", "")
         expected = " ".join(_DESKTOP_CMD)
         if declared != expected:
@@ -183,7 +220,7 @@ class DesktopValidationRunner:
         t_start = time.monotonic()
         proc    = None
 
-        def elapsed():
+        def elapsed() -> float:
             return time.monotonic() - t_start
 
         try:
@@ -194,105 +231,97 @@ class DesktopValidationRunner:
             process_started = True
             logger.info("[DesktopValidation] Process started (pid=%s)", proc.pid)
 
-            # Readiness probe
-            process_ready = False
-            while elapsed() < self.READY_TIMEOUT_S:
-                if elapsed() >= self.HARD_TIMEOUT_S:
-                    break
-                try:
-                    r = _httpx.get(f"{_DESKTOP_HTTP}/health", timeout=1.0)
-                    if r.status_code < 500:
-                        process_ready = True
-                        logger.info("[DesktopValidation] Ready after %.1fs", elapsed())
-                        break
-                except Exception:
-                    pass
+            # ── Stage 1: process survival ─────────────────────────────────────
+            while elapsed() < self.PROCESS_SURVIVE_S:
+                early_exit = proc.poll()
+                if early_exit is not None:
+                    logger.warning(
+                        "[DesktopValidation] Process exited early (code=%s, elapsed=%.1fs)",
+                        early_exit, elapsed(),
+                    )
+                    return DesktopValidationResult(
+                        passed=False,
+                        criterion_type="process_survival",
+                        test_input="", expected_outcome="", actual_response="",
+                        process_started=True, process_ready=False,
+                        process_exit_code=early_exit,
+                        elapsed_seconds=elapsed(),
+                        failure_reason=(
+                            f"Infrastructure failure: desktop process exited after "
+                            f"{elapsed():.1f}s (exit code {early_exit})."
+                        ),
+                    )
                 time.sleep(self.PROBE_INTERVAL_S)
 
-            if not process_ready:
-                return DesktopValidationResult(
-                    passed=False,
-                    criterion_type=getattr(spec, "criterion_type", ""),
-                    test_input=getattr(spec, "test_message", ""),
-                    expected_outcome=getattr(spec, "expected_outcome", ""),
-                    actual_response="",
-                    process_started=process_started,
-                    process_ready=False,
-                    elapsed_seconds=elapsed(),
-                    timed_out=elapsed() >= self.READY_TIMEOUT_S,
-                    failure_reason="Infrastructure failure: desktop never became ready.",
-                )
+            logger.info("[DesktopValidation] Process survived %.1fs", elapsed())
 
-            # Send test message
-            http_status   = 0
-            response_body = ""
-            criterion_met = False
-            remaining     = max(1.0, self.HARD_TIMEOUT_S - elapsed())
-
+            # ── Stage 2: Qt window readiness ──────────────────────────────────
+            win32_available = True
             try:
-                resp = _httpx.post(
-                    f"{_DESKTOP_HTTP}/chat",
-                    json={"message": getattr(spec, "test_message", "")},
-                    timeout=min(remaining, getattr(spec, "timeout_seconds", 30)),
-                )
-                http_status   = resp.status_code
-                response_body = resp.text[:2000]
-                expected_contains = getattr(spec, "expected_contains", "")
-                criterion_met = (
-                    expected_contains.lower() in response_body.lower()
-                    if expected_contains else http_status < 400
-                )
-                logger.info(
-                    "[DesktopValidation] HTTP %s criterion_met=%s elapsed=%.1fs",
-                    http_status, criterion_met, elapsed(),
-                )
-            except _httpx.TimeoutException:
-                return DesktopValidationResult(
-                    passed=False,
-                    criterion_type=getattr(spec, "criterion_type", ""),
-                    test_input=getattr(spec, "test_message", ""),
-                    expected_outcome=getattr(spec, "expected_outcome", ""),
-                    actual_response="",
-                    process_started=process_started,
-                    process_ready=process_ready,
-                    http_status=0,
-                    criterion_met=False,
-                    elapsed_seconds=elapsed(),
-                    timed_out=True,
-                    failure_reason="Communication failure: HTTP request timed out.",
-                )
-            except Exception as e:
-                return DesktopValidationResult(
-                    passed=False,
-                    criterion_type=getattr(spec, "criterion_type", ""),
-                    test_input=getattr(spec, "test_message", ""),
-                    expected_outcome=getattr(spec, "expected_outcome", ""),
-                    actual_response="",
-                    process_started=process_started,
-                    process_ready=process_ready,
-                    http_status=0,
-                    criterion_met=False,
-                    elapsed_seconds=elapsed(),
-                    failure_reason="Communication failure: HTTP request failed.",
-                    error=str(e),
+                import win32gui as _wg  # noqa: F401 -- probe only
+            except ImportError:
+                win32_available = False
+                logger.warning(
+                    "[DesktopValidation] win32gui unavailable -- "
+                    "using fixed %.1fs window wait", self.WINDOW_WAIT_S,
                 )
 
-            failure_reason = "" if criterion_met else (
-                f"Behaviour failure: response did not satisfy criterion "
-                f"{getattr(spec, 'expected_contains', '')!r}."
+            window_title = ""
+            process_ready = False
+
+            if win32_available:
+                # Poll for window owned by our PID
+                while elapsed() < self.HARD_TIMEOUT_S:
+                    window_title = self._find_window_for_pid(proc.pid)
+                    if window_title:
+                        process_ready = True
+                        logger.info(
+                            "[DesktopValidation] Window found: %r (pid=%s, elapsed=%.1fs)",
+                            window_title, proc.pid, elapsed(),
+                        )
+                        break
+                    if proc.poll() is not None:
+                        break          # process died while we were waiting
+                    time.sleep(self.WINDOW_POLL_S)
+            else:
+                # Fallback: fixed wait as proxy for Qt initialisation
+                remaining = max(0.0, self.WINDOW_WAIT_S - elapsed())
+                if remaining > 0:
+                    time.sleep(remaining)
+                if proc.poll() is None:
+                    process_ready = True   # process still alive after wait
+                    window_title  = "unknown (win32gui unavailable)"
+
+            if not process_ready:
+                timed_out = elapsed() >= self.HARD_TIMEOUT_S
+                reason = (
+                    "Infrastructure failure: Qt window did not appear within "
+                    f"{self.HARD_TIMEOUT_S:.0f}s."
+                    if timed_out else
+                    "Infrastructure failure: desktop process exited before Qt window appeared."
+                )
+                return DesktopValidationResult(
+                    passed=False,
+                    criterion_type="window_readiness",
+                    test_input="", expected_outcome="", actual_response="",
+                    process_started=True, process_ready=False,
+                    elapsed_seconds=elapsed(),
+                    timed_out=timed_out,
+                    failure_reason=reason,
+                )
+
+            # Stage 1 + 2 passed -- functional validation (Stage 3) deferred.
+            logger.info(
+                "[DesktopValidation] PASS (process+window) elapsed=%.1fs window=%r",
+                elapsed(), window_title,
             )
             return DesktopValidationResult(
-                passed=criterion_met,
-                criterion_type=getattr(spec, "criterion_type", "response_contains"),
-                test_input=getattr(spec, "test_message", ""),
-                expected_outcome=getattr(spec, "expected_outcome", ""),
-                actual_response=response_body,
-                process_started=process_started,
-                process_ready=process_ready,
-                http_status=http_status,
-                criterion_met=criterion_met,
+                passed=True,
+                criterion_type="process_and_window",
+                test_input="", expected_outcome="desktop started and window visible",
+                actual_response=f"window={window_title!r}",
+                process_started=True, process_ready=True,
                 elapsed_seconds=elapsed(),
-                failure_reason=failure_reason,
             )
 
         except Exception as e:
@@ -300,9 +329,7 @@ class DesktopValidationRunner:
             return DesktopValidationResult(
                 passed=False,
                 criterion_type=getattr(spec, "criterion_type", ""),
-                test_input=getattr(spec, "test_message", ""),
-                expected_outcome=getattr(spec, "expected_outcome", ""),
-                actual_response="",
+                test_input="", expected_outcome="", actual_response="",
                 process_started=proc is not None,
                 elapsed_seconds=elapsed(),
                 failure_reason="Infrastructure failure: unexpected error.",
