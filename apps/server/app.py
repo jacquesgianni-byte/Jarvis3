@@ -60,5 +60,7 @@ def create_app(
     app.register_blueprint(sprint_bp)
     from apps.server.sprint_routes import genesis_bp
     app.register_blueprint(genesis_bp)
+    from apps.server.sprint_routes import shift_bp  # Sprint C
+    app.register_blueprint(shift_bp)
     logger.info("[SERVER] Flask app created.")
     return app

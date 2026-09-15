@@ -1,4 +1,4 @@
-﻿"""
+"""
 Genesis-064 Sprint-003c -- Sprint Approval Flask Routes
 
 Endpoints for the three-layer sprint approval workflow.
@@ -1585,3 +1585,124 @@ def genesis_contribute():
         "agent":           agent,
         "role":            role,
     }), 201
+
+
+# ---------------------------------------------------------------------------
+# Shift Control Blueprint (Sprint C)
+# POST /shift/start  -- start autonomous shift
+# POST /shift/stop   -- request remote STOP
+# GET  /shift/status -- poll shift state (used by Android heartbeat)
+# All require X-Orchestrator-Token.
+# ---------------------------------------------------------------------------
+
+import threading as _threading
+from core.shift.shift_controller import ShiftController as _ShiftController
+from core.workers.models import WorkerTask as _WorkerTask
+
+shift_bp = _Blueprint("shift", __name__)
+
+# Module-level shift state — one active shift at a time, no parallel lifecycle.
+# ShiftController is a Worker; the daemon thread is the execution mechanism only.
+_active_shift_controller: "_ShiftController | None" = None
+_active_shift_thread: "_threading.Thread | None" = None
+
+
+@shift_bp.route("/shift/start", methods=["POST"])
+def shift_start():
+    global _active_shift_controller, _active_shift_thread
+    if not _check_auth():
+        return _auth_error()
+
+    # Reject duplicate: only one active shift at a time
+    if _active_shift_thread is not None and _active_shift_thread.is_alive():
+        return jsonify({"error": "shift_already_running — only one active shift permitted"}), 409
+
+    project_root = current_app.config.get("project_root")
+    if not project_root:
+        return jsonify({"error": "project_root not configured"}), 500
+
+    try:
+        ctrl = _ShiftController(
+            repo_root=project_root,
+            stage=2,
+        )
+        task = _WorkerTask(
+            task_type="autonomous_shift",
+            payload={"stage": 2, "trigger": "android_start_shift"},
+            requester="chief_android",
+        )
+
+        def _run():
+            try:
+                ctrl.execute(task)
+            except Exception as exc:
+                logger.exception("[SHIFT] Unhandled exception in shift thread: %s", exc)
+
+        thread = _threading.Thread(target=_run, daemon=True, name="shift_controller")
+        _active_shift_controller = ctrl
+        _active_shift_thread = thread
+        thread.start()
+
+        shift_id = ctrl._manifest.shift_id if ctrl._manifest else "pending"
+        logger.info("[SHIFT] Shift started via Android. shift_id=%s", shift_id)
+        return jsonify({"status": "started", "shift_id": shift_id}), 200
+
+    except Exception as exc:
+        logger.exception("[SHIFT] Failed to start shift: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@shift_bp.route("/shift/stop", methods=["POST"])
+def shift_stop():
+    global _active_shift_controller, _active_shift_thread
+    if not _check_auth():
+        return _auth_error()
+
+    if _active_shift_controller is None or _active_shift_thread is None:
+        return jsonify({"error": "no_shift_running"}), 400
+
+    if not _active_shift_thread.is_alive():
+        return jsonify({"error": "no_shift_running — shift already terminated"}), 400
+
+    # Request stop — does NOT claim shift is stopped.
+    # Android UI must poll /shift/status until running=false is confirmed.
+    _active_shift_controller.request_stop()
+    logger.info("[SHIFT] Remote STOP requested by Chief via Android.")
+    return jsonify({"status": "stop_requested"}), 200
+
+
+@shift_bp.route("/shift/status", methods=["GET"])
+def shift_status():
+    if not _check_auth():
+        return _auth_error()
+
+    if _active_shift_controller is None or _active_shift_thread is None:
+        return jsonify({
+            "running":     False,
+            "shift_id":    None,
+            "shift_state": None,
+            "stop_reason": None,
+        }), 200
+
+    running = _active_shift_thread.is_alive()
+
+    try:
+        manifest    = _active_shift_controller._manifest
+        shift_state = _active_shift_controller._shift_state
+        shift_id    = manifest.shift_id if manifest else None
+        state_label = shift_state.label() if shift_state else None
+        stop_reason = (
+            manifest.stop_reason.label()
+            if manifest and manifest.stop_reason else None
+        )
+    except Exception:
+        shift_id    = None
+        state_label = None
+        stop_reason = None
+
+    return jsonify({
+        "running":     running,
+        "shift_id":    shift_id,
+        "shift_state": state_label,
+        "stop_reason": stop_reason,
+    }), 200
