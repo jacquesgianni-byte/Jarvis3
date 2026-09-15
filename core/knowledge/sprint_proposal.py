@@ -108,7 +108,8 @@ class BoundSprintProposal:
     genesis_id:             str   = ""    # current Genesis from project_state.json
     objective_text:         str   = ""    # best-matching objective text
     objective_score:        int   = 0     # keyword overlap score (0 = no match)
-    objective_confidence:   str   = "NONE"  # HIGH | LOW | NONE
+    objective_confidence:   str   = "NONE"
+    affected_files:         Tuple = ()  # HIGH | LOW | NONE
 
     def format_for_approval(self) -> str:
         """

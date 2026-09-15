@@ -1,4 +1,4 @@
-﻿"""Jarvis OS - SprintStateStore + SprintStateMachine - Genesis-064 Sprint-003a
+"""Jarvis OS - SprintStateStore + SprintStateMachine - Genesis-064 Sprint-003a
 
 Persistent sprint approval state machine.
 
@@ -100,6 +100,7 @@ class SprintStateRecord:
     chief_acknowledged: bool         = False
     test_result:        Optional[dict] = None   # independent test suite result
     contributions:      List[dict]    = field(default_factory=list)  # Genesis-067 Sprint-003: agent contribution records
+    affected_files:     List[str]     = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {

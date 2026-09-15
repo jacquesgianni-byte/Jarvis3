@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import hashlib, logging, re, subprocess, sys, time
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,7 +181,7 @@ class DesktopValidationRunner:
     def __init__(self, project_root: Path) -> None:
         self._root = project_root
 
-    # ── win32 window detection (pywin32) ─────────────────────────────────────
+    # -- win32 window detection (pywin32) -------------------------------------
     @staticmethod
     def _find_window_for_pid(pid: int) -> str:
         """Return the title of the first visible window owned by pid, or ''."""
@@ -231,7 +231,7 @@ class DesktopValidationRunner:
             process_started = True
             logger.info("[DesktopValidation] Process started (pid=%s)", proc.pid)
 
-            # ── Stage 1: process survival ─────────────────────────────────────
+            # -- Stage 1: process survival -------------------------------------
             while elapsed() < self.PROCESS_SURVIVE_S:
                 early_exit = proc.poll()
                 if early_exit is not None:
@@ -255,7 +255,7 @@ class DesktopValidationRunner:
 
             logger.info("[DesktopValidation] Process survived %.1fs", elapsed())
 
-            # ── Stage 2: Qt window readiness ──────────────────────────────────
+            # -- Stage 2: Qt window readiness ----------------------------------
             win32_available = True
             try:
                 import win32gui as _wg  # noqa: F401 -- probe only
@@ -425,7 +425,7 @@ class SprintExecutor:
             return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
                 success=True, detail=f"add_record: {genesis_id} already declared -- skipping (idempotent).")
 
-        # ── Derive sprint summaries from SprintStateRecord files ──────────────
+        # -- Derive sprint summaries from SprintStateRecord files --------------
         sprint_states_dir = self._root / "data" / "sprint_states"
         sprint_summaries = []
         tests_added = 0
@@ -462,7 +462,7 @@ class SprintExecutor:
                             tests_added = max(tests_added, int(m.group(1)))
                 sprint_summaries.append(sprint_name)
 
-        # ── Derive commit from git log if not found in traces ─────────────────
+        # -- Derive commit from git log if not found in traces -----------------
         if not final_commit:
             try:
                 result = _sp.run(
@@ -476,7 +476,7 @@ class SprintExecutor:
             except Exception:
                 pass
 
-        # ── Derive display_name from project_state.json or fallback ──────────
+        # -- Derive display_name from project_state.json or fallback ----------
         display_name = f"{genesis_id} Delivery"
         try:
             ps_path = self._root / "project_state.json"
@@ -488,7 +488,7 @@ class SprintExecutor:
         except Exception:
             pass
 
-        # ── Compute tests_added delta from project_state.json baseline ──────────
+        # -- Compute tests_added delta from project_state.json baseline ----------
         # tests_added should be delta (tests introduced), not total suite size.
         # Baseline: tests_passed from project_state.json before this genesis.
         # If baseline is unavailable, store None (never report a misleading number).
@@ -509,7 +509,7 @@ class SprintExecutor:
         except Exception:
             pass  # if baseline read fails, keep raw count rather than None
 
-        # ── Build the _declare() block ────────────────────────────────────────
+        # -- Build the _declare() block ----------------------------------------
         if not sprint_summaries:
             sprint_summaries = [f"{genesis_id}: sprints completed (see git log)"]
 
