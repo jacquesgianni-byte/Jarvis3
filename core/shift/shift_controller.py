@@ -660,11 +660,10 @@ class ShiftController(Worker):
         )
         self._transition(ShiftState.HARD_STOP)
         if self._manifest:
-            self._manifest.finalise(
-                stop_reason=reason,
-                stop_detail=detail,
-                shift_report=self._build_shift_report(),
-            )
+            # Finalise sets end_time/stop_reason FIRST, then build report
+            # so the report captures the correct terminal state.
+            self._manifest.finalise(stop_reason=reason, stop_detail=detail)
+            self._manifest.shift_report = self._build_shift_report()
             if not self._manifest.save(self._repo_root):
                 logger.critical(
                     "[SHIFT] MANIFEST WRITE FAILED during HARD STOP. "
@@ -675,11 +674,10 @@ class ShiftController(Worker):
         logger.info("[SHIFT] Shift complete: %s | %s", reason.label(), detail)
         self._transition(ShiftState.SHIFT_COMPLETE)
         if self._manifest:
-            self._manifest.finalise(
-                stop_reason=reason,
-                stop_detail=detail,
-                shift_report=self._build_shift_report(),
-            )
+            # Finalise sets end_time/stop_reason FIRST, then build report
+            # so the report captures the correct terminal state.
+            self._manifest.finalise(stop_reason=reason, stop_detail=detail)
+            self._manifest.shift_report = self._build_shift_report()
             self._manifest.save(self._repo_root)
 
     def _save_manifest(self) -> None:
