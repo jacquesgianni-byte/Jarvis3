@@ -365,6 +365,26 @@ class SprintExecutor:
 
     def execute(self):
         results = []
+        # Pre-execution: assert clean working tree (fail closed)
+        try:
+            import subprocess as _sp
+            status = _sp.run(
+                ['git', 'status', '--porcelain'],
+                cwd=str(self._root), capture_output=True, text=True, timeout=15
+            )
+            if status.stdout.strip():
+                return False, [ExecutionStepResult(
+                    step_number=0, action_type='pre_execution_check',
+                    success=False,
+                    detail=f'WORKING_TREE_DIRTY: execution aborted. '
+                           f'Unclean files:\n{status.stdout.strip()}'
+                )]
+        except Exception as e:
+            return False, [ExecutionStepResult(
+                step_number=0, action_type='pre_execution_check',
+                success=False,
+                detail=f'ABORT: cannot determine working tree state - failing closed. Error: {e}'
+            )]
         for step in self._proposal.steps:
             params = dict(step.parameters)
             check  = self._enforcer.validate(step.action_type, params)
@@ -593,28 +613,157 @@ class SprintExecutor:
                 success=False, detail=f"Test error: {e}")
 
     def _do_commit(self, step, params):
-        msg = params.get("message", f"Genesis-064: {self._proposal.proposed_sprint_name}")
+        import fnmatch as _fnmatch
+        approved = list(getattr(self._proposal, 'affected_files', []))
+
+        # Fail closed: no affected_files declared
+        if not approved:
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False,
+                detail='ABORT: no affected_files declared on proposal - '
+                       'cannot establish commit boundary. Failing closed.'
+            )
+
+        # Determine actual changed files
         try:
-            subprocess.run(["git","add","-A"], cwd=str(self._root), check=True, capture_output=True, timeout=30)
-            commit_result = subprocess.run(["git","commit","-m",msg], cwd=str(self._root),
-                capture_output=True, text=True, timeout=30)
-            if commit_result.returncode != 0:
-                # Treat "nothing to commit" as idempotent success
-                stderr = commit_result.stderr or ""
-                stdout = commit_result.stdout or ""
-                combined = (stdout + stderr).lower()
-                if "nothing to commit" in combined or "nothing added to commit" in combined:
-                    sha = subprocess.run(["git","rev-parse","--short","HEAD"],
-                        cwd=str(self._root), capture_output=True, text=True, timeout=10).stdout.strip()
-                    return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
-                        success=True, detail=f"Nothing to commit -- work already applied (idempotent). HEAD: {sha}",
-                        commit_sha=sha)
-                raise subprocess.CalledProcessError(commit_result.returncode, "git commit",
-                    output=commit_result.stdout, stderr=commit_result.stderr)
-            sha = subprocess.run(["git","rev-parse","--short","HEAD"],
-                cwd=str(self._root), capture_output=True, text=True, timeout=10).stdout.strip()
-            return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
-                success=True, detail=f"Committed: {msg!r} ({sha})", commit_sha=sha)
+            diff_result = subprocess.run(
+                ['git', 'diff', '--name-only'],
+                cwd=str(self._root), capture_output=True, text=True, timeout=15
+            )
+            untracked_result = subprocess.run(
+                ['git', 'ls-files', '--others', '--exclude-standard'],
+                cwd=str(self._root), capture_output=True, text=True, timeout=15
+            )
+            if diff_result.returncode != 0 or untracked_result.returncode != 0:
+                return ExecutionStepResult(
+                    step_number=step.step_number, action_type=step.action_type,
+                    success=False,
+                    detail='ABORT: cannot determine changed files - failing closed.'
+                )
         except Exception as e:
-            return ExecutionStepResult(step_number=step.step_number, action_type=step.action_type,
-                success=False, detail=f"Commit error: {e}")
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False,
+                detail=f'ABORT: git status error - failing closed. Error: {e}'
+            )
+
+        actual_changed = set(
+            diff_result.stdout.strip().splitlines() +
+            untracked_result.stdout.strip().splitlines()
+        )
+        actual_changed.discard('')
+
+        def in_scope(f):
+            return any(_fnmatch.fnmatch(f, p) for p in approved)
+
+        # Layer 2: scope boundary check
+        out_of_scope = {f for f in actual_changed if not in_scope(f)}
+        if out_of_scope:
+            subprocess.run(['git', 'reset', 'HEAD'],
+                cwd=str(self._root), capture_output=True, timeout=15)
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False,
+                detail=f'SCOPE_VIOLATION: files changed outside approved boundary: '
+                       f'{sorted(out_of_scope)}. Staged area cleared. No commit made.'
+            )
+
+        # Stage only approved files that were actually changed
+        in_scope_changed = {f for f in actual_changed if in_scope(f)}
+        try:
+            for f in sorted(in_scope_changed):
+                subprocess.run(
+                    ['git', 'add', f],
+                    cwd=str(self._root), check=True,
+                    capture_output=True, timeout=30
+                )
+        except Exception as e:
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False,
+                detail=f'ABORT: staging failed - failing closed. Error: {e}'
+            )
+
+        # Layer 3: pre-commit staged-file verification
+        try:
+            staged_result = subprocess.run(
+                ['git', 'diff', '--cached', '--name-only'],
+                cwd=str(self._root), capture_output=True, text=True, timeout=15
+            )
+            if staged_result.returncode != 0:
+                subprocess.run(['git', 'reset', 'HEAD'],
+                    cwd=str(self._root), capture_output=True, timeout=15)
+                return ExecutionStepResult(
+                    step_number=step.step_number, action_type=step.action_type,
+                    success=False,
+                    detail='ABORT: cannot verify staged files - failing closed.'
+                )
+        except Exception as e:
+            subprocess.run(['git', 'reset', 'HEAD'],
+                cwd=str(self._root), capture_output=True, timeout=15)
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False,
+                detail=f'ABORT: staged file verification error - failing closed. Error: {e}'
+            )
+
+        staged = set(staged_result.stdout.strip().splitlines())
+        staged.discard('')
+        boundary_violation = {f for f in staged if not in_scope(f)}
+        if boundary_violation:
+            subprocess.run(['git', 'reset', 'HEAD'],
+                cwd=str(self._root), capture_output=True, timeout=15)
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False,
+                detail=f'COMMIT_BOUNDARY_VIOLATION: staged files outside approved scope: '
+                       f'{sorted(boundary_violation)}. Staged area cleared. No commit made.'
+            )
+
+        # Commit message from live sprint state (stale Genesis-064 default removed)
+        sprint_id   = getattr(self._proposal, 'proposal_id', 'UNKNOWN')
+        sprint_name = getattr(self._proposal, 'proposed_sprint_name', 'sprint')
+        genesis_id  = getattr(self._proposal, 'genesis_id', 'Genesis-???')
+        msg = params.get('message',
+            f'{sprint_id}: {sprint_name} ({genesis_id})'
+        )
+
+        try:
+            commit_result = subprocess.run(
+                ['git', 'commit', '-m', msg],
+                cwd=str(self._root), capture_output=True, text=True, timeout=30
+            )
+            if commit_result.returncode != 0:
+                combined = (commit_result.stdout + commit_result.stderr).lower()
+                if 'nothing to commit' in combined or 'nothing added to commit' in combined:
+                    sha = subprocess.run(
+                        ['git', 'rev-parse', '--short', 'HEAD'],
+                        cwd=str(self._root), capture_output=True,
+                        text=True, timeout=10
+                    ).stdout.strip()
+                    return ExecutionStepResult(
+                        step_number=step.step_number, action_type=step.action_type,
+                        success=True,
+                        detail=f'Nothing to commit - work already applied (idempotent). HEAD: {sha}',
+                        commit_sha=sha
+                    )
+                raise subprocess.CalledProcessError(
+                    commit_result.returncode, 'git commit',
+                    output=commit_result.stdout, stderr=commit_result.stderr
+                )
+            sha = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=str(self._root), capture_output=True, text=True, timeout=10
+            ).stdout.strip()
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=True,
+                detail=f'Committed: {msg!r} ({sha})', commit_sha=sha
+            )
+        except Exception as e:
+            return ExecutionStepResult(
+                step_number=step.step_number, action_type=step.action_type,
+                success=False, detail=f'Commit error: {e}'
+            )
+
