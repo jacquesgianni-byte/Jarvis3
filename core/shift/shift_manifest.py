@@ -223,6 +223,7 @@ class ShiftManifest:
     consecutive_degraded:      int = 0
     trajectory:                Optional[ShiftTrajectory] = None
     shift_report:              Optional[str] = None
+    approval_records:          list = field(default_factory=list)  # list[ApprovalRecord]
 
     QUEUE_CAP: int = 10
     MAX_REPAIR_CYCLES: int = 20
@@ -344,6 +345,7 @@ class ShiftManifest:
             "consecutive_degraded": self.consecutive_degraded,
             "trajectory": self.trajectory.label() if self.trajectory else None,
             "shift_report": self.shift_report,
+            "approval_records": [r.to_dict() if hasattr(r, "to_dict") else r for r in self.approval_records],
         }
 
     def save(self, repo_root: Path) -> bool:

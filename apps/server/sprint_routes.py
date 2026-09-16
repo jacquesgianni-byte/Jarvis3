@@ -1606,6 +1606,104 @@ shift_bp = _Blueprint("shift", __name__)
 _active_shift_controller: "_ShiftController | None" = None
 _active_shift_thread: "_threading.Thread | None" = None
 
+# ---------------------------------------------------------------------------
+# GPT Authority Decision Endpoint (Governance Sprint)
+# POST /shift/gpt-decision — GPT submits APPROVED/REJECTED for a finding
+# Requires X-Agent-Token: JarvisGPT-Read-2024#
+# ---------------------------------------------------------------------------
+
+@shift_bp.route("/shift/gpt-decision", methods=["POST"])
+def shift_gpt_decision():
+    """
+    GPT submits a governance decision for a pending finding.
+
+    Validates:
+        1. Agent token is the designated GPT agent
+        2. risk_level is not CRITICAL (GPT cannot approve CRITICAL)
+        3. affected_files not in AUTONOMOUSLY_PROTECTED (two-check design)
+        4. Required fields present
+        5. decision is APPROVED or REJECTED
+
+    Returns:
+        201 + ApprovalRecord on success
+        400 on CRITICAL risk_level or missing fields
+        403 on AUTONOMOUSLY_PROTECTED component
+        401 on auth failure
+    """
+    from core.shift.risk_classifier import ApprovalRecord
+    from core.shift.source_clean import AUTONOMOUSLY_PROTECTED
+    from datetime import UTC, datetime
+
+    # Auth: GPT agent token only
+    agent_token = request.headers.get("X-Agent-Token", "")
+    expected = os.environ.get("AGENT_TOKEN_GPT", "JarvisGPT-Read-2024#")
+    if agent_token != expected:
+        return jsonify({"ok": False, "error": "Unauthorised"}), 401
+
+    data = request.get_json(silent=True) or {}
+
+    # Required fields
+    required = {"finding_id", "risk_level", "decision", "decision_reason", "authority"}
+    missing = required - set(data.keys())
+    if missing:
+        return jsonify({"error": f"Missing fields: {missing}"}), 400
+
+    # CRITICAL → GPT cannot approve, endpoint refuses
+    risk_level = str(data.get("risk_level", "")).upper().strip()
+    if risk_level == "CRITICAL":
+        return jsonify({
+            "error": "CRITICAL risk_level cannot be approved through this endpoint. "
+                     "CRITICAL requires JOINT_HARD_STOP (Chief + GPT + Claude)."
+        }), 400
+
+    # AUTONOMOUSLY_PROTECTED check (second independent check)
+    affected_files = data.get("affected_files", [])
+    if isinstance(affected_files, list):
+        for af in affected_files:
+            if any(str(af).startswith(p) for p in AUTONOMOUSLY_PROTECTED):
+                logger.warning(
+                    "[SHIFT_GPT] BLOCKED: protected component in affected_files: %s", af
+                )
+                return jsonify({
+                    "error": f"BLOCKED — autonomously protected component: {af}. "
+                             "GPT approval cannot bypass AUTONOMOUSLY_PROTECTED."
+                }), 403
+
+    # Validate decision value
+    decision = str(data.get("decision", "")).upper().strip()
+    if decision not in ("APPROVED", "REJECTED"):
+        return jsonify({"error": f"decision must be APPROVED or REJECTED, got {decision!r}"}), 400
+
+    # Build ApprovalRecord
+    finding_id = str(data.get("finding_id", ""))
+    record = ApprovalRecord(
+        finding_id=finding_id,
+        risk_level=risk_level,
+        evidence_ref=str(data.get("evidence_ref", "")),
+        decision=decision,
+        decision_reason=str(data.get("decision_reason", "")),
+        timestamp=datetime.now(UTC).isoformat(),
+        affected_files=affected_files if isinstance(affected_files, list) else [],
+        proposed_action=str(data.get("proposed_action", "")),
+        authority=str(data.get("authority", "GPT")),
+    )
+
+    # Attach to active shift manifest if running
+    if _active_shift_controller is not None and _active_shift_controller._manifest:
+        _active_shift_controller._manifest.approval_records.append(record)
+        _active_shift_controller._manifest.save(
+            current_app.config.get("project_root", pathlib.Path("."))
+        )
+
+    logger.info(
+        "[SHIFT_GPT] Decision recorded: finding=%s risk=%s decision=%s",
+        finding_id, risk_level, decision,
+    )
+
+    return jsonify({"ok": True, "approval_record": record.to_dict()}), 201
+
+
+
 
 @shift_bp.route("/shift/start", methods=["POST"])
 def shift_start():

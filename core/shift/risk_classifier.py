@@ -15,8 +15,6 @@ An AUTONOMOUSLY_PROTECTED file always produces AUTONOMOUSLY_PROTECTED
 A GOVERNED_HIGH_RISK file always produces GOVERNED_HIGH_RISK.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -161,4 +159,139 @@ class RiskClassifier:
         return ClassificationResult(
             tier=RiskTier.CRITICAL,
             reason="RUNTIME_DATA_PATHS expansion attempted — HARD STOP.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# GPT Authority Delegation additions (Governance Sprint)
+# ---------------------------------------------------------------------------
+# Additions to core/shift/risk_classifier.py
+# These are the NEW symbols — appended after existing RiskTier/RiskClassifier
+
+"""
+GPT Decision Authority additions (Governance Sprint)
+
+DecisionAuthority  — who must approve a finding of each RiskTier
+authority_for()    — pure deterministic mapping, no side effects
+ApprovalRecord     — mandatory audit trail for every GPT decision
+"""
+
+
+class DecisionAuthority(Enum):
+    """
+    Who must approve a repair proposal of this risk tier.
+
+    GPT_APPROVAL_REQUIRED — LOW, MEDIUM, HIGH, GOVERNED_HIGH_RISK
+    JOINT_HARD_STOP       — CRITICAL (Chief + GPT + Claude joint decision)
+    BLOCKED               — AUTONOMOUSLY_PROTECTED (no approval path exists)
+    """
+    GPT_APPROVAL_REQUIRED = auto()
+    JOINT_HARD_STOP       = auto()
+    BLOCKED               = auto()
+
+
+# Exhaustive, explicit mapping — every RiskTier has exactly one authority.
+# Adding a new RiskTier without updating this table raises KeyError at runtime.
+_AUTHORITY_MAP: dict[str, DecisionAuthority] = {
+    "LOW":                  DecisionAuthority.GPT_APPROVAL_REQUIRED,
+    "MEDIUM":               DecisionAuthority.GPT_APPROVAL_REQUIRED,
+    "HIGH":                 DecisionAuthority.GPT_APPROVAL_REQUIRED,
+    "CRITICAL":             DecisionAuthority.JOINT_HARD_STOP,
+    "AUTONOMOUSLY_PROTECTED": DecisionAuthority.BLOCKED,
+    "GOVERNED_HIGH_RISK":   DecisionAuthority.GPT_APPROVAL_REQUIRED,
+}
+
+
+def authority_for(risk_tier: "RiskTier") -> DecisionAuthority:
+    """
+    Pure deterministic mapping from RiskTier to DecisionAuthority.
+
+    No side effects. Cannot be influenced by the proposed repair or
+    by any agent. Called after RiskClassifier.classify() completes —
+    the tier is already locked.
+
+    Raises:
+        KeyError: if a RiskTier has no entry in _AUTHORITY_MAP
+                  (programming error, not a runtime condition).
+    """
+    return _AUTHORITY_MAP[risk_tier.name]
+
+
+from datetime import UTC as _UTC, datetime as _datetime
+
+@dataclass
+class ApprovalRecord:
+    """
+    Mandatory audit trail for every GPT decision — approval AND rejection.
+
+    Written to ShiftManifest.approval_records on every decision outcome.
+    Never omitted — a REJECTED finding produces an ApprovalRecord with
+    decision="REJECTED". A BLOCKED finding produces decision="BLOCKED".
+
+    Fields are immutable after creation: the risk_level recorded here
+    is the classification computed by RiskClassifier BEFORE the decision
+    request was built. It cannot be changed by GPT's response.
+    """
+    finding_id:      str
+    risk_level:      str            # RiskTier.name — locked at classification time
+    evidence_ref:    str            # EvidenceBundle.test_id
+    decision:        str            # "APPROVED" | "REJECTED" | "PENDING" | "BLOCKED"
+    decision_reason: str
+    timestamp:       str            # ISO-8601 UTC
+    affected_files:  list[str]      # from EvidenceBundle.affected_file
+    proposed_action: str
+    authority:       str            # "GPT" | "JOINT" | "BLOCKED"
+
+    def to_dict(self) -> dict:
+        return {
+            "finding_id":      self.finding_id,
+            "risk_level":      self.risk_level,
+            "evidence_ref":    self.evidence_ref,
+            "decision":        self.decision,
+            "decision_reason": self.decision_reason,
+            "timestamp":       self.timestamp,
+            "affected_files":  self.affected_files,
+            "proposed_action": self.proposed_action,
+            "authority":       self.authority,
+        }
+
+    @classmethod
+    def pending(
+        cls,
+        finding_id: str,
+        risk_level: str,
+        evidence_ref: str,
+        affected_files: list[str],
+        proposed_action: str,
+    ) -> "ApprovalRecord":
+        return cls(
+            finding_id=finding_id,
+            risk_level=risk_level,
+            evidence_ref=evidence_ref,
+            decision="PENDING",
+            decision_reason="Awaiting GPT decision.",
+            timestamp=_datetime.now(_UTC).isoformat(),
+            affected_files=affected_files,
+            proposed_action=proposed_action,
+            authority="GPT",
+        )
+
+    @classmethod
+    def blocked(
+        cls,
+        finding_id: str,
+        risk_level: str,
+        evidence_ref: str,
+        affected_files: list[str],
+    ) -> "ApprovalRecord":
+        return cls(
+            finding_id=finding_id,
+            risk_level=risk_level,
+            evidence_ref=evidence_ref,
+            decision="BLOCKED",
+            decision_reason="AUTONOMOUSLY_PROTECTED component — no approval path exists.",
+            timestamp=_datetime.now(_UTC).isoformat(),
+            affected_files=affected_files,
+            proposed_action="N/A",
+            authority="BLOCKED",
         )
