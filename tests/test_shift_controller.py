@@ -808,9 +808,8 @@ class TestShiftControllerHardStop:
                 with patch.object(ctrl, "_discover_findings", return_value=[]):
                     ctrl._run_shift()
 
-        # Either HARD_STOP or SHIFT_COMPLETE depending on timing — stop_requested
-        # fires in the loop, so with no findings it completes first. Let's test
-        # with a finding present so the stop fires in the loop.
+        # _stop_requested fires at top of while loop before discovery.
+        # Shift hard-stops immediately.
 
     def test_remote_stop_in_loop_triggers_hard_stop(self, tmp_path):
         ctrl = self._make_controller(tmp_path)
@@ -843,10 +842,17 @@ class TestShiftControllerHardStop:
             evidence=bundle,
         )
 
+        # Use minimum duration; after finding is processed, subsequent
+        # empty discoveries loop until deadline. Use itertools.chain to
+        # supply finding on first call, empty list on all subsequent calls.
+        import itertools
+        ctrl._shift_duration_seconds = 10
+        ctrl._scan_interval_seconds = 5
+        discover_seq = itertools.chain([[finding]], itertools.repeat([]))
         with patch.object(ctrl, "_git_dirty_files", return_value=[]):
             with patch.object(ctrl, "_run_suite", return_value=SuiteResult(100, 0, 0)):
                 with patch.object(ctrl, "_discover_findings",
-                                  side_effect=[[finding], []]):
+                                  side_effect=discover_seq):
                     ctrl._run_shift()
 
         assert finding.outcome == RepairOutcome.SKIPPED

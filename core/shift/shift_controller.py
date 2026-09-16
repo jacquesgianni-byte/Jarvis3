@@ -30,6 +30,7 @@ STATE MACHINE
 from __future__ import annotations
 
 import logging
+import time as _time
 import subprocess
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -119,19 +120,34 @@ class ShiftController(Worker):
     def capabilities(self) -> list[str]:
         return ["autonomous_shift", "shift_start", "shift_stop"]
 
+    _MIN_SCAN_INTERVAL_SECONDS: int = 5      # 5 seconds minimum
+    _MAX_SCAN_INTERVAL_SECONDS: int = 1800   # 30 minutes maximum
+    _MIN_SHIFT_DURATION_SECONDS: int = 10    # 10 seconds minimum
+    _MAX_SHIFT_DURATION_SECONDS: int = 21600 # 6 hours maximum
+
     def __init__(
         self,
         repo_root: Path,
         stage: int = 1,
         sprint_base_url: str = "http://192.168.20.3:5001",
         orchestrator_token: str = "Lucasleo2104#",
+        shift_duration_seconds: int = 7200,
+        scan_interval_seconds: int = 300,
     ) -> None:
         super().__init__()
         self._repo_root = repo_root
         self._stage = stage
         self._sprint_base_url = sprint_base_url
         self._orchestrator_token = orchestrator_token
-
+        self._shift_duration_seconds: int = max(
+            self._MIN_SHIFT_DURATION_SECONDS,
+            min(shift_duration_seconds, self._MAX_SHIFT_DURATION_SECONDS),
+        )
+        self._scan_interval_seconds: int = max(
+            self._MIN_SCAN_INTERVAL_SECONDS,
+            min(scan_interval_seconds, self._MAX_SCAN_INTERVAL_SECONDS),
+        )
+        self._shift_deadline: Optional[float] = None
         self._shift_state: ShiftState = ShiftState.IDLE
         self._manifest: Optional[ShiftManifest] = None
         self._stop_requested: bool = False
@@ -179,7 +195,10 @@ class ShiftController(Worker):
 
     def _run_shift(self) -> None:
         self._transition(ShiftState.INITIALISING)
+        import time as _time
         self._manifest = ShiftManifest(stage=self._stage)
+        _shift_start_wall = _time.monotonic()
+        self._shift_deadline = _shift_start_wall + self._shift_duration_seconds
 
         # --- INITIALISING ---
         dirty = self._git_dirty_files()
@@ -222,11 +241,36 @@ class ShiftController(Worker):
             findings = self._discover_findings()
 
             if not findings:
-                self._complete_shift(
-                    ShiftStopReason.CLEAN_NO_FINDINGS,
-                    detail="Suite green — no findings to repair.",
+                # Suite is clean this cycle.
+                # Check if shift duration has expired.
+                elapsed = _time.monotonic() - _shift_start_wall
+                if elapsed >= self._shift_duration_seconds:
+                    self._complete_shift(
+                        ShiftStopReason.CLEAN_NO_FINDINGS,
+                        detail=f"Suite green — shift duration {self._shift_duration_seconds}s reached.",
+                    )
+                    return
+                # Duration not yet reached — wait and scan again.
+                remaining = self._shift_deadline - _time.monotonic()
+                wait = min(self._scan_interval_seconds, max(0.0, remaining))
+                logger.info(
+                    "[SHIFT] Suite clean. Elapsed=%.0fs/%ds. "
+                    "Next scan in %.0fs.",
+                    elapsed, self._shift_duration_seconds, wait,
                 )
-                return
+                # Sleep in 5-second chunks so remote STOP is responsive
+                _slept = 0.0
+                while _slept < wait:
+                    if self._stop_requested:
+                        self._hard_stop(
+                            ShiftStopReason.HARD_STOP_REMOTE_STOP,
+                            detail="Chief issued STOP (during scan-interval wait)."
+                        )
+                        return
+                    _time.sleep(min(5.0, wait - _slept))
+                    _slept += 5.0
+                self._transition(ShiftState.DISCOVERING)
+                continue
 
             for finding in findings:
                 self._manifest.add_finding(finding)
